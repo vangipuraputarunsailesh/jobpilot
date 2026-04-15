@@ -1,6 +1,6 @@
 #.env
 venv/
-resumes/
+*resumes/
 __pycache__/
 *.pyc
 *.pyo
