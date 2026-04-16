@@ -2,19 +2,22 @@
 job_scraper.py  —  Enterprise job search via real aggregator APIs
 
 Sources (in order of coverage):
-  1. JSearch  (RapidAPI)  — aggregates Indeed, LinkedIn, Glassdoor, ZipRecruiter + 100s more
-  2. Adzuna               — broad US market, excellent small-company coverage
-  3. The Muse             — free, no key, tech & startup companies
-  4. Remotive             — free, no key, remote-only positions
-  5. USAJobs              — free, government / federal positions
-  6. Arbeitnow            — free, no key, remote + international with US filter
+  1. Apify / LinkedIn     — direct LinkedIn Jobs scrape, exact titles, past 24hrs
+  2. Apify / Indeed       — largest job board globally, all industries
+  3. Apify / Glassdoor    — salary data + company ratings alongside listings
+  4. Apify / ZipRecruiter — strong US mid-size and SMB coverage
+  5. Adzuna               — broad US market, excellent small-company coverage
+  6. The Muse             — free, no key, tech & startup companies
+  7. Remotive             — free, no key, remote-only positions
+  8. USAJobs              — free, government / federal positions
+  9. Arbeitnow            — free, no key, remote + international with US filter
 
 All sources are filtered to US + Remote jobs only.
 Results are deduplicated by title+company.
 
 Required env vars (set in .env):
   ANTHROPIC_API_KEY   — already set
-  RAPIDAPI_KEY        — sign up free at rapidapi.com → subscribe to "JSearch"
+  APIFY_API_TOKEN     — sign up free at apify.com (bebity/linkedin-jobs-scraper)
   ADZUNA_APP_ID       — sign up free at developer.adzuna.com
   ADZUNA_APP_KEY      — same as above
   USAJOBS_API_KEY     — sign up free at developer.usajobs.gov
@@ -47,6 +50,123 @@ import urllib.parse
 import requests
 from datetime import datetime, timezone
 from itertools import product as itertools_product
+
+
+# ── Role Alias Map ────────────────────────────────────────────────────────────
+# When a user searches a broad role, expand it to all titles that fall under it.
+# Apify receives ALL aliases as search queries → platform-level matching.
+# _title_matches() then checks against ALL aliases, not just the original query.
+
+ROLE_ALIASES: dict[str, list[str]] = {
+    # ── Software / Engineering ─────────────────────────────────────────────────
+    "software engineer": [
+        "software engineer", "software developer", "software development engineer",
+        "full stack engineer", "full stack developer", "fullstack engineer",
+        "backend engineer", "backend developer", "back end engineer",
+        "frontend engineer", "frontend developer", "front end engineer",
+        "web developer", "web engineer", "application developer",
+        "application engineer", "swe",
+    ],
+    "full stack engineer": [
+        "full stack engineer", "full stack developer", "fullstack engineer",
+        "fullstack developer", "software engineer", "web developer",
+    ],
+    "backend engineer": [
+        "backend engineer", "backend developer", "back end engineer",
+        "back end developer", "server side engineer", "api engineer",
+        "software engineer", "software developer",
+    ],
+    "frontend engineer": [
+        "frontend engineer", "frontend developer", "front end engineer",
+        "front end developer", "ui engineer", "ui developer",
+        "react developer", "react engineer", "angular developer", "vue developer",
+        "javascript developer", "javascript engineer",
+    ],
+
+    # ── Data ───────────────────────────────────────────────────────────────────
+    "data engineer": [
+        "data engineer", "data pipeline engineer", "etl developer",
+        "etl engineer", "data platform engineer", "big data engineer",
+        "analytics engineer", "data infrastructure engineer",
+    ],
+    "data scientist": [
+        "data scientist", "data science engineer", "machine learning scientist",
+        "applied scientist", "research scientist", "quantitative analyst",
+    ],
+    "data analyst": [
+        "data analyst", "business analyst", "business intelligence analyst",
+        "bi analyst", "reporting analyst", "analytics analyst",
+        "quantitative analyst", "insights analyst",
+    ],
+    "machine learning engineer": [
+        "machine learning engineer", "ml engineer", "ai engineer",
+        "ai/ml engineer", "deep learning engineer", "applied ml engineer",
+        "mlops engineer", "research engineer",
+    ],
+
+    # ── Cloud / DevOps / Infrastructure ───────────────────────────────────────
+    "devops engineer": [
+        "devops engineer", "site reliability engineer", "sre",
+        "platform engineer", "cloud engineer", "infrastructure engineer",
+        "release engineer", "build engineer", "devsecops engineer",
+    ],
+    "cloud engineer": [
+        "cloud engineer", "cloud architect", "aws engineer", "azure engineer",
+        "gcp engineer", "cloud infrastructure engineer", "devops engineer",
+        "platform engineer",
+    ],
+
+    # ── Product / Design ───────────────────────────────────────────────────────
+    "product manager": [
+        "product manager", "product owner", "technical product manager",
+        "senior product manager", "associate product manager",
+        "program manager", "digital product manager",
+    ],
+    "ux designer": [
+        "ux designer", "ui designer", "ui/ux designer", "product designer",
+        "interaction designer", "user experience designer",
+        "user interface designer", "visual designer",
+    ],
+
+    # ── Cybersecurity ──────────────────────────────────────────────────────────
+    "security engineer": [
+        "security engineer", "cybersecurity engineer", "information security engineer",
+        "application security engineer", "cloud security engineer",
+        "security analyst", "penetration tester", "soc analyst",
+    ],
+
+    # ── Management / Leadership ────────────────────────────────────────────────
+    "engineering manager": [
+        "engineering manager", "software engineering manager",
+        "director of engineering", "vp of engineering",
+        "technical lead", "tech lead", "team lead",
+    ],
+
+    # ── QA ─────────────────────────────────────────────────────────────────────
+    "qa engineer": [
+        "qa engineer", "quality assurance engineer", "test engineer",
+        "sdet", "automation engineer", "quality engineer",
+        "software test engineer",
+    ],
+}
+
+
+def _expand_aliases(title: str) -> list[str]:
+    """
+    Given a search query, return the list of alias titles to search for.
+    Falls back to [title] if no alias map entry exists.
+    Matching is case-insensitive.
+    """
+    key = title.strip().lower()
+    # Exact match first
+    if key in ROLE_ALIASES:
+        return ROLE_ALIASES[key]
+    # Partial match — if the query contains a known key as a substring
+    for k, aliases in ROLE_ALIASES.items():
+        if k in key or key in k:
+            return aliases
+    # No alias found — use the title as-is
+    return [title]
 
 
 # ── Shared HTTP helper ────────────────────────────────────────────────────────
@@ -168,6 +288,56 @@ def _is_us_or_remote(loc: str) -> bool:
     if len(loc.split()) <= 3:
         return True
     return False
+
+
+# ── Seniority filter ─────────────────────────────────────────────────────────
+
+_SENIORITY_ENTRY  = {"junior", "jr", "entry", "associate", "intern", "graduate", "new grad", "apprentice"}
+_SENIORITY_SENIOR = {"senior", "sr"}
+_SENIORITY_LEAD   = {"staff", "principal", "lead", "director", "head", "vp", "vice president",
+                      "architect", "distinguished", "fellow", "chief", "manager"}
+
+def _seniority_matches(title: str, seniority: str) -> bool:
+    """
+    Return True if the job title matches the requested seniority level.
+
+    Levels:
+      any    — always passes (default)
+      entry  — Junior, Jr, Entry, Associate, Intern, Graduate, Level I
+      mid    — no seniority prefix, or Level II
+      senior — Senior, Sr, Level III
+      lead   — Staff, Principal, Lead, Director, Head, VP, Architect
+
+    Roman numerals I / II / III / IV in titles are used as level indicators.
+    """
+    if not seniority or seniority == "any":
+        return True
+
+    t     = title.lower()
+    words = set(re.findall(r'\b\w+\b', t))
+
+    has_entry  = bool(words & _SENIORITY_ENTRY)
+    has_senior = bool(words & _SENIORITY_SENIOR)
+    has_lead   = bool(words & _SENIORITY_LEAD)
+
+    # Detect trailing roman numeral level (I, II, III, IV)
+    roman_match = re.search(r'\b(iv|iii|ii|i)\b', t)
+    roman_level = {"i": 1, "ii": 2, "iii": 3, "iv": 4}.get(roman_match.group() if roman_match else "", 0)
+
+    if seniority == "entry":
+        return has_entry or roman_level == 1
+
+    if seniority == "mid":
+        # Mid = no strong seniority marker, or explicitly level II
+        return (not has_entry and not has_senior and not has_lead) or roman_level == 2
+
+    if seniority == "senior":
+        return has_senior or roman_level == 3
+
+    if seniority == "lead":
+        return has_lead or roman_level == 4
+
+    return True
 
 
 # ── Title relevance filter ────────────────────────────────────────────────────
@@ -295,75 +465,203 @@ def _title_matches(job_title: str, search_query: str) -> bool:
     return True
 
 
-# ── 1. JSearch (RapidAPI) ─────────────────────────────────────────────────────
+# ── 1. Apify — LinkedIn Jobs ──────────────────────────────────────────────────
 
-def search_jsearch(title: str, location: str, pages: int = 5) -> list[dict]:
+def search_apify_linkedin(title: str, location: str, max_results: int = 50) -> list[dict]:
     """
-    JSearch aggregates Indeed, LinkedIn, Glassdoor, ZipRecruiter, Monster,
-    CareerBuilder and 200+ other platforms. Best single-source for all company sizes.
-    Sign up free at: https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch
-    Free tier: 200 requests/month.
+    LinkedIn Jobs scraped via Apify (bebity/linkedin-jobs-scraper).
+    Fetches exact-title matches for the past 24 hours from LinkedIn directly.
 
-    FIX: Query now uses quoted exact phrase e.g. '"Data Engineer" United States'
-         so JSearch's own engine does tighter matching before we even filter.
+    Sign up free at: https://apify.com/
+    Free tier: $5 credit/month (~1000–2000 results depending on actor cost)
+    Set APIFY_API_TOKEN in .env
+
+    Fields returned by this actor (key ones):
+      title, companyName, location, publishedAt, salary,
+      jobUrl, description, employmentType, seniorityLevel
     """
-    key = os.environ.get("RAPIDAPI_KEY", "")
-    if not key:
-        print("  [jsearch] RAPIDAPI_KEY not set — skipping (sign up free at rapidapi.com)")
+    token = os.environ.get("APIFY_API_TOKEN", "")
+    if not token:
+        print("  [apify] APIFY_API_TOKEN not set — skipping (sign up at apify.com)")
         return []
 
+    aliases = _expand_aliases(title)
     jobs = []
-    hdrs = {
-        "X-RapidAPI-Key":  key,
-        "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
-    }
-
-    # FIX 1: Wrap title in quotes for exact-phrase matching at API level
-    exact_query = f'"{title}" {location}'
-
-    for page in range(1, pages + 1):
-        r = _get(
-            "https://jsearch.p.rapidapi.com/search",
-            headers=hdrs,
-            params={
-                "query":       exact_query,
-                "page":        str(page),
-                "num_pages":   "1",
-                "date_posted": "today",
-                "country":     "us",
-                "language":    "en",
+    try:
+        r = _SESSION.post(
+            "https://api.apify.com/v2/acts/bebity~linkedin-jobs-scraper/run-sync-get-dataset-items",
+            params={"token": token, "timeout": 120, "memory": 256},
+            json={
+                "searchQueries": aliases,
+                "location":      location,
+                "datePosted":    "past24Hours",
+                "maxResults":    max_results,
             },
+            timeout=130,
         )
-        if not r:
-            break
-        try:
-            data = r.json()
-            batch = data.get("data", [])
-            if not batch:
-                break
-            for j in batch:
-                emp_type = (j.get("job_employment_type") or "").replace("_", " ").title()
-                jobs.append({
-                    "id":          f"jsearch_{j.get('job_id', len(jobs))}",
-                    "title":       j.get("job_title", "").strip(),
-                    "company":     j.get("employer_name", "Unknown"),
-                    "location":    _location(
-                                       j.get("job_city"), j.get("job_state"),
-                                       j.get("job_country"), j.get("job_is_remote")
-                                   ),
-                    "posted":      _normalize_date(j.get("job_posted_at_datetime_utc")),
-                    "salary":      _salary(j.get("job_min_salary"), j.get("job_max_salary"),
-                                           j.get("job_salary_period")),
-                    "url":         j.get("job_apply_link") or j.get("job_url", ""),
-                    "source":      j.get("job_publisher", "JSearch"),
-                    "description": (j.get("job_description") or "")[:4000],
-                    "type":        emp_type,
-                })
-        except Exception as e:
-            print(f"  [jsearch] Parse error page {page}: {e}")
-            break
+        r.raise_for_status()
+        for j in r.json():
+            jobs.append({
+                "id":          f"apify_li_{j.get('id', len(jobs))}",
+                "title":       (j.get("title") or "").strip(),
+                "company":     j.get("companyName") or j.get("company") or "Unknown",
+                "location":    j.get("location") or location,
+                "posted":      _normalize_date(j.get("publishedAt") or j.get("postedAt")),
+                "salary":      j.get("salary") or "Not listed",
+                "url":         j.get("jobUrl") or j.get("url") or "",
+                "source":      "LinkedIn",
+                "description": (j.get("description") or "")[:4000],
+                "type":        (j.get("employmentType") or "").replace("_", " ").title(),
+            })
+    except Exception as e:
+        print(f"  [apify] Error: {e}")
 
-    print(f"  [jsearch] {len(jobs)} raw jobs fetched for '{title}'")
+    print(f"  [apify] {len(jobs)} raw jobs fetched for '{title}'")
+    return jobs
+
+
+# ── 1b. Apify — Indeed ───────────────────────────────────────────────────────
+
+def search_apify_indeed(title: str, location: str, max_results: int = 50) -> list[dict]:
+    """
+    Indeed Jobs scraped via Apify (misceres/indeed-scraper).
+    Largest job board globally — covers all industries and company sizes.
+    Same APIFY_API_TOKEN used across all Apify actors.
+    """
+    token = os.environ.get("APIFY_API_TOKEN", "")
+    if not token:
+        return []
+
+    aliases = _expand_aliases(title)
+    jobs = []
+    try:
+        r = _SESSION.post(
+            "https://api.apify.com/v2/acts/misceres~indeed-scraper/run-sync-get-dataset-items",
+            params={"token": token, "timeout": 120, "memory": 256},
+            json={
+                "searchTerms":  aliases,
+                "location":     location,
+                "maxItems":     max_results,
+                "datePosted":   "last24hours",
+                "countryCode":  "us",
+            },
+            timeout=130,
+        )
+        r.raise_for_status()
+        for j in r.json():
+            jobs.append({
+                "id":          f"apify_in_{j.get('id', len(jobs))}",
+                "title":       (j.get("positionName") or j.get("title") or "").strip(),
+                "company":     j.get("company") or j.get("companyName") or "Unknown",
+                "location":    j.get("location") or location,
+                "posted":      _normalize_date(j.get("datePosted") or j.get("postedAt")),
+                "salary":      j.get("salary") or j.get("salaryText") or "Not listed",
+                "url":         j.get("url") or j.get("jobUrl") or "",
+                "source":      "Indeed",
+                "description": (j.get("description") or j.get("jobDescription") or "")[:4000],
+                "type":        (j.get("jobType") or j.get("employmentType") or "").replace("_", " ").title(),
+            })
+    except Exception as e:
+        print(f"  [apify-indeed] Error: {e}")
+
+    print(f"  [apify-indeed] {len(jobs)} raw jobs fetched for '{title}'")
+    return jobs
+
+
+# ── 1c. Apify — Glassdoor ─────────────────────────────────────────────────────
+
+def search_apify_glassdoor(title: str, location: str, max_results: int = 50) -> list[dict]:
+    """
+    Glassdoor Jobs scraped via Apify (bebity/glassdoor-jobs-scraper).
+    Great for salary data + company ratings alongside job listings.
+    Same APIFY_API_TOKEN used across all Apify actors.
+    """
+    token = os.environ.get("APIFY_API_TOKEN", "")
+    if not token:
+        return []
+
+    aliases = _expand_aliases(title)
+    jobs = []
+    try:
+        r = _SESSION.post(
+            "https://api.apify.com/v2/acts/bebity~glassdoor-jobs-scraper/run-sync-get-dataset-items",
+            params={"token": token, "timeout": 120, "memory": 256},
+            json={
+                "searchQuery":  " OR ".join(aliases),   # Glassdoor supports OR queries
+                "location":     location,
+                "maxResults":   max_results,
+                "datePosted":   "1",                    # 1 = last 24 hours on Glassdoor
+            },
+            timeout=130,
+        )
+        r.raise_for_status()
+        for j in r.json():
+            sal_min = j.get("payPeriodAdjustedPay", {}).get("p10") if isinstance(j.get("payPeriodAdjustedPay"), dict) else None
+            sal_max = j.get("payPeriodAdjustedPay", {}).get("p90") if isinstance(j.get("payPeriodAdjustedPay"), dict) else None
+            sal_str = _salary(sal_min, sal_max, "year") if (sal_min or sal_max) else j.get("salary") or "Not listed"
+            jobs.append({
+                "id":          f"apify_gd_{j.get('jobListingId', len(jobs))}",
+                "title":       (j.get("jobTitle") or j.get("title") or "").strip(),
+                "company":     j.get("companyName") or j.get("employer", {}).get("name") or "Unknown",
+                "location":    j.get("location") or j.get("locationName") or location,
+                "posted":      _normalize_date(j.get("datePosted") or j.get("postedAt")),
+                "salary":      sal_str,
+                "url":         j.get("applyUrl") or j.get("jobUrl") or j.get("url") or "",
+                "source":      "Glassdoor",
+                "description": (j.get("description") or j.get("jobDescription") or "")[:4000],
+                "type":        (j.get("jobType") or j.get("employmentType") or "").replace("_", " ").title(),
+            })
+    except Exception as e:
+        print(f"  [apify-glassdoor] Error: {e}")
+
+    print(f"  [apify-glassdoor] {len(jobs)} raw jobs fetched for '{title}'")
+    return jobs
+
+
+# ── 1d. Apify — ZipRecruiter ──────────────────────────────────────────────────
+
+def search_apify_ziprecruiter(title: str, location: str, max_results: int = 50) -> list[dict]:
+    """
+    ZipRecruiter Jobs scraped via Apify (radekmie/ziprecruiter-scraper).
+    Strong US coverage — especially mid-size companies and SMBs.
+    Same APIFY_API_TOKEN used across all Apify actors.
+    """
+    token = os.environ.get("APIFY_API_TOKEN", "")
+    if not token:
+        return []
+
+    aliases = _expand_aliases(title)
+    jobs = []
+    try:
+        r = _SESSION.post(
+            "https://api.apify.com/v2/acts/radekmie~ziprecruiter-scraper/run-sync-get-dataset-items",
+            params={"token": token, "timeout": 120, "memory": 256},
+            json={
+                "search":     " OR ".join(aliases),   # ZipRecruiter supports OR queries
+                "location":   location,
+                "maxResults": max_results,
+                "days":       1,                      # past 24 hours
+            },
+            timeout=130,
+        )
+        r.raise_for_status()
+        for j in r.json():
+            jobs.append({
+                "id":          f"apify_zr_{j.get('id', len(jobs))}",
+                "title":       (j.get("title") or j.get("name") or "").strip(),
+                "company":     j.get("hiring_company", {}).get("name") or j.get("company") or "Unknown",
+                "location":    j.get("location") or location,
+                "posted":      _normalize_date(j.get("posted_time") or j.get("datePosted")),
+                "salary":      j.get("salary_interval") or j.get("salary") or "Not listed",
+                "url":         j.get("job_url") or j.get("url") or "",
+                "source":      "ZipRecruiter",
+                "description": (j.get("job_description") or j.get("description") or "")[:4000],
+                "type":        (j.get("job_type") or j.get("employmentType") or "").replace("_", " ").title(),
+            })
+    except Exception as e:
+        print(f"  [apify-ziprecruiter] Error: {e}")
+
+    print(f"  [apify-ziprecruiter] {len(jobs)} raw jobs fetched for '{title}'")
     return jobs
 
 
@@ -693,7 +991,7 @@ def fetch_job_description(url: str) -> str:
 
 # ── Master search ─────────────────────────────────────────────────────────────
 
-def search_all_platforms(title: str, location: str = "United States") -> list[dict]:
+def search_all_platforms(title: str, location: str = "United States", seniority: str = "any") -> list[dict]:
     """
     Search all real job APIs and return deduplicated US + remote results.
     Covers FAANG, Fortune 500, mid-market, startups, and solo companies.
@@ -708,7 +1006,10 @@ def search_all_platforms(title: str, location: str = "United States") -> list[di
     all_jobs: list[dict] = []
 
     scrapers = [
-        lambda: search_jsearch(title, location, pages=5),
+        lambda: search_apify_linkedin(title, location, max_results=50),
+        lambda: search_apify_indeed(title, location, max_results=50),
+        lambda: search_apify_glassdoor(title, location, max_results=50),
+        lambda: search_apify_ziprecruiter(title, location, max_results=50),
         lambda: search_adzuna(title, location, pages=4),
         lambda: search_themuse(title, location, pages=4),
         lambda: search_remotive(title),
@@ -732,18 +1033,27 @@ def search_all_platforms(title: str, location: str = "United States") -> list[di
     all_jobs = [j for j in all_jobs if j.get("title", "").strip()]
     print(f"[filter] After empty-title drop: {len(all_jobs):>4}")
 
-    # ── Filter 3: Title must be relevant to the search query ──────────────────
-    #    _title_matches() runs 4 layers:
-    #      A) query word extraction (strips fillers)
-    #      B) whole-word presence check (word boundary regex)
-    #      C) proximity check (words must be within 4 positions of each other)
-    #      D) word order check (words must appear in same order as search query)
+    # ── Filter 3: Title must match the search query OR any of its aliases ────
+    #    _title_matches() runs 4 layers per alias — job passes if ANY alias matches.
+    #    This means searching "Software Engineer" also passes "Full Stack Developer",
+    #    "Backend Engineer", "Frontend Developer" etc. without over-filtering.
+    aliases = _expand_aliases(title)
     before_title_filter = len(all_jobs)
-    all_jobs = [j for j in all_jobs if _title_matches(j.get("title", ""), title)]
+    all_jobs = [
+        j for j in all_jobs
+        if any(_title_matches(j.get("title", ""), alias) for alias in aliases)
+    ]
     print(f"[filter] After title filter    : {len(all_jobs):>4}  "
           f"(removed {before_title_filter - len(all_jobs)} irrelevant titles)")
 
-    # ── Filter 4: Deduplicate by (title_lower, company_lower) ─────────────────
+    # ── Filter 4: Seniority filter ────────────────────────────────────────────
+    if seniority and seniority != "any":
+        before_seniority = len(all_jobs)
+        all_jobs = [j for j in all_jobs if _seniority_matches(j.get("title", ""), seniority)]
+        print(f"[filter] After seniority filter  : {len(all_jobs):>4}  "
+              f"(removed {before_seniority - len(all_jobs)} wrong-level titles)")
+
+    # ── Filter 5: Deduplicate by (title_lower, company_lower) ─────────────────
     seen:   set  = set()
     unique: list = []
     for j in all_jobs:

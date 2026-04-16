@@ -302,10 +302,12 @@ function stopSearch() {
 }
 
 async function searchJobs() {
-  const titleEl    = document.getElementById("job-title-input");
-  const locationEl = document.getElementById("location-input");
-  const title      = (titleEl?.value || "").trim();
-  const location   = (locationEl?.value || "United States").trim();
+  const titleEl      = document.getElementById("job-title-input");
+  const locationEl   = document.getElementById("location-input");
+  const seniorityEl  = document.getElementById("seniority-input");
+  const title        = (titleEl?.value || "").trim();
+  const location     = (locationEl?.value || "United States").trim();
+  const seniority    = seniorityEl?.value || "any";
   const btn        = document.getElementById("search-btn");
   const btnText    = document.getElementById("search-btn-text");
 
@@ -341,7 +343,7 @@ async function searchJobs() {
     const r    = await fetch(`${API}/api/jobs`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ title, location }),
+      body:    JSON.stringify({ title, location, seniority }),
       signal:  searchAbortController.signal,
     });
     const data = await r.json();

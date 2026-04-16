@@ -58,8 +58,9 @@ app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 # ── Pydantic models ────────────────────────────────────────────────────────────
 
 class JobSearchRequest(BaseModel):
-    title:    str
-    location: str = "United States"
+    title:     str
+    location:  str = "United States"
+    seniority: str = "any"   # any | entry | mid | senior | lead
 
 class JDRequest(BaseModel):
     url:         str = ""
@@ -175,7 +176,7 @@ async def search_jobs(req: JobSearchRequest):
     _usage["total_searches"]   += 1
     _usage["jsearch_requests"] += 5   # 5 pages per search
     _usage["adzuna_requests"]  += 4   # 4 pages per search
-    jobs = search_all_platforms(req.title.strip(), req.location.strip() or "United States")
+    jobs = search_all_platforms(req.title.strip(), req.location.strip() or "United States", req.seniority or "any")
     sources = list({j["source"] for j in jobs})
     return {
         "jobs":     jobs,
