@@ -37,7 +37,7 @@
 </div>
 
 <!-- MAIN LAYOUT -->
-<div class="layout">
+<div class="layout" id="app-layout">
 
   <!-- LEFT SIDEBAR -->
   <aside class="sidebar">
@@ -91,6 +91,8 @@
 
   </aside>
 
+  <div class="panel-resizer" data-resize="left" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0" title="Drag to resize"></div>
+
   <!-- MIDDLE: JOB LIST -->
   <main class="mid">
     <div class="mid-top">
@@ -121,6 +123,8 @@
       <div class="stat"><div class="stat-v" id="stat-scored">0</div><div class="stat-l">Scored</div></div>
     </div>
   </main>
+
+  <div class="panel-resizer" data-resize="right" role="separator" aria-orientation="vertical" aria-label="Resize details panel" tabindex="0" title="Drag to resize"></div>
 
   <!-- RIGHT PANEL -->
   <aside class="right-panel" id="right-panel">

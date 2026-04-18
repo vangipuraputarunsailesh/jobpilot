@@ -16,6 +16,9 @@ import re
 import os
 
 
+CHAT_HISTORY_MAX_MESSAGES = 8
+
+
 def _clean_resume(text: str) -> str:
     """
     Clean up common AI formatting artifacts from resume output:
@@ -74,13 +77,130 @@ def _call_json(prompt: str, max_tokens: int = 800) -> dict:
         raise
 
 
+def _extract_skill_candidates(text: str, limit: int = 40) -> list[str]:
+    """Extract likely skill/tool keywords from free text and deduplicate them."""
+    candidates = []
+    for line in text.splitlines():
+        upper = line.upper()
+        if any(k in upper for k in ("SKILLS", "TOOLS", "TECHNOLOG", "STACK", "FRAMEWORK", "LANGUAGE")):
+            parts = re.split(r"[,|/]|\s{2,}", line)
+            candidates.extend(parts)
+
+    # Also capture common tech tokens from the whole text.
+    candidates.extend(re.findall(r"\b[A-Za-z][A-Za-z0-9.+#-]{1,24}\b", text))
+
+    out = []
+    seen = set()
+    stop = {"and", "with", "from", "that", "this", "have", "using", "years", "experience", "skills", "tools"}
+    for raw in candidates:
+        tok = raw.strip(" -:\t").lower()
+        if len(tok) < 2 or tok in stop:
+            continue
+        if tok in seen:
+            continue
+        seen.add(tok)
+        out.append(raw.strip())
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _truncate_bullets(text: str, max_bullets: int = 14, max_chars_each: int = 170) -> list[str]:
+    """Keep only a compact bullet sample for scoring context."""
+    bullets = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith(("-", "*", "•")) or re.match(r"^\d+[.)]", s):
+            bullets.append(s[:max_chars_each])
+            if len(bullets) >= max_bullets:
+                break
+    return bullets
+
+
+def _compact_scoring_payload(resume_text: str, job_description: str) -> tuple[str, str]:
+    """Build compact resume/JD snippets for low-cost ATS scoring passes."""
+    key_headers = ("SUMMARY", "EXPERIENCE", "SKILLS", "TECHNICAL", "PROJECT", "CERTIFICATION", "EDUCATION")
+
+    def pick_key_lines(text: str, max_lines: int = 55) -> list[str]:
+        selected = []
+        current_header = ""
+        for line in text.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            upper = s.upper()
+            is_header = upper == s and 3 <= len(s) <= 35 and any(h in upper for h in key_headers)
+            if is_header:
+                current_header = upper
+                selected.append(s)
+                continue
+            if any(h in current_header for h in key_headers):
+                selected.append(s)
+            elif len(selected) < 8:
+                # Keep a small opening context even before section detection.
+                selected.append(s)
+            if len(selected) >= max_lines:
+                break
+        return selected
+
+    resume_lines = pick_key_lines(resume_text)
+    jd_lines = pick_key_lines(job_description, max_lines=40)
+    resume_skills = _extract_skill_candidates(resume_text, limit=35)
+    jd_skills = _extract_skill_candidates(job_description, limit=30)
+    bullets = _truncate_bullets(resume_text, max_bullets=12, max_chars_each=150)
+
+    compact_resume = (
+        "KEY RESUME SECTIONS:\n"
+        + "\n".join(resume_lines)
+        + "\n\nDEDUPED RESUME SKILLS:\n"
+        + ", ".join(resume_skills)
+        + "\n\nRESUME BULLET SAMPLE:\n"
+        + "\n".join(bullets)
+    )[:3200]
+
+    compact_jd = (
+        "KEY JOB DESCRIPTION SECTIONS:\n"
+        + "\n".join(jd_lines)
+        + "\n\nDEDUPED JD SKILLS:\n"
+        + ", ".join(jd_skills)
+    )[:2200]
+
+    return compact_resume, compact_jd
+
+
+def _summarize_older_history(history: list, max_items: int = 12, max_chars_each: int = 120) -> str:
+    """Create a short deterministic memory block for older chat turns."""
+    if not history:
+        return ""
+
+    tail = history[-max_items:]
+    lines = []
+    for msg in tail:
+        role = "User" if msg.get("role") == "user" else "Assistant"
+        text = str(msg.get("text", "")).replace("\n", " ").strip()
+        if not text:
+            continue
+        lines.append(f"- {role}: {text[:max_chars_each]}")
+
+    if not lines:
+        return ""
+    return "Earlier conversation summary (compressed):\n" + "\n".join(lines)
+
+
 # ── ATS Scoring ───────────────────────────────────────────────────────────────
 
-def score_ats(resume_text: str, job_description: str) -> dict:
+def score_ats(resume_text: str, job_description: str, compact_mode: bool = False) -> dict:
     """
     Score a resume against a job description.
     Returns: score, verdict, categories, matched/missing keywords, tip
     """
+    compact_resume = resume_text[:6000]
+    compact_jd = job_description[:3000]
+    if compact_mode:
+        compact_resume, compact_jd = _compact_scoring_payload(resume_text, job_description)
+
     prompt = f"""You are an expert ATS (Applicant Tracking System) analyst with deep knowledge of hiring systems used by Amazon, Microsoft, Google, and Meta.
 
 Analyze how well this resume matches the job description. Be accurate and honest — do not inflate scores.
@@ -104,13 +224,13 @@ Return a JSON object with these exact keys:
 Return ONLY valid JSON. No markdown, no backticks, no explanation outside the JSON.
 
 RESUME:
-{resume_text[:6000]}
+{compact_resume}
 
 JOB DESCRIPTION:
-{job_description[:3000]}"""
+{compact_jd}"""
 
     try:
-        return _call_json(prompt, 900)
+        return _call_json(prompt, 700 if compact_mode else 900)
     except Exception as e:
         print(f"[ats] Score error: {e}")
         return {
@@ -261,10 +381,16 @@ def apply_chat_instruction(
     """
     jd_context = f"Job: {job_title} at {company}\n\nJob Description:\n{description[:1500]}" if description else ""
     history = chat_history or []
+    recent_history = history[-CHAT_HISTORY_MAX_MESSAGES:]
+    older_history = history[:-CHAT_HISTORY_MAX_MESSAGES]
 
     # Build conversation history as Claude messages
     messages = []
-    for msg in history:
+    older_summary = _summarize_older_history(older_history)
+    if older_summary:
+        messages.append({"role": "assistant", "content": older_summary})
+
+    for msg in recent_history:
         role = "user" if msg["role"] == "user" else "assistant"
         messages.append({"role": role, "content": msg["text"]})
 
@@ -286,6 +412,10 @@ Your job is to:
    - "make shorter" / "fit 1 page" → trim bullets, remove less important points
    - "expand" / "fill 2 pages" / "add more content" → add strong detail, more bullets, quantified achievements
    - "remove the gap" / "fix spacing" → remove extra blank lines in that section
+    - Always aim to improve ATS alignment toward 90+ for the target role when possible
+    - Prefer truthful optimization: stronger wording, better ordering, and relevant keyword coverage
+    - If user explicitly provides skills/certs/details, prioritize those additions and mention them clearly in your explanation
+    - If adding generic content, keep it realistic and clearly explain that it was generalized guidance
    - Keep all real data (companies, dates, education) unchanged unless told otherwise
 
 3. RESPONSE FORMAT:
@@ -294,7 +424,7 @@ Your job is to:
      UPDATED RESUME:
      [full updated resume as plain text]
      EXPLANATION:
-     [1-2 natural sentences explaining what you changed and why]
+    [1-2 natural sentences explaining what you changed, and whether additions came from user input or generic assumptions]
 
 {jd_context}
 

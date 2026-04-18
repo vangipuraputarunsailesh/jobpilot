@@ -10,6 +10,7 @@
  */
 
 const API = "";  // same origin
+const LAYOUT_STORAGE_KEY = "jobpilot-layout-widths";
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let allJobs      = [];
@@ -18,6 +19,10 @@ let jobStates    = {};   // jobId → { state, resumeText, resumeName, jdText, t
 let currentTab   = "jd";
 let scoredCount  = 0;
 let searchAbortController = null;  // used to cancel in-flight search
+const ATS_AUTO_DEBOUNCE_MS = 1200;
+const ATS_TYPING_COOLDOWN_MS = 7000;
+const ATS_MEANINGFUL_DELTA_CHARS = 40;
+const ATS_TARGET_SCORE = 90;
 
 // Resume currently loaded for the active job (in-memory, not from disk)
 // state.resumeText holds the text; state.resumeName holds the display name
@@ -198,9 +203,119 @@ document.addEventListener("DOMContentLoaded", () => {
   checkHealth();
   setupAutocomplete("job-title-input", JOB_TITLES);
   setupAutocomplete("location-input", US_LOCATIONS);
+  initPanelResizers();
   const inp = document.getElementById("job-title-input");
   if (inp) inp.focus();
 });
+
+function initPanelResizers() {
+  const layout = document.getElementById("app-layout");
+  if (!layout) return;
+
+  restorePanelLayout(layout);
+
+  let activeSide = null;
+  let activeHandle = null;
+
+  const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
+  const setWidth = (side, px) => {
+    const rect = layout.getBoundingClientRect();
+    if (side === "left") {
+      const maxLeft = Math.max(220, rect.width - 520);
+      layout.style.setProperty("--left-panel-width", `${Math.round(clamp(px, 180, maxLeft))}px`);
+    } else {
+      const maxRight = Math.max(320, rect.width - 340);
+      layout.style.setProperty("--right-panel-width", `${Math.round(clamp(px, 300, maxRight))}px`);
+    }
+  };
+  const readWidths = () => ({
+    left: parseFloat(getComputedStyle(layout).getPropertyValue("--left-panel-width")) || 240,
+    right: parseFloat(getComputedStyle(layout).getPropertyValue("--right-panel-width")) || 460,
+  });
+
+  const stopResize = () => {
+    if (!activeSide) return;
+    activeSide = null;
+    layout.classList.remove("resizing");
+    if (activeHandle) activeHandle.classList.remove("dragging");
+    activeHandle = null;
+    document.body.style.userSelect = "";
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(readWidths()));
+  };
+
+  layout.querySelectorAll(".panel-resizer").forEach(handle => {
+    const side = handle.dataset.resize;
+
+    handle.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      activeSide = side;
+      activeHandle = handle;
+      layout.classList.add("resizing");
+      handle.classList.add("dragging");
+      document.body.style.userSelect = "none";
+    });
+
+    handle.addEventListener("dblclick", () => {
+      resetPanelLayout(layout);
+      showToast("Layout reset to default", "success");
+    });
+
+    handle.addEventListener("keydown", (e) => {
+      const step = e.shiftKey ? 40 : 20;
+      const widths = readWidths();
+
+      if (side === "left" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        setWidth("left", widths.left + (e.key === "ArrowRight" ? step : -step));
+      }
+      if (side === "right" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+        e.preventDefault();
+        setWidth("right", widths.right + (e.key === "ArrowLeft" ? step : -step));
+      }
+      localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(readWidths()));
+    });
+  });
+
+  window.addEventListener("pointermove", (e) => {
+    if (!activeSide) return;
+    const rect = layout.getBoundingClientRect();
+
+    if (activeSide === "left") {
+      setWidth("left", e.clientX - rect.left);
+    } else {
+      setWidth("right", rect.right - e.clientX);
+    }
+  });
+
+  window.addEventListener("pointerup", stopResize);
+  window.addEventListener("pointercancel", stopResize);
+}
+
+function restorePanelLayout(layout) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LAYOUT_STORAGE_KEY) || "null");
+    if (!saved) return;
+
+    const rect = layout.getBoundingClientRect();
+    const clamp = (n, min, max) => Math.min(Math.max(n, min), max);
+    if (saved.left) {
+      const maxLeft = Math.max(220, rect.width - 520);
+      layout.style.setProperty("--left-panel-width", `${Math.round(clamp(saved.left, 180, maxLeft))}px`);
+    }
+    if (saved.right) {
+      const maxRight = Math.max(320, rect.width - 340);
+      layout.style.setProperty("--right-panel-width", `${Math.round(clamp(saved.right, 300, maxRight))}px`);
+    }
+  } catch {
+    localStorage.removeItem(LAYOUT_STORAGE_KEY);
+  }
+}
+
+function resetPanelLayout(layout) {
+  layout.style.removeProperty("--left-panel-width");
+  layout.style.removeProperty("--right-panel-width");
+  localStorage.removeItem(LAYOUT_STORAGE_KEY);
+}
 
 // ── Usage panel ───────────────────────────────────────────────────────────────
 async function toggleUsagePanel() {
@@ -471,6 +586,17 @@ function openJob(idx) {
       scoreData:    null,
       chatHistory:  [],       // [{ role, text }]
       previewMode:  true,     // true = live preview, false = raw textarea edit
+      hasScored:    false,
+      atsAssistMode: "",
+      atsAssistWorking: false,
+      atsDraftExtras: "",
+      atsLastEditAt: 0,
+      atsLastScoredAt: 0,
+      atsLastScoredLen: 0,
+      atsLastScoredHash: 0,
+      atsScoring: false,
+      atsNeedsRescore: false,
+      atsTimer: null,
     };
   }
   currentTab = "jd";
@@ -734,6 +860,7 @@ function buildTailorTab(j, st) {
           </div>
           <div class="status-controls">
             <span class="page-fit-badge fit-none" id="page-fit-badge">—</span>
+            <span class="ats-live-badge ats-live-none" id="live-ats-badge">ATS: --</span>
             <div class="mode-toggle">
               <button class="mode-toggle-btn ${previewMode ? "mtb-active" : ""}" onclick="setPreviewMode(true)">Preview</button>
               <button class="mode-toggle-btn ${!previewMode ? "mtb-active" : ""}" onclick="setPreviewMode(false)">Edit</button>
@@ -758,9 +885,10 @@ function buildTailorTab(j, st) {
             ${historyHtml ? `<div class="chat-history" id="chat-history">${historyHtml}</div>` : ""}
             <div class="chat-input-area">
               <div class="chat-input-row">
-                <input class="chat-inline-input" id="chat-instruction-input"
+                <textarea class="chat-inline-input" id="chat-instruction-input"
+                  rows="2"
                   placeholder='e.g. "remove the gap after certifications", "shorter summary", "stronger verbs"...'
-                  onkeydown="if(event.key==='Enter') applyInstruction()"/>
+                  onkeydown="handleChatInstructionKeydown(event)"></textarea>
                 <button class="chat-send-btn" onclick="applyInstruction()" id="chat-send-btn">
                   <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
                     <path d="M14 8H2M9 3l5 5-5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -804,6 +932,7 @@ function bindTailorEvents(st) {
   // Scroll chat to bottom
   const ch = document.getElementById("chat-history");
   if (ch) ch.scrollTop = ch.scrollHeight;
+  updateLiveAtsBadge(st);
 
   // Calculate page-fit badge after preview fully renders
   if (st.previewMode !== false) {
@@ -927,6 +1056,7 @@ async function startTailor() {
     st.state         = "tailored";
     st.chatHistory   = [];
     showToast("Resume tailored successfully!", "success");
+    scheduleAutoAtsScore(250, "tailor");
   } catch (e) {
     st.state = "idle";
     showToast(`Tailoring failed: ${e.message}`, "error");
@@ -936,11 +1066,17 @@ async function startTailor() {
 
 function saveEditorContent() {
   const ta = document.getElementById("resume-editor");
-  if (ta && selectedJob) jobStates[selectedJob.id].tailoredText = ta.value;
+  if (ta && selectedJob) {
+    const st = jobStates[selectedJob.id];
+    st.tailoredText = ta.value;
+    st.atsLastEditAt = Date.now();
+    scheduleAutoAtsScore(ATS_AUTO_DEBOUNCE_MS, "typing");
+  }
 }
 
 function resetTailor() {
   const st = jobStates[selectedJob.id];
+  if (st.atsTimer) clearTimeout(st.atsTimer);
   st.state        = "idle";
   st.resumeText   = "";
   st.resumeName   = "";
@@ -948,6 +1084,14 @@ function resetTailor() {
   st.chatHistory  = [];
   st.score        = null;
   st.scoreData    = null;
+  st.hasScored    = false;
+  st.atsScoring   = false;
+  st.atsNeedsRescore = false;
+  st.atsTimer     = null;
+  st.atsLastEditAt = 0;
+  st.atsLastScoredAt = 0;
+  st.atsLastScoredLen = 0;
+  st.atsLastScoredHash = 0;
   st.genDraft     = "";
   renderTabBody();
 }
@@ -999,6 +1143,77 @@ async function aiImproveLine() {
 }
 
 // ── Open-ended AI chat ────────────────────────────────────────────────────────
+function handleChatInstructionKeydown(event) {
+  if (event.isComposing || event.key !== "Enter") return;
+
+  // Shift+Enter should insert a newline; Enter alone sends.
+  if (event.shiftKey) return;
+
+  event.preventDefault();
+  applyInstruction();
+}
+
+function updateLiveAtsBadge(st) {
+  const badge = document.getElementById("live-ats-badge");
+  if (!badge) return;
+
+  if (st.atsScoring) {
+    badge.textContent = "ATS: updating...";
+    badge.className = "ats-live-badge ats-live-pending";
+    return;
+  }
+
+  if (typeof st.score !== "number") {
+    badge.textContent = "ATS: --";
+    badge.className = "ats-live-badge ats-live-none";
+    return;
+  }
+
+  badge.textContent = `ATS: ${st.score}/100`;
+  badge.className = `ats-live-badge ${st.score >= 90 ? "ats-live-good" : st.score >= 80 ? "ats-live-mid" : "ats-live-low"}`;
+}
+
+function _hashForScore(text) {
+  let h = 0;
+  for (let i = 0; i < text.length; i++) {
+    h = ((h << 5) - h + text.charCodeAt(i)) | 0;
+  }
+  return h;
+}
+
+function _normalizeForScore(text) {
+  return String(text || "").replace(/\s+/g, " ").trim();
+}
+
+function scheduleAutoAtsScore(delay = ATS_AUTO_DEBOUNCE_MS, reason = "typing") {
+  if (!selectedJob) return;
+  const st = jobStates[selectedJob.id];
+  if (!st) return;
+  if (!(st.state === "tailored" || st.state === "scored")) return;
+  if (!st.tailoredText?.trim() || !st.jdText?.trim()) return;
+
+  const normalized = _normalizeForScore(st.tailoredText);
+  const currLen = normalized.length;
+  const currHash = _hashForScore(normalized);
+  const lenDelta = Math.abs(currLen - (st.atsLastScoredLen || 0));
+  const hashChanged = st.atsLastScoredHash !== 0 && currHash !== st.atsLastScoredHash;
+  const tinyChange = hashChanged && lenDelta < ATS_MEANINGFUL_DELTA_CHARS;
+
+  // If already strong and edits are tiny, skip background rescoring.
+  if (reason === "typing" && st.score >= ATS_TARGET_SCORE && tinyChange) return;
+
+  if (st.atsTimer) clearTimeout(st.atsTimer);
+
+  const now = Date.now();
+  const minInterval = reason === "typing" ? ATS_TYPING_COOLDOWN_MS : ATS_AUTO_DEBOUNCE_MS;
+  const waitForInterval = Math.max(0, minInterval - (now - (st.atsLastScoredAt || 0)));
+  const wait = Math.max(delay, waitForInterval);
+
+  st.atsTimer = setTimeout(() => {
+    checkATSScore({ auto: true, switchToScoreTab: false, showToastMessage: false, showLoadingUI: false });
+  }, wait);
+}
+
 async function applyInstruction() {
   const input  = document.getElementById("chat-instruction-input");
   const status = document.getElementById("chat-status");
@@ -1046,6 +1261,7 @@ async function applyInstruction() {
 
     renderTabBody();
     if (d.resume_changed !== false) {
+      scheduleAutoAtsScore(250, "chat");
       showToast("Resume updated!", "success");
     }
   } catch (e) {
@@ -1056,22 +1272,46 @@ async function applyInstruction() {
 }
 
 // ── ATS Score Tab ─────────────────────────────────────────────────────────────
-async function checkATSScore() {
-  const j  = selectedJob;
-  const st = jobStates[j.id];
-  saveEditorContent();
+async function checkATSScore(opts = {}) {
+  const {
+    auto = false,
+    switchToScoreTab = !auto,
+    showToastMessage = !auto,
+    showLoadingUI = !auto,
+  } = opts;
 
-  const rp = document.getElementById("rp-body");
-  rp.innerHTML = `<div class="proc-box">
-    <div class="proc-title">Calculating ATS score...</div>
-    <div class="proc-sub">Comparing your tailored resume against this job's requirements</div>
-    <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
-  </div>`;
+  const j  = selectedJob;
+  if (!j) return;
+  const st = jobStates[j.id];
+  if (!st?.tailoredText?.trim() || !st?.jdText?.trim()) return;
+
+  if (st.atsScoring) {
+    st.atsNeedsRescore = true;
+    return;
+  }
+
+  st.atsScoring = true;
+  updateLiveAtsBadge(st);
+
+  if (showLoadingUI) {
+    const rp = document.getElementById("rp-body");
+    if (rp) {
+      rp.innerHTML = `<div class="proc-box">
+        <div class="proc-title">Calculating ATS score...</div>
+        <div class="proc-sub">Comparing your tailored resume against this job's requirements</div>
+        <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+      </div>`;
+    }
+  }
 
   try {
     const r = await fetch(`${API}/api/score`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resume_text: st.tailoredText, description: st.jdText }),
+      body: JSON.stringify({
+        resume_text: st.tailoredText,
+        description: st.jdText,
+        final_check: !auto,
+      }),
     });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
@@ -1079,15 +1319,198 @@ async function checkATSScore() {
     st.scoreData = d;
     st.score     = d.score;
     st.state     = "scored";
-    scoredCount++;
+    const normalized = _normalizeForScore(st.tailoredText);
+    st.atsLastScoredAt = Date.now();
+    st.atsLastScoredLen = normalized.length;
+    st.atsLastScoredHash = _hashForScore(normalized);
+    if (!st.hasScored) {
+      scoredCount++;
+      st.hasScored = true;
+    }
     document.getElementById("stat-scored").textContent = scoredCount;
-    currentTab = "score";
     renderJobList(allJobs);
-    renderRightPanel();
-    showToast(`ATS Score: ${d.score}/100 — ${d.verdict}`, d.score >= 80 ? "success" : "");
+    updateLiveAtsBadge(st);
+
+    if (switchToScoreTab) {
+      currentTab = "score";
+      renderRightPanel();
+    } else if (currentTab === "score") {
+      renderTabBody();
+    }
+
+    if (showToastMessage) {
+      showToast(`ATS Score: ${d.score}/100 — ${d.verdict}`, d.score >= 80 ? "success" : "");
+    }
   } catch (e) {
-    showToast(`Scoring failed: ${e.message}`, "error");
-    currentTab = "tailor";
+    if (!auto) {
+      showToast(`Scoring failed: ${e.message}`, "error");
+      currentTab = "tailor";
+      renderTabBody();
+    }
+  } finally {
+    st.atsScoring = false;
+    updateLiveAtsBadge(st);
+    if (st.atsNeedsRescore) {
+      st.atsNeedsRescore = false;
+      scheduleAutoAtsScore(250, "typing");
+    }
+  }
+}
+
+function buildAtsAssistPanel(st, d) {
+  const score = d.score || 0;
+  if (score >= 90) return "";
+
+  const missing = d.missing_keywords || [];
+  const manualOpen = st.atsAssistMode === "manual";
+  const busy = st.atsAssistWorking;
+
+  return `
+    <div class="ats-assist-box">
+      <div class="ats-assist-title">ATS is below 90</div>
+      <div class="ats-assist-sub">
+        I can boost this resume toward 90+ now. Choose whether to use generic improvements, or add your own skills/certificates first.
+      </div>
+      <div class="ats-assist-actions">
+        <button class="btn-secondary" onclick="startAtsAssistInEditor('generic')" ${busy ? "disabled" : ""}>Do it (generic boost)</button>
+        <button class="btn-ghost" onclick="startAtsAssistInEditor('manual')" ${busy ? "disabled" : ""}>Upload it (my skills/certs)</button>
+      </div>
+      ${manualOpen ? `
+        <textarea id="ats-extra-input" class="ats-extra-input" placeholder="Paste skills, tools, certifications, projects, or achievements you actually have.\nExample: AWS SAA prep, Terraform, Kubernetes on EKS, reduced API latency by 30%.">${escHtml(st.atsDraftExtras || "")}</textarea>
+      ` : ""}
+      ${missing.length ? `
+        <div class="ats-missing-wrap">
+          <div class="kw-label">Priority gaps from ATS</div>
+          <div class="kw-chips">${missing.map(k => `<span class="kw-chip kw-miss">${escHtml(k)}</span>`).join("")}</div>
+        </div>
+      ` : ""}
+    </div>`;
+}
+
+function toggleAtsAssistInput() {
+  if (!selectedJob) return;
+  const st = jobStates[selectedJob.id];
+  const ta = document.getElementById("ats-extra-input");
+  if (ta) st.atsDraftExtras = ta.value;
+  st.atsAssistMode = st.atsAssistMode === "manual" ? "" : "manual";
+  renderTabBody();
+  if (st.atsAssistMode === "manual") {
+    setTimeout(() => document.getElementById("ats-extra-input")?.focus(), 30);
+  }
+}
+
+function startAtsAssistInEditor(mode = "generic") {
+  if (!selectedJob) return;
+  const st = jobStates[selectedJob.id];
+  const wasTab = currentTab;
+
+  // Route the user into Tailor/Edit so progress is visible where resume edits happen.
+  currentTab = "tailor";
+  renderRightPanel();
+
+  if (mode === "manual") {
+    const details = window.prompt("Paste skills/certifications you actually have to include in ATS optimization:");
+    if (details === null) {
+      currentTab = wasTab;
+      renderRightPanel();
+      return;
+    }
+    const trimmed = details.trim();
+    if (!trimmed) {
+      showToast("Add your skills/certifications first", "error");
+      return;
+    }
+    st.atsDraftExtras = trimmed;
+    runAtsBoost("manual", trimmed);
+    return;
+  }
+
+  showToast("Applying ATS boost in Edit space...");
+  runAtsBoost("generic");
+}
+
+async function runAtsBoost(mode = "generic", manualExtras = "") {
+  if (!selectedJob) return;
+  const j = selectedJob;
+  const st = jobStates[j.id];
+  if (st.atsAssistWorking) return;
+
+  const missingList = (st.scoreData?.missing_keywords || []).slice(0, 10).join(", ");
+  let instruction;
+  let userMessage;
+
+  if (mode === "manual") {
+    const ta = document.getElementById("ats-extra-input");
+    const extras = (manualExtras || ta?.value || st.atsDraftExtras || "").trim();
+    if (!extras) {
+      showToast("Add your skills/certifications first", "error");
+      return;
+    }
+    st.atsDraftExtras = extras;
+    userMessage = `Use my provided additions to improve ATS: ${extras}`;
+    instruction = `Target ATS score >= 90 for this role. Update the resume to improve ATS while staying truthful.\n\nUse ONLY these user-provided additions when adding skills/certifications/content:\n${extras}\n\nAlso prioritize these missing ATS keywords where appropriate: ${missingList || "N/A"}.\n\nDo not invent employers, dates, or degrees. Keep company names, titles, and timeline unchanged. Explain clearly what was added from user input.`;
+  } else {
+    userMessage = "Auto-improve this resume toward ATS 90+ using safe generic additions";
+    instruction = `Target ATS score >= 90 for this role. Improve summary, bullet phrasing, and skills ordering to better match the job description while staying truthful.\n\nPrioritize these missing ATS keywords: ${missingList || "N/A"}.\n\nIf exact evidence is missing, add only generic transferable capabilities or learning-in-progress statements. Do not invent employers, dates, degrees, or fake certifications. Keep company names, job titles, and timeline unchanged. State in your explanation what was generalized.`;
+  }
+
+  st.atsAssistWorking = true;
+  st.chatHistory = st.chatHistory || [];
+  st.chatHistory.push({ role: "user", text: userMessage });
+  renderTabBody();
+
+  try {
+    const r = await fetch(`${API}/api/chat-instruction`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        instruction,
+        resume_text: st.tailoredText,
+        description: st.jdText || "",
+        job_title: j.title,
+        company: j.company,
+        chat_history: st.chatHistory.slice(0, -1),
+      }),
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+
+    if (d.resume_changed !== false && d.updated_resume) {
+      st.tailoredText = d.updated_resume;
+    }
+    st.chatHistory.push({ role: "ai", text: d.explanation || "Applied ATS improvements." });
+
+    const scoreRes = await fetch(`${API}/api/score`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resume_text: st.tailoredText, description: st.jdText, final_check: true }),
+    });
+    const newScore = await scoreRes.json();
+    if (newScore.error) throw new Error(newScore.error);
+
+    st.scoreData = newScore;
+    st.score = newScore.score;
+    st.state = "scored";
+    const normalized = _normalizeForScore(st.tailoredText);
+    st.atsLastScoredAt = Date.now();
+    st.atsLastScoredLen = normalized.length;
+    st.atsLastScoredHash = _hashForScore(normalized);
+    if (!st.hasScored) {
+      scoredCount++;
+      st.hasScored = true;
+    }
+    document.getElementById("stat-scored").textContent = scoredCount;
+    st.atsAssistMode = "";
+    updateLiveAtsBadge(st);
+    renderJobList(allJobs);
+    renderTabBody();
+    showToast(`ATS updated: ${newScore.score}/100`, newScore.score >= 90 ? "success" : "");
+  } catch (e) {
+    st.chatHistory.push({ role: "ai", text: `Error: ${e.message}` });
+    showToast(`ATS boost failed: ${e.message}`, "error");
+    renderTabBody();
+  } finally {
+    st.atsAssistWorking = false;
     renderTabBody();
   }
 }
@@ -1106,6 +1529,7 @@ function buildScoreTab(j, st) {
     { label: "Domain knowledge",     val: cats.domain_knowledge  || 0 },
     { label: "Soft skills",          val: cats.soft_skills       || 0 },
   ].filter(b => b.val > 0);
+  const atsAssistHtml = buildAtsAssistPanel(st, d);
 
   return `
     <div class="ats-box">
@@ -1132,6 +1556,7 @@ function buildScoreTab(j, st) {
         <div class="kw-chips">${d.missing_keywords.map(k=>`<span class="kw-chip kw-miss">${escHtml(k)}</span>`).join("")}</div>` : ""}
       </div>` : ""}
     </div>
+    ${atsAssistHtml}
     <button class="btn-primary" onclick="window.open('${escHtml(j.url)}','_blank')">Apply now — open job page</button>
     <button class="btn-secondary" onclick="downloadResume('pdf',0)">Download resume (.pdf)</button>
     <div class="download-row">
