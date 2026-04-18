@@ -1,4 +1,4 @@
-#.env
+.env
 venv/
 *resumes/
 __pycache__/
