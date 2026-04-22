@@ -11,6 +11,8 @@
 
 const API = "";  // same origin
 const LAYOUT_STORAGE_KEY = "jobpilot-layout-widths";
+const THEME_STORAGE_KEY = "jobpilot-theme";
+const DEFAULT_THEME = "dark-pro";
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let allJobs      = [];
@@ -200,13 +202,43 @@ function setupAutocomplete(inputId, data, onSelect) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
+  initThemeControls();
   checkHealth();
   setupAutocomplete("job-title-input", JOB_TITLES);
   setupAutocomplete("location-input", US_LOCATIONS);
   initPanelResizers();
+  document.addEventListener("fullscreenchange", syncPreviewFullscreenState);
   const inp = document.getElementById("job-title-input");
   if (inp) inp.focus();
 });
+
+function initThemeControls() {
+  const selectedTheme = localStorage.getItem(THEME_STORAGE_KEY) || DEFAULT_THEME;
+  applyTheme(selectedTheme, false);
+
+  const select = document.getElementById("theme-select");
+  if (select) {
+    select.value = selectedTheme;
+    select.addEventListener("change", (e) => {
+      const value = e.target && e.target.value ? e.target.value : DEFAULT_THEME;
+      onThemeSelectChange(value);
+    });
+  }
+}
+
+function onThemeSelectChange(theme) {
+  applyTheme(theme, true);
+}
+
+function applyTheme(theme, persist = true) {
+  const nextTheme = theme === "light-pro" ? "light-pro" : "dark-pro";
+  document.documentElement.setAttribute("data-theme", nextTheme);
+  document.body.setAttribute("data-theme", nextTheme);
+
+  if (persist) {
+    localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+  }
+}
 
 function initPanelResizers() {
   const layout = document.getElementById("app-layout");
@@ -833,6 +865,7 @@ function buildTailorTab(j, st) {
 
     const editorArea = previewMode
       ? `<div class="resume-preview-wrap" id="resume-preview-wrap">
+           <button class="preview-fs-fab" id="preview-fs-fab" onclick="togglePreviewFullscreen()">Full screen</button>
            <div class="resume-page" id="resume-preview">${parseResumeToHtml(st.tailoredText)}</div>
          </div>`
       : `<div class="editor-toolbar">
@@ -865,6 +898,7 @@ function buildTailorTab(j, st) {
               <button class="mode-toggle-btn ${previewMode ? "mtb-active" : ""}" onclick="setPreviewMode(true)">Preview</button>
               <button class="mode-toggle-btn ${!previewMode ? "mtb-active" : ""}" onclick="setPreviewMode(false)">Edit</button>
             </div>
+            ${previewMode ? `<button class="status-fs-btn" id="preview-fs-btn" onclick="togglePreviewFullscreen()">Full screen</button>` : ""}
             <button class="status-reset-btn" onclick="resetTailor()">Change</button>
           </div>
         </div>
@@ -945,6 +979,7 @@ function bindTailorEvents(st) {
         badge.textContent = fit.label;
         badge.className   = `page-fit-badge ${fit.cls}`;
       }
+      syncPreviewFullscreenState();
     }, 150);
   }
 }
@@ -1704,6 +1739,42 @@ function setPreviewMode(on) {
   }
   st.previewMode = on;
   renderTabBody();
+}
+
+async function togglePreviewFullscreen() {
+  const wrap = document.getElementById("resume-preview-wrap");
+  if (!wrap) return;
+
+  if (!document.fullscreenEnabled || !wrap.requestFullscreen) {
+    showToast("Full screen is not supported in this browser", "error");
+    return;
+  }
+
+  try {
+    const active = document.fullscreenElement === wrap;
+    if (active) {
+      await document.exitFullscreen();
+    } else {
+      await wrap.requestFullscreen();
+    }
+  } catch (_err) {
+    showToast("Could not toggle full screen", "error");
+  }
+}
+
+function syncPreviewFullscreenState() {
+  const wrap = document.getElementById("resume-preview-wrap");
+  const fsBtn = document.getElementById("preview-fs-btn");
+  const fsFab = document.getElementById("preview-fs-fab");
+  const isActive = !!wrap && document.fullscreenElement === wrap;
+
+  if (wrap) {
+    wrap.classList.toggle("is-fullscreen", isActive);
+  }
+
+  const label = isActive ? "Exit full screen" : "Full screen";
+  if (fsBtn) fsBtn.textContent = label;
+  if (fsFab) fsFab.textContent = label;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

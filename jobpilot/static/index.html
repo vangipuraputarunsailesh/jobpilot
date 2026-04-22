@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/style.css"/>
 </head>
-<body>
+<body data-theme="dark-pro">
 
 <!-- TOP BAR -->
 <header class="topbar">
@@ -23,6 +23,13 @@
     <span class="brand-sub">Enterprise AI · Real jobs from every US company</span>
   </div>
   <div class="topbar-right">
+    <label class="theme-switch" for="theme-select" title="Select app theme">
+      <span class="theme-switch-label">Theme</span>
+      <select id="theme-select" class="theme-select">
+        <option value="dark-pro">Minimal Dark Pro</option>
+        <option value="light-pro">Minimal Light Pro</option>
+      </select>
+    </label>
     <div class="live-chip"><div class="live-dot"></div>Live · Last 24 hours</div>
     <div id="source-chip" class="source-chip" style="display:none"></div>
     <div class="health-indicator" id="health-dot" title="Checking connection..." onclick="toggleUsagePanel()"></div>
