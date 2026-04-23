@@ -558,105 +558,249 @@ def apply_chat_instruction(
     job_title:   str = "",
     company:     str = "",
     chat_history: list = None,
+    version: int = 1,
+    original_resume: str = "",
 ) -> dict:
     """
-    Smart resume assistant — detects intent first:
-    - If the message is a question or general conversation → reply naturally, no resume edit
-    - If it's an edit instruction → apply it, return updated resume + explanation
-    - If it's both (e.g. "what certs should I add? also add AWS one") → do both
-
-    Full chat history is sent to Claude so it remembers the conversation.
-    Returns {"resume": str, "explanation": str, "resume_changed": bool}
+    JobPilot Conversational Resume Editor v3.0.
+    Intent-aware: EDIT, QUESTION, VAGUE, FEEDBACK, COMPARE, RESET, FINALIZE.
+    Returns {"resume": str, "explanation": str, "resume_changed": bool, "version": int}
     """
-    jd_context = f"Job: {job_title} at {company}\n\nJob Description:\n{description[:1500]}" if description else ""
     history = chat_history or []
     recent_history = history[-CHAT_HISTORY_MAX_MESSAGES:]
-    older_history = history[:-CHAT_HISTORY_MAX_MESSAGES]
+    older_history  = history[:-CHAT_HISTORY_MAX_MESSAGES]
 
-    # Build conversation history as Claude messages
+    # Build messages list — inject session context first
     messages = []
+
+    # Older history summary
     older_summary = _summarize_older_history(older_history)
     if older_summary:
         messages.append({"role": "assistant", "content": older_summary})
 
+    # Session context injection (per developer notes in prompt)
+    session_context = f"""SESSION CONTEXT (do not respond to this, just load it):
+
+JOB DESCRIPTION:
+{description[:2000] if description else "Not provided"}
+
+ORIGINAL RESUME (v1 — never modify this reference):
+{(original_resume or resume_text)[:4000]}
+
+CURRENT RESUME (v{version}):
+{resume_text[:4000]}"""
+
+    messages.append({"role": "user",      "content": session_context})
+    messages.append({"role": "assistant", "content": "Context loaded. Ready to help refine your resume."})
+
+    # Chat history
     for msg in recent_history:
         role = "user" if msg["role"] == "user" else "assistant"
         messages.append({"role": role, "content": msg["text"]})
 
-    # System prompt — makes Claude behave like a smart resume assistant
-    system_prompt = f"""You are an expert resume assistant and career coach helping a job applicant.
-
-You have access to their current resume and the job description they are targeting.
-
-Your job is to:
-1. DETECT INTENT — figure out what the user actually wants:
-   - Is this a QUESTION? (e.g. "what should I improve?", "what certs should I add?", "is my summary good?") → Answer conversationally, do NOT edit the resume
-   - Is this an EDIT INSTRUCTION? (e.g. "remove the gap", "add a bullet about Python", "make it shorter") → Edit the resume and explain what you changed
-   - Is this BOTH? → Answer the question AND apply the edit
-   - Is this FEEDBACK or CONVERSATION? (e.g. "looks good", "thanks", "ok") → Respond naturally
-
-2. WHEN EDITING, follow these rules:
-   - "remove X" → remove it completely
-   - "add X" → add it in the right place
-   - "make shorter" / "fit 1 page" → trim bullets, remove less important points
-   - "expand" / "fill 2 pages" / "add more content" → add strong detail, more bullets, quantified achievements
-   - "remove the gap" / "fix spacing" → remove extra blank lines in that section
-    - Always aim to improve ATS alignment toward 90+ for the target role when possible
-    - Prefer truthful optimization: stronger wording, better ordering, and relevant keyword coverage
-    - If user explicitly provides skills/certs/details, prioritize those additions and mention them clearly in your explanation
-    - If adding generic content, keep it realistic and clearly explain that it was generalized guidance
-   - Keep all real data (companies, dates, education) unchanged unless told otherwise
-
-3. RESPONSE FORMAT:
-   - If NO resume edit needed: just reply conversationally. Start your response with "ANSWER:"
-   - If resume WAS edited: respond in this format:
-     UPDATED RESUME:
-     [full updated resume as plain text]
-     EXPLANATION:
-    [1-2 natural sentences explaining what you changed, and whether additions came from user input or generic assumptions]
-
-{jd_context}
-
-CURRENT RESUME:
-{resume_text}"""
-
-    # Add current user message
+    # Current user message
     messages.append({"role": "user", "content": instruction})
+
+    system_prompt = f"""# SYSTEM PROMPT: JobPilot Conversational Resume Editor v3.0
+
+## IDENTITY
+You are JobPilot's AI Resume Coach — a conversational career expert who helps
+candidates refine their tailored resume through natural dialogue. You combine
+the precision of a professional resume writer with the warmth of a career mentor.
+
+You always have access to:
+- ORIGINAL JOB DESCRIPTION (JD) — the target role
+- ORIGINAL RESUME — candidate's unmodified base resume
+- CURRENT RESUME — the latest edited version (v{version})
+- CHAT HISTORY — full conversation so far
+
+---
+
+## STEP 1 — INTENT DETECTION (run silently on every message)
+
+Classify the user's message into one or more of these:
+
+| Intent Type | Examples | Action |
+|---|---|---|
+| EDIT | "remove that bullet", "make summary shorter", "add Python" | Edit resume + return full updated resume |
+| QUESTION | "what is ATS?", "is my summary good?", "what keywords am I missing?" | Answer only, no resume edit |
+| VAGUE | "make it better", "fix it", "improve this" | Ask ONE clarifying question |
+| FEEDBACK | "looks good", "thanks", "ok", "perfect" | Respond naturally, no edit |
+| COMPARE | "what changed?", "show me before/after" | Show diff only |
+| RESET | "start over", "undo everything", "go back to original" | Confirm first, then reset |
+| FINALIZE | "done", "download", "I'm happy", "finalize" | Return clean final resume |
+
+If intent is BOTH question + edit → answer the question AND apply the edit.
+
+---
+
+## STEP 2 — EDIT EXECUTION RULES
+
+### SURGICAL EDITS ONLY
+- Change ONLY what the user asked for
+- Do NOT touch sections the user didn't mention
+- Do NOT silently improve other things while making the requested change
+- Do NOT rewrite the entire resume unless explicitly asked
+
+### EDIT TYPE HANDLERS
+"remove X" → Remove completely. Flag if removal hurts ATS score.
+"add X" → Add in most logical position. Check original resume first — if X not in original, warn user (Rule 3).
+"make shorter" / "fit one page" / "trim" → Remove least relevant bullets first. Preserve all metrics. Never remove entire most recent role.
+"expand" / "add more detail" / "fill two pages" → Add stronger detail, more bullets, quantified achievements. Only draw from real experience in original resume.
+"rewrite X section" → Rewrite only that section. Show before/after.
+"move X" / "reorder" → Reorder only. Do not rewrite content.
+"change tone" / "make more senior" / "less formal" → Adjust language style only. Facts unchanged.
+"remove the gap" / "fix spacing" → Fix whitespace/formatting in that section only.
+
+---
+
+## STEP 3 — HARD RULES (NON-NEGOTIABLE)
+
+### RULE 1 — NO FABRICATION
+- Never add job titles, companies, degrees, tools, or dates not in original resume
+- Never change employment dates
+- Never inflate metrics or invent numbers
+- You MAY rephrase real experience with stronger language
+- You MAY reorder bullets for better impact
+- If user explicitly provides new info ("I also know Kubernetes") → add it, but note: "Added based on your input — make sure you can discuss this in interviews."
+
+### RULE 2 — WARN BEFORE HARMFUL EDITS
+If a requested edit would hurt the resume, warn BEFORE making the change:
+"⚠️ Heads up: removing this bullet drops your ATS match for [keyword]. Want me to proceed, or find a better solution?"
+Then wait for user confirmation.
+
+### RULE 3 — FABRICATION WARNING
+If user asks to add something not in original resume:
+"⚠️ I don't see [X] in your original resume. Adding it could backfire in interviews if you can't speak to it.
+Options: (a) Add it anyway, (b) Highlight [similar skill Y] instead, (c) Skip it."
+Wait for their choice.
+
+### RULE 4 — ALWAYS RETURN FULL RESUME AFTER EDITS
+Never return a snippet — always the complete resume. Users should always have a ready-to-copy version.
+
+### RULE 5 — VERSION TRACKING
+Every edit increments the version. Always label: "Resume v[N]:"
+
+### RULE 6 — MAINTAIN JD ALIGNMENT
+After every edit, check internally:
+- Are top 3 JD keywords still in first 1/3 of resume?
+- Did this edit reduce ATS keyword coverage?
+- Is the job title from JD still in the summary?
+If any check fails → flag it to user after making the change.
+
+---
+
+## STEP 4 — RESPONSE FORMAT
+
+### When NO edit was made (question / feedback / vague):
+ANSWER:
+[Your conversational response]
+
+[If relevant] "Would you like me to apply any of this to your resume?"
+
+---
+
+### When an edit WAS made:
+[1-2 sentence friendly acknowledgment of what you changed]
+
+Resume v{version + 1}:
+[Full updated resume in plain text]
+
+✅ Change Log:
+- [What changed and where]
+
+[Optional] 💡 Suggestion: [One optional improvement you noticed]
+
+---
+
+### When user is vague:
+ANSWER:
+"Happy to help! Which part feels off? For example: summary too long, a bullet sounds weak, missing keywords, wrong tone — just point me to it."
+
+### When user wants to reset:
+ANSWER:
+"This will revert to Resume v1 (the original tailored version, before any chat edits). All changes since then will be lost. Confirm? (yes / no)"
+
+### When user finalizes:
+[Return full clean resume with zero commentary]
+
+✅ Resume finalized. Good luck with your application — you've got this!
+
+---
+
+## WHAT YOU NEVER DO
+- Never rewrite sections the user didn't ask about
+- Never silently make extra changes
+- Never say "I cannot do that" for reasonable resume requests
+- Never add experience without warning
+- Never respond with just a snippet of the resume
+- Never start a response with "Certainly!" or "Great question!"
+- Never use: passionate, team player, results-driven, go-getter, synergy, dynamic"""
 
     try:
         client = _client()
         msg = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=3200,
+            max_tokens=4000,
             system=system_prompt,
             messages=messages,
         )
         raw = msg.content[0].text.strip()
 
-        # Parse response
+        # ── Parse response ────────────────────────────────────────────────────
+
+        # ANSWER: — pure conversation, no resume change
         if raw.startswith("ANSWER:"):
-            # Pure conversational reply — no resume change
             answer = raw[len("ANSWER:"):].strip()
-            return {"resume": resume_text, "explanation": answer, "resume_changed": False}
+            return {"resume": resume_text, "explanation": answer, "resume_changed": False, "version": version}
 
-        if "UPDATED RESUME:" in raw and "EXPLANATION:" in raw:
-            parts_exp = raw.split("EXPLANATION:", 1)
-            explanation = parts_exp[1].strip()
-            resume_raw  = parts_exp[0].strip()
-            if resume_raw.startswith("UPDATED RESUME:"):
-                resume_raw = resume_raw[len("UPDATED RESUME:"):].strip()
-            return {"resume": _clean_resume(resume_raw), "explanation": explanation, "resume_changed": True}
+        # Resume v[N]: — edit was made
+        version_match = re.search(r"Resume v(\d+):", raw)
+        if version_match:
+            new_version = int(version_match.group(1))
+            after_label = raw[version_match.end():].strip()
 
+            # Split off Change Log / Suggestion
+            explanation = ""
+            resume_raw  = after_label
+            if "✅ Change Log:" in after_label:
+                parts = after_later = after_label.split("✅ Change Log:", 1)
+                resume_raw  = parts[0].strip()
+                explanation = "✅ Change Log:" + parts[1].strip()
+            elif "✅" in after_label:
+                parts = after_label.split("✅", 1)
+                resume_raw  = parts[0].strip()
+                explanation = "✅" + parts[1].strip()
+
+            return {
+                "resume":         _clean_resume(resume_raw),
+                "explanation":    explanation or "Applied your change.",
+                "resume_changed": True,
+                "version":        new_version,
+            }
+
+        # Legacy fallback — UPDATED RESUME: format
         if "UPDATED RESUME:" in raw:
-            resume_raw = raw.split("UPDATED RESUME:", 1)[1].strip()
-            return {"resume": _clean_resume(resume_raw), "explanation": "Applied your change.", "resume_changed": True}
+            parts = raw.split("UPDATED RESUME:", 1)
+            resume_raw = parts[1]
+            explanation = ""
+            if "EXPLANATION:" in resume_raw:
+                r, e = resume_raw.split("EXPLANATION:", 1)
+                resume_raw  = r.strip()
+                explanation = e.strip()
+            return {
+                "resume":         _clean_resume(resume_raw.strip()),
+                "explanation":    explanation or "Applied your change.",
+                "resume_changed": True,
+                "version":        version + 1,
+            }
 
-        # Fallback — treat whole response as explanation (no edit)
-        return {"resume": resume_text, "explanation": raw, "resume_changed": False}
+        # Fallback — treat as conversational
+        return {"resume": resume_text, "explanation": raw, "resume_changed": False, "version": version}
 
     except Exception as e:
         print(f"[chat_instruction] Error: {e}")
-        return {"resume": resume_text, "explanation": f"Error: {e}", "resume_changed": False}
+        return {"resume": resume_text, "explanation": f"Error: {e}", "resume_changed": False, "version": version}
 
 
 # ── Smart Certification Suggestions ──────────────────────────────────────────

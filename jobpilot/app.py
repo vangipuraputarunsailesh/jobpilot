@@ -146,12 +146,14 @@ class ImproveLineRequest(BaseModel):
     job_title:   str = ""
 
 class ChatInstructionRequest(BaseModel):
-    instruction:   str
-    resume_text:   str
-    description:   str = ""
-    job_title:     str = ""
-    company:       str = ""
-    chat_history:  list = []
+    instruction:      str
+    resume_text:      str
+    description:      str = ""
+    job_title:        str = ""
+    company:          str = ""
+    chat_history:     list = []
+    version:          int  = 1
+    original_resume:  str  = ""
 
 class AnswerRequest(BaseModel):
     question:    str
@@ -450,11 +452,14 @@ async def chat_instruction(req: ChatInstructionRequest):
         job_title=req.job_title,
         company=req.company,
         chat_history=req.chat_history,
+        version=req.version,
+        original_resume=req.original_resume,
     )
     return {
         "updated_resume":  result["resume"],
         "explanation":     result["explanation"],
         "resume_changed":  result.get("resume_changed", True),
+        "version":         result.get("version", req.version),
     }
 
 

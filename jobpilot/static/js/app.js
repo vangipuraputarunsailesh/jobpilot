@@ -741,14 +741,16 @@ function openJob(idx) {
   selectedJob = allJobs[idx];
   if (!jobStates[selectedJob.id]) {
     jobStates[selectedJob.id] = {
-      state:        "idle",   // idle | uploading | generating | gen_form | tailoring | tailored | scored
-      resumeText:   "",
-      resumeName:   "",
-      jdText:       "",
-      tailoredText: "",
-      score:        null,
-      scoreData:    null,
-      chatHistory:  [],       // [{ role, text }]
+      state:           "idle",   // idle | uploading | generating | gen_form | tailoring | tailored | scored
+      resumeText:      "",
+      resumeName:      "",
+      jdText:          "",
+      tailoredText:    "",
+      originalTailored: "",   // v1 snapshot — used for reset
+      resumeVersion:   1,     // increments with each chat edit
+      score:           null,
+      scoreData:       null,
+      chatHistory:     [],    // [{ role, text }]
       previewMode:  true,     // true = live preview, false = raw textarea edit
       hasScored:    false,
       atsAssistMode: "",
@@ -1247,12 +1249,14 @@ async function startTailor() {
     });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
-    st.tailoredText  = d.tailored;
-    st.tailorReport  = d.report      || "";
-    st.jdAnalysis    = d.jd_analysis || "";
-    st.auditFindings = d.audit       || "";
-    st.state         = "tailored";
-    st.chatHistory   = [];
+    st.tailoredText    = d.tailored;
+    st.originalTailored = d.tailored;  // v1 snapshot for reset
+    st.resumeVersion   = 1;
+    st.tailorReport    = d.report      || "";
+    st.jdAnalysis      = d.jd_analysis || "";
+    st.auditFindings   = d.audit       || "";
+    st.state           = "tailored";
+    st.chatHistory     = [];
     showToast("Resume tailored successfully!", "success");
     scheduleAutoAtsScore(250, "tailor");
   } catch (e) {
@@ -1440,20 +1444,22 @@ async function applyInstruction() {
       method:  "POST",
       headers: authHeaders(),
       body:    JSON.stringify({
-        instruction:  instruction,
-        resume_text:  st.tailoredText,
-        description:  st.jdText || "",
-        job_title:    selectedJob.title,
-        company:      selectedJob.company,
-        chat_history: st.chatHistory.slice(0, -1),  // send history excluding the user msg just added
+        instruction:     instruction,
+        resume_text:     st.tailoredText,
+        description:     st.jdText || "",
+        job_title:       selectedJob.title,
+        company:         selectedJob.company,
+        chat_history:    st.chatHistory.slice(0, -1),
+        version:         st.resumeVersion || 1,
+        original_resume: st.originalTailored || st.tailoredText,
       }),
     });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
 
-    // Only update resume if Claude actually made a change
     if (d.resume_changed !== false) {
-      st.tailoredText = d.updated_resume;
+      st.tailoredText  = d.updated_resume;
+      st.resumeVersion = d.version || (st.resumeVersion + 1);
     }
     st.chatHistory.push({ role: "ai", text: d.explanation });
 
