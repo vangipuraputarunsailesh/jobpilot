@@ -69,6 +69,7 @@ class JDRequest(BaseModel):
 class ScoreRequest(BaseModel):
     resume_text: str
     description: str
+    final_check: bool = False
 
 class TailorRequest(BaseModel):
     resume_text: str
@@ -272,7 +273,7 @@ async def score(req: ScoreRequest):
         raise HTTPException(400, "Job description is required")
     _usage["total_ats_scores"] += 1
     _usage["claude_calls"]     += 1
-    return score_ats(req.resume_text, req.description)
+    return score_ats(req.resume_text, req.description, compact_mode=not req.final_check)
 
 
 @app.post("/api/tailor")

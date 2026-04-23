@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/style.css"/>
 </head>
-<body>
+<body data-theme="dark-pro">
 
 <!-- TOP BAR -->
 <header class="topbar">
@@ -23,6 +23,13 @@
     <span class="brand-sub">Enterprise AI · Real jobs from every US company</span>
   </div>
   <div class="topbar-right">
+    <label class="theme-switch" for="theme-select" title="Select app theme">
+      <span class="theme-switch-label">Theme</span>
+      <select id="theme-select" class="theme-select">
+        <option value="dark-pro">Minimal Dark Pro</option>
+        <option value="light-pro">Minimal Light Pro</option>
+      </select>
+    </label>
     <div class="live-chip"><div class="live-dot"></div>Live · Last 24 hours</div>
     <div id="source-chip" class="source-chip" style="display:none"></div>
     <div class="health-indicator" id="health-dot" title="Checking connection..." onclick="toggleUsagePanel()"></div>
@@ -37,7 +44,7 @@
 </div>
 
 <!-- MAIN LAYOUT -->
-<div class="layout">
+<div class="layout" id="app-layout">
 
   <!-- LEFT SIDEBAR -->
   <aside class="sidebar">
@@ -91,6 +98,8 @@
 
   </aside>
 
+  <div class="panel-resizer" data-resize="left" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0" title="Drag to resize"></div>
+
   <!-- MIDDLE: JOB LIST -->
   <main class="mid">
     <div class="mid-top">
@@ -121,6 +130,8 @@
       <div class="stat"><div class="stat-v" id="stat-scored">0</div><div class="stat-l">Scored</div></div>
     </div>
   </main>
+
+  <div class="panel-resizer" data-resize="right" role="separator" aria-orientation="vertical" aria-label="Resize details panel" tabindex="0" title="Drag to resize"></div>
 
   <!-- RIGHT PANEL -->
   <aside class="right-panel" id="right-panel">
