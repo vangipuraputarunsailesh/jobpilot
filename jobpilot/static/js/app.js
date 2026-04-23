@@ -11,6 +11,131 @@
 
 const API = "";  // same origin
 const LAYOUT_STORAGE_KEY = "jobpilot-layout-widths";
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+let _authTab = "login";
+
+function getToken() { return localStorage.getItem("jp_token"); }
+function getEmail()  { return localStorage.getItem("jp_email"); }
+
+function authHeaders() {
+  const t = getToken();
+  return t ? { "Content-Type": "application/json", "Authorization": `Bearer ${t}` }
+           : { "Content-Type": "application/json" };
+}
+
+function showAuthOverlay() {
+  document.getElementById("auth-overlay").style.display = "flex";
+  document.getElementById("app-layout").style.display   = "none";
+  document.body.style.overflow = "hidden";
+}
+
+function hideAuthOverlay() {
+  document.getElementById("auth-overlay").style.display = "none";
+  document.getElementById("app-layout").style.display   = "";
+  document.body.style.overflow = "";
+  const email = getEmail();
+  if (email) {
+    document.getElementById("topbar-user").textContent = email;
+    document.getElementById("topbar-user").style.display = "";
+    document.getElementById("logout-btn").style.display  = "";
+  }
+}
+
+function switchAuthTab(tab) {
+  _authTab = tab;
+  const isLogin = tab === "login";
+  document.getElementById("auth-form-title").textContent  = isLogin ? "Welcome back"      : "Create your account";
+  document.getElementById("auth-form-sub").textContent    = isLogin ? "Log in to your JobPilot account" : "Start your AI-powered job search";
+  document.getElementById("auth-submit-btn").innerHTML    = (isLogin ? "Continue with Email" : "Create Account") +
+    `<svg viewBox="0 0 16 16" fill="none" width="14" height="14"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  document.getElementById("auth-switch-hint").textContent = isLogin ? "New here?"       : "Already have an account?";
+  document.getElementById("auth-switch-btn").textContent  = isLogin ? "Create an account" : "Sign in";
+  document.getElementById("auth-error").style.display = "none";
+}
+
+async function submitAuth() {
+  const email    = document.getElementById("auth-email").value.trim();
+  const password = document.getElementById("auth-password").value;
+  const errEl    = document.getElementById("auth-error");
+  const btn      = document.getElementById("auth-submit-btn");
+
+  if (!email || !password) { showAuthError("Please enter email and password"); return; }
+
+  btn.disabled = true;
+  btn.textContent = _authTab === "login" ? "Signing in..." : "Creating account...";
+
+  try {
+    const endpoint = _authTab === "login" ? "/api/auth/login" : "/api/auth/register";
+    const r = await fetch(API + endpoint, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ email, password }),
+    });
+    const d = await r.json();
+    if (!r.ok) { showAuthError(d.detail || "Something went wrong"); return; }
+    localStorage.setItem("jp_token", d.token);
+    localStorage.setItem("jp_email", d.email);
+    hideAuthOverlay();
+    initApp();
+  } catch {
+    showAuthError("Connection error — is the server running?");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = _authTab === "login" ? "Sign in" : "Create account";
+  }
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById("auth-error");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+function googleSignIn() {
+  const clientId = document.getElementById("g_id_onload").dataset.client_id;
+  if (!clientId) {
+    showAuthError("Google login is not configured yet. Please use email/password.");
+    return;
+  }
+  google.accounts.id.initialize({ client_id: clientId, callback: handleGoogleCredential });
+  google.accounts.id.prompt();
+}
+
+async function handleGoogleCredential(response) {
+  try {
+    const r = await fetch("/api/auth/google", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential: response.credential })
+    });
+    const d = await r.json();
+    if (!r.ok) { showAuthError(d.detail || "Google sign-in failed"); return; }
+    localStorage.setItem("jp_token", d.token);
+    localStorage.setItem("jp_email", d.email);
+    hideAuthOverlay();
+    initApp();
+  } catch {
+    showAuthError("Google sign-in failed — server error");
+  }
+}
+
+function logout() {
+  localStorage.removeItem("jp_token");
+  localStorage.removeItem("jp_email");
+  document.getElementById("topbar-user").style.display = "none";
+  document.getElementById("logout-btn").style.display  = "none";
+  showAuthOverlay();
+}
+
+function checkAuth() {
+  const token = getToken();
+  if (!token) { showAuthOverlay(); return false; }
+  hideAuthOverlay();
+  return true;
+}
+// ── End Auth ──────────────────────────────────────────────────────────────────
 const THEME_STORAGE_KEY = "jobpilot-theme";
 const DEFAULT_THEME = "dark-pro";
 
@@ -200,16 +325,21 @@ function setupAutocomplete(inputId, data, onSelect) {
   });
 }
 
+function initApp() {
+  checkHealth();
+  const inp = document.getElementById("job-title-input");
+  if (inp) inp.focus();
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
   initThemeControls();
-  checkHealth();
   setupAutocomplete("job-title-input", JOB_TITLES);
   setupAutocomplete("location-input", US_LOCATIONS);
   initPanelResizers();
   document.addEventListener("fullscreenchange", syncPreviewFullscreenState);
-  const inp = document.getElementById("job-title-input");
-  if (inp) inp.focus();
+  if (!checkAuth()) return;
+  initApp();
 });
 
 function initThemeControls() {
@@ -489,7 +619,7 @@ async function searchJobs() {
   try {
     const r    = await fetch(`${API}/api/jobs`, {
       method:  "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body:    JSON.stringify({ title, location, seniority }),
       signal:  searchAbortController.signal,
     });
@@ -750,7 +880,7 @@ async function fetchJD() {
   try {
     const r = await fetch(`${API}/api/jd`, {
       method:  "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body:    JSON.stringify({ url: j.url, description: j.description }),
     });
     const d = await r.json();
@@ -763,11 +893,18 @@ async function fetchJD() {
   if (currentTab === "jd") renderTabBody();
 }
 
+function _stripHtml(str) {
+  const tmp = document.createElement("div");
+  tmp.innerHTML = str;
+  return tmp.textContent || tmp.innerText || "";
+}
+
 function saveManualJD() {
   const ta = document.getElementById("manual-jd-input");
   if (!ta || !selectedJob) return;
-  const text = ta.value.trim();
+  let text = ta.value.trim();
   if (!text) { showToast("Paste the job description first", "error"); return; }
+  if (text.includes("<") && text.includes(">")) text = _stripHtml(text).trim();
   jobStates[selectedJob.id].jdText = text;
   renderTabBody();
   showToast("Job description saved!", "success");
@@ -1034,7 +1171,7 @@ async function generateResume() {
   try {
     const r = await fetch(`${API}/api/generate-resume`, {
       method:  "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body:    JSON.stringify({
         description:     description,
         job_title:       j.title,
@@ -1077,7 +1214,7 @@ async function startTailor() {
   try {
     const r = await fetch(`${API}/api/tailor`, {
       method:  "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body:    JSON.stringify({
         resume_text: st.resumeText,
         description: st.jdText,
@@ -1164,7 +1301,7 @@ async function aiImproveLine() {
   ta.setRangeText("⏳ Improving...", s, e, "select");
   try {
     const r = await fetch(`${API}/api/improve-line`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: authHeaders(),
       body: JSON.stringify({ line: original, description: st.jdText, job_title: j.title }),
     });
     const d = await r.json();
@@ -1275,7 +1412,7 @@ async function applyInstruction() {
   try {
     const r = await fetch(`${API}/api/chat-instruction`, {
       method:  "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body:    JSON.stringify({
         instruction:  instruction,
         resume_text:  st.tailoredText,
@@ -1341,7 +1478,7 @@ async function checkATSScore(opts = {}) {
 
   try {
     const r = await fetch(`${API}/api/score`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: authHeaders(),
       body: JSON.stringify({
         resume_text: st.tailoredText,
         description: st.jdText,
@@ -1497,7 +1634,7 @@ async function runAtsBoost(mode = "generic", manualExtras = "") {
   try {
     const r = await fetch(`${API}/api/chat-instruction`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify({
         instruction,
         resume_text: st.tailoredText,
@@ -1517,7 +1654,7 @@ async function runAtsBoost(mode = "generic", manualExtras = "") {
 
     const scoreRes = await fetch(`${API}/api/score`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(),
       body: JSON.stringify({ resume_text: st.tailoredText, description: st.jdText, final_check: true }),
     });
     const newScore = await scoreRes.json();
@@ -1610,7 +1747,7 @@ async function downloadResume(fmt = "pdf", fitPages = 0) {
 
   try {
     const r = await fetch(`${API}/api/download`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: authHeaders(),
       body: JSON.stringify({
         content:   st.tailoredText,
         filename:  st.resumeName || "resume",

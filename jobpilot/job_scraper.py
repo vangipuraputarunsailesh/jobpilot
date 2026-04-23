@@ -169,6 +169,20 @@ def _expand_aliases(title: str) -> list[str]:
     return [title]
 
 
+# ── HTML stripper ─────────────────────────────────────────────────────────────
+
+def _strip_html(text: str) -> str:
+    """Strip HTML tags and decode entities from a string."""
+    if not text or "<" not in text:
+        return text
+    try:
+        from bs4 import BeautifulSoup
+        return BeautifulSoup(text, "html.parser").get_text(separator="\n", strip=True)
+    except Exception:
+        import re
+        return re.sub(r"<[^>]+>", " ", text).strip()
+
+
 # ── Shared HTTP helper ────────────────────────────────────────────────────────
 
 _SESSION = requests.Session()
@@ -510,7 +524,7 @@ def search_apify_linkedin(title: str, location: str, max_results: int = 50) -> l
                 "salary":      j.get("salary") or "Not listed",
                 "url":         j.get("jobUrl") or j.get("url") or "",
                 "source":      "LinkedIn",
-                "description": (j.get("description") or "")[:4000],
+                "description": _strip_html(j.get("description") or "")[:8000],
                 "type":        (j.get("employmentType") or "").replace("_", " ").title(),
             })
     except Exception as e:
@@ -558,7 +572,7 @@ def search_apify_indeed(title: str, location: str, max_results: int = 50) -> lis
                 "salary":      j.get("salary") or j.get("salaryText") or "Not listed",
                 "url":         j.get("url") or j.get("jobUrl") or "",
                 "source":      "Indeed",
-                "description": (j.get("description") or j.get("jobDescription") or "")[:4000],
+                "description": _strip_html(j.get("description") or j.get("jobDescription") or "")[:8000],
                 "type":        (j.get("jobType") or j.get("employmentType") or "").replace("_", " ").title(),
             })
     except Exception as e:
@@ -608,7 +622,7 @@ def search_apify_glassdoor(title: str, location: str, max_results: int = 50) -> 
                 "salary":      sal_str,
                 "url":         j.get("applyUrl") or j.get("jobUrl") or j.get("url") or "",
                 "source":      "Glassdoor",
-                "description": (j.get("description") or j.get("jobDescription") or "")[:4000],
+                "description": _strip_html(j.get("description") or j.get("jobDescription") or "")[:8000],
                 "type":        (j.get("jobType") or j.get("employmentType") or "").replace("_", " ").title(),
             })
     except Exception as e:
@@ -655,7 +669,7 @@ def search_apify_ziprecruiter(title: str, location: str, max_results: int = 50) 
                 "salary":      j.get("salary_interval") or j.get("salary") or "Not listed",
                 "url":         j.get("job_url") or j.get("url") or "",
                 "source":      "ZipRecruiter",
-                "description": (j.get("job_description") or j.get("description") or "")[:4000],
+                "description": _strip_html(j.get("job_description") or j.get("description") or "")[:8000],
                 "type":        (j.get("job_type") or j.get("employmentType") or "").replace("_", " ").title(),
             })
     except Exception as e:
@@ -716,7 +730,7 @@ def search_adzuna(title: str, location: str, pages: int = 4) -> list[dict]:
                     "salary":      _salary(j.get("salary_min"), j.get("salary_max"), "year"),
                     "url":         j.get("redirect_url", ""),
                     "source":      "Adzuna",
-                    "description": j.get("description", "")[:4000],
+                    "description": _strip_html(j.get("description", ""))[:8000],
                     "type":        j.get("contract_time", "").replace("_", " ").title(),
                 })
         except Exception as e:
@@ -823,7 +837,7 @@ def search_remotive(title: str) -> list[dict]:
                 "salary":      j.get("salary") or "See listing",
                 "url":         j.get("url", ""),
                 "source":      "Remotive",
-                "description": (j.get("description") or "")[:4000],
+                "description": _strip_html(j.get("description") or "")[:8000],
                 "type":        "Remote",
             })
     except Exception as e:
@@ -884,7 +898,7 @@ def search_usajobs(title: str, location: str) -> list[dict]:
                 "salary":      sal_str,
                 "url":         url,
                 "source":      "USAJobs",
-                "description": d.get("UserArea", {}).get("Details", {}).get("JobSummary", "")[:4000],
+                "description": _strip_html(d.get("UserArea", {}).get("Details", {}).get("JobSummary", ""))[:8000],
                 "type":        (d.get("PositionSchedule") or [{}])[0].get("Name", ""),
             })
     except Exception as e:
@@ -931,7 +945,7 @@ def search_arbeitnow(title: str) -> list[dict]:
                     "salary":      "See listing",
                     "url":         j.get("url", ""),
                     "source":      "Arbeitnow",
-                    "description": (j.get("description") or "")[:4000],
+                    "description": _strip_html(j.get("description") or "")[:8000],
                     "type":        "Remote" if is_remote else "",
                 })
         except Exception as e:

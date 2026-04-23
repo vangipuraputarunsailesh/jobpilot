@@ -6,17 +6,43 @@ Docs: http://localhost:5000/docs
 
 import os
 import io
+import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
+
+# ── Logging setup ──────────────────────────────────────────────────────────────
+_LOG_DIR = Path(__file__).parent / "logs"
+_LOG_DIR.mkdir(exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        RotatingFileHandler(
+            _LOG_DIR / "jobpilot.log",
+            maxBytes=5 * 1024 * 1024,  # 5 MB per file
+            backupCount=5,             # keep last 5 rotated files
+            encoding="utf-8",
+        ),
+        logging.StreamHandler(),       # also print to terminal
+    ],
+)
+logger = logging.getLogger("jobpilot")
 
 from job_scraper   import search_all_platforms, fetch_job_description, _source_count
+from auth          import init_db, create_user, get_user, verify_password, create_token, decode_token
+import jwt as pyjwt
+
+init_db()
 
 # ── API usage counters (in-memory, resets on server restart) ──────────────────
 _usage = {
@@ -51,11 +77,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    import time
+    start = time.time()
+    response = await call_next(request)
+    ms = (time.time() - start) * 1000
+    logger.info(f"{request.method} {request.url.path} → {response.status_code} ({ms:.0f}ms)")
+    return response
+
+# ── Auth guard ────────────────────────────────────────────────────────────────
+
+_PUBLIC = {"/", "/api/auth/login", "/api/auth/register", "/api/auth/google", "/api/health"}
+
+@app.middleware("http")
+async def auth_guard(request: Request, call_next):
+    path = request.url.path
+    # Allow public paths and static files
+    if path in _PUBLIC or path.startswith("/static"):
+        return await call_next(request)
+    # All other /api/* require a valid JWT
+    if path.startswith("/api/"):
+        token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        if not token:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+        try:
+            decode_token(token)
+        except pyjwt.PyJWTError:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "Invalid or expired token"}, status_code=401)
+    return await call_next(request)
+
 static_dir = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
+
+class AuthRequest(BaseModel):
+    email:    str
+    password: str
 
 class JobSearchRequest(BaseModel):
     title:     str
@@ -120,6 +182,59 @@ async def index():
     return FileResponse(str(Path(__file__).parent / "static" / "index.html"))
 
 
+@app.post("/api/auth/register")
+async def register(req: AuthRequest):
+    if not req.email.strip() or "@" not in req.email:
+        raise HTTPException(400, "Valid email required")
+    if len(req.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+    try:
+        create_user(req.email, req.password)
+        token = create_token(req.email.strip().lower())
+        logger.info(f"REGISTER | {req.email}")
+        return {"token": token, "email": req.email.strip().lower()}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/auth/login")
+async def login(req: AuthRequest):
+    user = get_user(req.email)
+    if not user or not verify_password(req.password, user["password"]):
+        logger.warning(f"LOGIN FAILED | {req.email}")
+        raise HTTPException(401, "Invalid email or password")
+    token = create_token(user["email"])
+    logger.info(f"LOGIN | {req.email}")
+    return {"token": token, "email": user["email"]}
+
+
+class GoogleAuthRequest(BaseModel):
+    credential: str
+
+@app.post("/api/auth/google")
+async def google_login(req: GoogleAuthRequest):
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+    if not client_id:
+        raise HTTPException(500, "Google login not configured — GOOGLE_CLIENT_ID missing")
+    try:
+        from google.oauth2 import id_token
+        from google.auth.transport import requests as google_requests
+        idinfo = id_token.verify_oauth2_token(req.credential, google_requests.Request(), client_id)
+        email = idinfo["email"].lower()
+    except Exception as e:
+        logger.warning(f"GOOGLE AUTH FAILED | {e}")
+        raise HTTPException(401, "Invalid Google token")
+    # Create user if first time, otherwise just log in
+    try:
+        create_user(email, os.urandom(32).hex())  # random password — Google users never use it
+        logger.info(f"GOOGLE REGISTER | {email}")
+    except ValueError:
+        pass  # already exists
+    token = create_token(email)
+    logger.info(f"GOOGLE LOGIN | {email}")
+    return {"token": token, "email": email}
+
+
 @app.get("/api/health")
 async def health():
     key_set  = bool(os.environ.get("ANTHROPIC_API_KEY"))
@@ -174,25 +289,27 @@ async def get_usage():
 async def search_jobs(req: JobSearchRequest):
     if not req.title.strip():
         raise HTTPException(400, "Job title is required")
+    logger.info(f"SEARCH | title='{req.title}' location='{req.location}' seniority='{req.seniority}'")
     _usage["total_searches"]   += 1
-    _usage["jsearch_requests"] += 5   # 5 pages per search
-    _usage["adzuna_requests"]  += 4   # 4 pages per search
-    jobs = search_all_platforms(req.title.strip(), req.location.strip() or "United States", req.seniority or "any")
+    _usage["jsearch_requests"] += 5
+    _usage["adzuna_requests"]  += 4
+    try:
+        jobs = search_all_platforms(req.title.strip(), req.location.strip() or "United States", req.seniority or "any")
+    except Exception as e:
+        logger.error(f"SEARCH ERROR | {e}", exc_info=True)
+        raise HTTPException(500, str(e))
     sources = list({j["source"] for j in jobs})
-    return {
-        "jobs":     jobs,
-        "count":    len(jobs),
-        "sources":  sources,
-        "title":    req.title,
-        "location": req.location,
-    }
+    logger.info(f"SEARCH DONE | {len(jobs)} jobs from {sources}")
+    return {"jobs": jobs, "count": len(jobs), "sources": sources, "title": req.title, "location": req.location}
 
 
 @app.post("/api/jd")
 async def get_jd(req: JDRequest):
     jd = req.description
     if not jd and req.url:
+        logger.info(f"JD FETCH | url={req.url[:80]}")
         jd = fetch_job_description(req.url)
+        logger.info(f"JD FETCH DONE | chars={len(jd)}")
     return {"description": jd}
 
 
@@ -273,7 +390,14 @@ async def score(req: ScoreRequest):
         raise HTTPException(400, "Job description is required")
     _usage["total_ats_scores"] += 1
     _usage["claude_calls"]     += 1
-    return score_ats(req.resume_text, req.description, compact_mode=not req.final_check)
+    logger.info("ATS SCORE | requested")
+    try:
+        result = score_ats(req.resume_text, req.description, compact_mode=not req.final_check)
+        logger.info(f"ATS SCORE | score={result.get('score')} verdict={result.get('verdict')}")
+        return result
+    except Exception as e:
+        logger.error(f"ATS SCORE ERROR | {e}", exc_info=True)
+        raise HTTPException(500, str(e))
 
 
 @app.post("/api/tailor")
@@ -284,8 +408,14 @@ async def tailor(req: TailorRequest):
         raise HTTPException(400, "Job description is required")
     _usage["total_tailors"] += 1
     _usage["claude_calls"]  += 1
-    tailored = tailor_resume(req.resume_text, req.description, req.job_title, req.company)
-    return {"tailored": tailored}
+    logger.info(f"TAILOR | job='{req.job_title}' company='{req.company}'")
+    try:
+        tailored = tailor_resume(req.resume_text, req.description, req.job_title, req.company)
+        logger.info("TAILOR DONE")
+        return {"tailored": tailored}
+    except Exception as e:
+        logger.error(f"TAILOR ERROR | {e}", exc_info=True)
+        raise HTTPException(500, str(e))
 
 
 @app.post("/api/improve-line")
@@ -370,4 +500,4 @@ if __name__ == "__main__":
     print(f"  App URL        : http://localhost:5000")
     print(f"  API docs       : http://localhost:5000/docs")
     print("=" * 60 + "\n")
-    uvicorn.run("app:app", host="0.0.0.0", port=5000, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=5000, reload=False)
