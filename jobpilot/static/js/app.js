@@ -582,9 +582,11 @@ async function searchJobs() {
   const titleEl      = document.getElementById("job-title-input");
   const locationEl   = document.getElementById("location-input");
   const seniorityEl  = document.getElementById("seniority-input");
+  const dateEl       = document.getElementById("date-posted-input");
   const title        = (titleEl?.value || "").trim();
   const location     = (locationEl?.value || "United States").trim();
   const seniority    = seniorityEl?.value || "any";
+  const date_posted  = dateEl?.value || "pastWeek";
   const btn        = document.getElementById("search-btn");
   const btnText    = document.getElementById("search-btn-text");
 
@@ -620,7 +622,7 @@ async function searchJobs() {
     const r    = await fetch(`${API}/api/jobs`, {
       method:  "POST",
       headers: authHeaders(),
-      body:    JSON.stringify({ title, location, seniority }),
+      body:    JSON.stringify({ title, location, seniority, date_posted }),
       signal:  searchAbortController.signal,
     });
     const data = await r.json();

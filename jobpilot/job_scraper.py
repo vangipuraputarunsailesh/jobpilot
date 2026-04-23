@@ -48,6 +48,7 @@ import time
 import random
 import urllib.parse
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from itertools import product as itertools_product
 
@@ -481,7 +482,7 @@ def _title_matches(job_title: str, search_query: str) -> bool:
 
 # ── 1. Apify — LinkedIn Jobs ──────────────────────────────────────────────────
 
-def search_apify_linkedin(title: str, location: str, max_results: int = 50) -> list[dict]:
+def search_apify_linkedin(title: str, location: str, max_results: int = 100, date_posted: str = "pastWeek") -> list[dict]:
     """
     LinkedIn Jobs scraped via Apify (bebity/linkedin-jobs-scraper).
     Fetches exact-title matches for the past 24 hours from LinkedIn directly.
@@ -508,7 +509,7 @@ def search_apify_linkedin(title: str, location: str, max_results: int = 50) -> l
             json={
                 "searchQueries": aliases,
                 "location":      location,
-                "datePosted":    "past24Hours",
+                "datePosted":    date_posted,
                 "maxResults":    max_results,
             },
             timeout=130,
@@ -536,7 +537,7 @@ def search_apify_linkedin(title: str, location: str, max_results: int = 50) -> l
 
 # ── 1b. Apify — Indeed ───────────────────────────────────────────────────────
 
-def search_apify_indeed(title: str, location: str, max_results: int = 50) -> list[dict]:
+def search_apify_indeed(title: str, location: str, max_results: int = 100, date_posted: str = "pastWeek") -> list[dict]:
     """
     Indeed Jobs scraped via Apify (misceres/indeed-scraper).
     Largest job board globally — covers all industries and company sizes.
@@ -556,7 +557,7 @@ def search_apify_indeed(title: str, location: str, max_results: int = 50) -> lis
                 "searchTerms":  aliases,
                 "location":     location,
                 "maxItems":     max_results,
-                "datePosted":   "last24hours",
+                "datePosted":   "last3days" if date_posted == "past24Hours" else ("lastweek" if date_posted == "pastWeek" else "lastmonth"),
                 "countryCode":  "us",
             },
             timeout=130,
@@ -584,7 +585,7 @@ def search_apify_indeed(title: str, location: str, max_results: int = 50) -> lis
 
 # ── 1c. Apify — Glassdoor ─────────────────────────────────────────────────────
 
-def search_apify_glassdoor(title: str, location: str, max_results: int = 50) -> list[dict]:
+def search_apify_glassdoor(title: str, location: str, max_results: int = 100, date_posted: str = "pastWeek") -> list[dict]:
     """
     Glassdoor Jobs scraped via Apify (bebity/glassdoor-jobs-scraper).
     Great for salary data + company ratings alongside job listings.
@@ -604,7 +605,7 @@ def search_apify_glassdoor(title: str, location: str, max_results: int = 50) -> 
                 "searchQuery":  " OR ".join(aliases),   # Glassdoor supports OR queries
                 "location":     location,
                 "maxResults":   max_results,
-                "datePosted":   "1",                    # 1 = last 24 hours on Glassdoor
+                "datePosted":   "1" if date_posted == "past24Hours" else ("7" if date_posted == "pastWeek" else "30"),
             },
             timeout=130,
         )
@@ -634,7 +635,7 @@ def search_apify_glassdoor(title: str, location: str, max_results: int = 50) -> 
 
 # ── 1d. Apify — ZipRecruiter ──────────────────────────────────────────────────
 
-def search_apify_ziprecruiter(title: str, location: str, max_results: int = 50) -> list[dict]:
+def search_apify_ziprecruiter(title: str, location: str, max_results: int = 100, date_posted: str = "pastWeek") -> list[dict]:
     """
     ZipRecruiter Jobs scraped via Apify (radekmie/ziprecruiter-scraper).
     Strong US coverage — especially mid-size companies and SMBs.
@@ -654,7 +655,7 @@ def search_apify_ziprecruiter(title: str, location: str, max_results: int = 50) 
                 "search":     " OR ".join(aliases),   # ZipRecruiter supports OR queries
                 "location":   location,
                 "maxResults": max_results,
-                "days":       1,                      # past 24 hours
+                "days":       1 if date_posted == "past24Hours" else (7 if date_posted == "pastWeek" else 30),
             },
             timeout=130,
         )
@@ -681,7 +682,7 @@ def search_apify_ziprecruiter(title: str, location: str, max_results: int = 50) 
 
 # ── 2. Adzuna ─────────────────────────────────────────────────────────────────
 
-def search_adzuna(title: str, location: str, pages: int = 4) -> list[dict]:
+def search_adzuna(title: str, location: str, pages: int = 4, date_posted: str = "pastWeek") -> list[dict]:
     """
     Adzuna has excellent US coverage including solo founders, SMBs, and enterprises.
     Sign up free at: https://developer.adzuna.com/
@@ -705,7 +706,7 @@ def search_adzuna(title: str, location: str, pages: int = 4) -> list[dict]:
                 "results_per_page": 20,
                 "what_phrase":      title,
                 "where":            location,
-                "max_days_old":     1,
+                "max_days_old":     1 if date_posted == "past24Hours" else (7 if date_posted == "pastWeek" else 30),
                 "sort_by":          "date",
                 "content-type":     "application/json",
             },
@@ -1005,7 +1006,7 @@ def fetch_job_description(url: str) -> str:
 
 # ── Master search ─────────────────────────────────────────────────────────────
 
-def search_all_platforms(title: str, location: str = "United States", seniority: str = "any") -> list[dict]:
+def search_all_platforms(title: str, location: str = "United States", seniority: str = "any", date_posted: str = "pastWeek") -> list[dict]:
     """
     Search all real job APIs and return deduplicated US + remote results.
     Covers FAANG, Fortune 500, mid-market, startups, and solo companies.
@@ -1020,22 +1021,25 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
     all_jobs: list[dict] = []
 
     scrapers = [
-        lambda: search_apify_linkedin(title, location, max_results=50),
-        lambda: search_apify_indeed(title, location, max_results=50),
-        lambda: search_apify_glassdoor(title, location, max_results=50),
-        lambda: search_apify_ziprecruiter(title, location, max_results=50),
-        lambda: search_adzuna(title, location, pages=4),
+        lambda: search_apify_linkedin(title, location, max_results=100, date_posted=date_posted),
+        lambda: search_apify_indeed(title, location, max_results=100, date_posted=date_posted),
+        lambda: search_apify_glassdoor(title, location, max_results=100, date_posted=date_posted),
+        lambda: search_apify_ziprecruiter(title, location, max_results=100, date_posted=date_posted),
+        lambda: search_adzuna(title, location, pages=4, date_posted=date_posted),
         lambda: search_themuse(title, location, pages=4),
         lambda: search_remotive(title),
         lambda: search_usajobs(title, location),
         lambda: search_arbeitnow(title),
     ]
 
-    for fn in scrapers:
-        try:
-            all_jobs.extend(fn())
-        except Exception as e:
-            print(f"  [scraper] Source error: {e}")
+    # Run all scrapers in parallel — total time = slowest single source, not sum of all
+    with ThreadPoolExecutor(max_workers=9) as pool:
+        futures = {pool.submit(fn): fn for fn in scrapers}
+        for future in as_completed(futures):
+            try:
+                all_jobs.extend(future.result())
+            except Exception as e:
+                print(f"  [scraper] Source error: {e}")
 
     total_raw = len(all_jobs)
 

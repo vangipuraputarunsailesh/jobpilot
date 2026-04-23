@@ -120,9 +120,10 @@ class AuthRequest(BaseModel):
     password: str
 
 class JobSearchRequest(BaseModel):
-    title:     str
-    location:  str = "United States"
-    seniority: str = "any"   # any | entry | mid | senior | lead
+    title:       str
+    location:    str = "United States"
+    seniority:   str = "any"   # any | entry | mid | senior | lead
+    date_posted: str = "pastWeek"  # past24Hours | pastWeek | pastMonth
 
 class JDRequest(BaseModel):
     url:         str = ""
@@ -294,7 +295,7 @@ async def search_jobs(req: JobSearchRequest):
     _usage["jsearch_requests"] += 5
     _usage["adzuna_requests"]  += 4
     try:
-        jobs = search_all_platforms(req.title.strip(), req.location.strip() or "United States", req.seniority or "any")
+        jobs = search_all_platforms(req.title.strip(), req.location.strip() or "United States", req.seniority or "any", req.date_posted or "pastWeek")
     except Exception as e:
         logger.error(f"SEARCH ERROR | {e}", exc_info=True)
         raise HTTPException(500, str(e))

@@ -79,6 +79,16 @@
       <div class="s-hint">Filter results by experience level</div>
     </div>
 
+    <div class="sidebar-section">
+      <div class="s-label">Date posted</div>
+      <select class="ctrl-select" id="date-posted-input">
+        <option value="past24Hours">Last 24 hours</option>
+        <option value="pastWeek" selected>Last 7 days</option>
+        <option value="pastMonth">Last 30 days</option>
+      </select>
+      <div class="s-hint">Filter by when the job was posted</div>
+    </div>
+
     <div class="sidebar-section api-status-section" id="api-status-section" style="display:none">
       <div class="s-label">Active sources</div>
       <div class="api-status-list" id="api-status-list"></div>
