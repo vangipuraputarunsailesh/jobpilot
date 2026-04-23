@@ -795,6 +795,14 @@ function renderRightPanel() {
   renderTabBody();
 }
 
+function switchReportTab(btn, panelId) {
+  document.querySelectorAll(".tr-tab").forEach(t => t.classList.remove("tr-tab-active"));
+  document.querySelectorAll(".tr-panel").forEach(p => p.style.display = "none");
+  btn.classList.add("tr-tab-active");
+  const panel = document.getElementById(panelId);
+  if (panel) panel.style.display = "";
+}
+
 function switchTab(tab) {
   const st = jobStates[selectedJob.id];
   if (tab === "score" && st.state !== "scored") return;
@@ -1083,6 +1091,19 @@ function buildTailorTab(j, st) {
           </div>
         </div>
 
+        ${(st.jdAnalysis || st.auditFindings || st.tailorReport) ? `
+        <!-- TAILORING REPORT -->
+        <div class="tailor-report">
+          <div class="tailor-report-tabs">
+            <button class="tr-tab tr-tab-active" onclick="switchReportTab(this,'tr-jd')">JD Analysis</button>
+            <button class="tr-tab" onclick="switchReportTab(this,'tr-audit')">Resume Audit</button>
+            <button class="tr-tab" onclick="switchReportTab(this,'tr-report')">Tailoring Report</button>
+          </div>
+          <div class="tr-panel" id="tr-jd">${escHtml(st.jdAnalysis||"").replace(/\n/g,"<br>")}</div>
+          <div class="tr-panel" id="tr-audit" style="display:none">${escHtml(st.auditFindings||"").replace(/\n/g,"<br>")}</div>
+          <div class="tr-panel" id="tr-report" style="display:none">${escHtml(st.tailorReport||"").replace(/\n/g,"<br>")}</div>
+        </div>` : ""}
+
       </div>`;
   }
 
@@ -1227,6 +1248,9 @@ async function startTailor() {
     const d = await r.json();
     if (d.error) throw new Error(d.error);
     st.tailoredText  = d.tailored;
+    st.tailorReport  = d.report      || "";
+    st.jdAnalysis    = d.jd_analysis || "";
+    st.auditFindings = d.audit       || "";
     st.state         = "tailored";
     st.chatHistory   = [];
     showToast("Resume tailored successfully!", "success");

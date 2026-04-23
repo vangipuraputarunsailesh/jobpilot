@@ -411,9 +411,14 @@ async def tailor(req: TailorRequest):
     _usage["claude_calls"]  += 1
     logger.info(f"TAILOR | job='{req.job_title}' company='{req.company}'")
     try:
-        tailored = tailor_resume(req.resume_text, req.description, req.job_title, req.company)
+        result = tailor_resume(req.resume_text, req.description, req.job_title, req.company)
         logger.info("TAILOR DONE")
-        return {"tailored": tailored}
+        return {
+            "tailored":    result["resume"],
+            "report":      result.get("report", ""),
+            "jd_analysis": result.get("jd_analysis", ""),
+            "audit":       result.get("audit", ""),
+        }
     except Exception as e:
         logger.error(f"TAILOR ERROR | {e}", exc_info=True)
         raise HTTPException(500, str(e))
