@@ -1,0 +1,11 @@
+*.tar
+jobpilot/blobs/
+jobpilot/index.json
+jobpilot/manifest.json
+jobpilot/oci-layout
+jobpilot/users.db
+jobpilot/generated/
+jobpilot/logs/
+jobpilot/.env
+jobpilot/__pycache__/
+.claude/
