@@ -204,7 +204,7 @@ def _get(url: str, headers: dict = None, params: dict = None, timeout: int = 15)
         return r
     except Exception as e:
         print(f"  [scraper] GET failed: {url[:70]}  —  {e}")
-        return None
+        return None55
 
 
 # ── Date normalizer ───────────────────────────────────────────────────────────

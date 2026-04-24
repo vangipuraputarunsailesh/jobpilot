@@ -855,7 +855,16 @@ function buildJDTab(j, st) {
         <button class="btn-primary" onclick="saveManualJD()">Save &amp; use this description</button>
       </div>`;
   } else {
-    jdContent = `<div class="jd-content">${formatJD(st.jdText)}</div>`;
+    jdContent = `
+      <div class="jd-content">${formatJD(st.jdText)}</div>
+      <div class="paste-jd-optional">
+        <button class="btn-ghost paste-jd-toggle" onclick="togglePasteBox()">✏ Use a different description</button>
+        <div class="paste-jd-box" id="optional-paste-box" style="display:none">
+          <textarea class="paste-jd-textarea" id="manual-jd-input"
+            placeholder="Paste the full job description here..."></textarea>
+          <button class="btn-primary" onclick="saveManualJD()">Save &amp; use this description</button>
+        </div>
+      </div>`;
   }
   return `
     <div class="job-detail-header">
@@ -920,6 +929,13 @@ function saveManualJD() {
   jobStates[selectedJob.id].jdText = text;
   renderTabBody();
   showToast("Job description saved!", "success");
+}
+
+function togglePasteBox() {
+  const box = document.getElementById("optional-paste-box");
+  if (!box) return;
+  const visible = box.style.display !== "none";
+  box.style.display = visible ? "none" : "block";
 }
 
 // ── Tailor Tab ────────────────────────────────────────────────────────────────

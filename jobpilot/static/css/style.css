@@ -1198,6 +1198,13 @@ body {
 }
 .paste-jd-textarea:focus { border-color: var(--primary); }
 .paste-jd-textarea::placeholder { color: var(--text3); }
+.paste-jd-optional { margin-top: 8px; }
+.paste-jd-toggle {
+  font-size: 11px; padding: 5px 10px;
+  color: var(--text3); border-color: var(--border);
+}
+.paste-jd-toggle:hover { color: var(--text2); border-color: var(--border2); }
+#optional-paste-box { margin-top: 8px; }
 
 /* ── TOAST ── */
 .toast {

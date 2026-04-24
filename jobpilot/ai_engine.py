@@ -736,15 +736,12 @@ ANSWER:
 ---
 
 ### When an edit WAS made:
-[1-2 sentence friendly acknowledgment of what you changed]
+[1 sentence: what you changed]
 
 Resume v{version + 1}:
 [Full updated resume in Markdown format — same structure as input: # Name, contact line, ## SECTION headers, **Company** | **Title** | Date, *location*, - bullets, **Category:** skills]
 
-✅ Change Log:
-- [What changed and where]
-
-[Optional] 💡 Suggestion: [One optional improvement you noticed]
+✅ Change Log: [One line — what changed and where]
 
 ---
 
