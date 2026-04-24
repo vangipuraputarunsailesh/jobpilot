@@ -15,6 +15,10 @@ import json
 import re
 import os
 from dotenv import load_dotenv
+from resume_normalizer import (
+    normalize_resume, get_canonical_section,
+    NORMALIZATION_RULES, SECTION_SYNONYMS,
+)
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
 
@@ -205,7 +209,9 @@ def score_ats(resume_text: str, job_description: str, compact_mode: bool = False
 
     prompt = f"""You are an expert ATS (Applicant Tracking System) analyst with deep knowledge of hiring systems used by Amazon, Microsoft, Google, and Meta.
 
-Analyze how well this resume matches the job description. Be accurate and honest — do not inflate scores.
+{NORMALIZATION_RULES}
+
+Analyze how well this resume matches the job description using the normalization rules above. Be accurate and honest — do not inflate scores.
 
 Return a JSON object with these exact keys:
 {{
@@ -249,22 +255,49 @@ JOB DESCRIPTION:
 # ── Resume Tailoring ──────────────────────────────────────────────────────────
 
 def _extract_section(text: str, header: str) -> str:
-    """Extract a named section from resume text (e.g. EDUCATION, CERTIFICATIONS)."""
+    """
+    Extract a named section from resume text.
+    Uses SECTION_SYNONYMS so 'CORE COMPETENCIES' is found when asking for 'skills'.
+    """
+    # Find the canonical name we're looking for
+    target_canonical = SECTION_SYNONYMS.get(header.lower(), header.lower())
+
     lines = text.split("\n")
     in_section = False
     result = []
-    header_up = header.upper()
+
     for line in lines:
-        stripped = line.strip().upper()
-        if stripped == header_up or stripped.startswith(header_up):
+        stripped = line.strip()
+        stripped_up = stripped.upper()
+        stripped_lower = stripped.lower().rstrip(":")
+
+        # Check if this line is the section we want
+        line_canonical = SECTION_SYNONYMS.get(stripped_lower, stripped_lower)
+        is_target = (
+            line_canonical == target_canonical
+            or stripped_up == header.upper()
+            or stripped_up.startswith(header.upper())
+        )
+
+        if is_target:
             in_section = True
             result.append(line)
             continue
+
         if in_section:
             # Stop at next ALL-CAPS section header
-            if stripped and stripped == stripped.replace(" ", "").upper().replace("&","").replace("/","") and len(stripped) > 3 and stripped != stripped.lower() and all(c.isupper() or not c.isalpha() for c in stripped):
+            cleaned = stripped.replace(" ", "").replace("&", "").replace("/", "")
+            is_new_header = (
+                cleaned
+                and cleaned == cleaned.upper()
+                and cleaned.isalpha()
+                and len(cleaned) > 2
+            ) or (get_canonical_section(stripped) is not None and get_canonical_section(stripped) != target_canonical)
+
+            if is_new_header:
                 break
             result.append(line)
+
     return "\n".join(result).strip()
 
 
@@ -449,33 +482,35 @@ highest-priority JD skills first.
 ---
 
 ### SECTION 3: TAILORED RESUME
-[Full resume in plain text — ready to copy-paste]
+Output the resume in this EXACT Markdown format — no deviations:
 
-[Candidate Full Name]
+# [Candidate Full Name]
 [Phone] | [Email] | [LinkedIn] | [Location]
 
-PROFESSIONAL SUMMARY
+## PROFESSIONAL SUMMARY
 [3-4 sentences per Rule 7]
 
-CORE COMPETENCIES
-[Grouped keywords per Rule 9]
+## SKILLS
+**[Category]:** skill1, skill2, skill3
+**[Category]:** skill1, skill2, skill3
 
-WORK EXPERIENCE
+## EXPERIENCE
 
-[Company Name] | [Job Title] | [MM/YYYY – MM/YYYY]
-- [Rewritten bullet]
+**[Company Name]** | **[Job Title]** | [Mon YYYY – Mon YYYY]
+*[City, State]*
+- [Rewritten bullet using Google XYZ formula]
 - [Rewritten bullet]
 
 [Repeat for each role]
 
-PROJECTS (if applicable)
-[Project Name]
+## PROJECTS
+**[Project Name]** — *Tech Stack: tool1, tool2*
 - [Relevant bullet]
 
-EDUCATION
+## EDUCATION
 EDUCATION_PLACEHOLDER
 
-CERTIFICATIONS
+## CERTIFICATIONS
 CERTIFICATIONS_PLACEHOLDER
 
 ---
@@ -704,7 +739,7 @@ ANSWER:
 [1-2 sentence friendly acknowledgment of what you changed]
 
 Resume v{version + 1}:
-[Full updated resume in plain text]
+[Full updated resume in Markdown format — same structure as input: # Name, contact line, ## SECTION headers, **Company** | **Title** | Date, *location*, - bullets, **Category:** skills]
 
 ✅ Change Log:
 - [What changed and where]
@@ -993,29 +1028,40 @@ Software Engineer: ask user for stack before inferring
 
 ---
 
-## RESUME STRUCTURE (build in this exact order)
+## RESUME STRUCTURE (build in this EXACT Markdown format)
 
-[Full Name]
+# [Full Name]
 [Phone] | [Email] | [LinkedIn] | [City, State]
 
-PROFESSIONAL SUMMARY
+## PROFESSIONAL SUMMARY
 3-4 sentences: [X] years as [Target Role] | strongest achievement with placeholder | key tech stack | optional soft skill
 
-CORE COMPETENCIES
-Grouped: Languages & Query | Cloud Platforms | Frameworks & Tools | Concepts & Methods
+## SKILLS
+**Languages & Query:** skill1, skill2
+**Cloud Platforms:** skill1, skill2
+**Frameworks & Tools:** skill1, skill2
+**Concepts & Methods:** skill1, skill2
 
-WORK EXPERIENCE (most recent first)
-[Company] | [Job Title] | [MM/YYYY – MM/YYYY]
+## EXPERIENCE
+
+**[Company]** | **[Job Title]** | [Mon YYYY – Mon YYYY]
+*[City, State]*
 - Strongest bullet (metric/business impact)
 - Technical bullet (tool + built + outcome placeholder)
 - Collaboration or scale bullet
 
-PROJECTS (include for freshers, thin experience, or if provided)
+## PROJECTS
 
-EDUCATION
-[Degree], [Major] | [University] | [Year]
+**[Project Name]** — *Tech Stack: tool1, tool2*
+- Relevant bullet
 
-CERTIFICATIONS (only if mentioned)
+## EDUCATION
+
+**[Degree Name]**
+[University] — [City, State]
+
+## CERTIFICATIONS
+- [Cert name] — [Provider]
 
 ---
 

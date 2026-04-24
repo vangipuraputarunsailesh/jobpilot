@@ -4,6 +4,7 @@ resume_reader.py  —  reads .txt, .docx, and .pdf resume files
 
 import os
 from pathlib import Path
+from resume_normalizer import get_canonical_section
 
 
 RESUMES_DIR = Path(__file__).parent / "resumes"
@@ -88,9 +89,25 @@ def save_tailored_resume(filename: str, content: str) -> str:
 
 def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
     """
-    Save tailored resume as PDF matching the original format exactly.
-    max_pages=0 → no limit; max_pages=1 or 2 → auto-shrink to fit.
+    Save tailored resume as a styled PDF using HTML/CSS templates.
+    Template 1 (black)  = 1-page style  (auto-selected for short content)
+    Template 2 (teal)   = 2-page style  (auto-selected for long content)
+    max_pages=0 → auto-detect; 1 or 2 → force that template + fit.
     """
+    out_dir = Path(__file__).parent / "generated"
+    out_dir.mkdir(exist_ok=True)
+    base     = Path(filename).stem
+    out_path = out_dir / f"{base}_tailored.pdf"
+
+    try:
+        from resume_templates import render_to_pdf
+        pdf_bytes = render_to_pdf(content, max_pages=max_pages)
+        out_path.write_bytes(pdf_bytes)
+        return str(out_path)
+    except Exception as e:
+        print(f"[pdf template] WeasyPrint failed ({e}), falling back to ReportLab")
+
+    # ── ReportLab fallback ────────────────────────────────────────────────────
     import re
     import io
 
@@ -188,8 +205,12 @@ def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
             stripped = line.strip()
             if len(stripped) < 3:
                 return False
-            # ALL CAPS or common section names
-            return stripped.replace(" ", "").replace("&", "").replace("/", "").isupper()
+            # Known section synonym (e.g. "Core Competencies", "Professional Summary")
+            if get_canonical_section(stripped):
+                return True
+            # ALL CAPS line fallback
+            cleaned = stripped.replace(" ", "").replace("&", "").replace("/", "")
+            return cleaned == cleaned.upper() and cleaned.isalpha() and len(cleaned) > 2
 
         def _split_company_date(line):
             m = DATE_RE.search(line)
@@ -254,7 +275,7 @@ def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
 
             # ── Section headers ───────────────────────────────────────────────
             if _is_section_header(line):
-                in_education = "EDUCATION" in line.upper()
+                in_education = get_canonical_section(line.strip()) == "education"
                 story.append(Paragraph(_escape(line), section_style))
                 story.append(HRFlowable(
                     width=TEXT_W, thickness=0.5, color=colors.HexColor("#999999"),
@@ -322,8 +343,8 @@ def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
                     new_story.append(Paragraph(_escape(ln.replace("|","  |  ")), scaled_contact))
                     new_story.append(HRFlowable(width=TEXT_W, thickness=0.8*scale, color=BLACK, spaceBefore=0, spaceAfter=5*scale, hAlign="LEFT"))
                     _hd = True; continue
-                if ln.replace(" ","").replace("&","").replace("/","").isupper() and len(ln) > 2:
-                    _ined = "EDUCATION" in ln.upper()
+                if ln.replace(" ","").replace("&","").replace("/","").isupper() and len(ln) > 2 or get_canonical_section(ln.strip()):
+                    _ined = get_canonical_section(ln.strip()) == "education"
                     new_story.append(Paragraph(_escape(ln), scaled_section))
                     new_story.append(HRFlowable(width=TEXT_W, thickness=0.5*scale, color=colors.HexColor("#999999"), spaceBefore=0, spaceAfter=3*scale, hAlign="LEFT"))
                     continue
