@@ -15,6 +15,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Pre-create runtime directories so they are available from the first request
+RUN mkdir -p /app/logs /app/generated /app/resumes
+
+# Default port for local development; Railway overrides this via the PORT env var
 EXPOSE 5000
 
 CMD ["python", "app.py"]
