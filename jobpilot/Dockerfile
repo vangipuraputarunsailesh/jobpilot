@@ -15,9 +15,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Persist uploads and logs outside the container layer
-VOLUME ["/app/resumes", "/app/logs", "/app/generated"]
-
 EXPOSE 5000
 
 CMD ["python", "app.py"]
