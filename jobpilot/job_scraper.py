@@ -46,11 +46,72 @@ import os
 import re
 import time
 import random
+import threading
 import urllib.parse
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from itertools import product as itertools_product
+
+
+# ── Apify quota / availability helpers ───────────────────────────────────────
+
+_apify_usable: bool | None = None   # None = not yet checked
+_apify_usable_lock: threading.Lock = threading.Lock()
+
+# Set to True at runtime when any actor call returns HTTP 402 (credits gone)
+_apify_quota_exceeded: bool = False
+_apify_quota_lock: threading.Lock = threading.Lock()
+
+
+def _apify_check_token(token: str) -> bool:
+    """
+    Quick pre-flight check — verify the Apify token is accepted by the API.
+    Caches the result for the lifetime of the process so the HTTP call is
+    made only once no matter how many Apify scrapers are scheduled.
+
+    Returns True  → proceed with actor runs
+            False → skip all Apify sources (invalid token or connectivity issue)
+    """
+    global _apify_usable
+    with _apify_usable_lock:
+        if _apify_usable is not None:
+            return _apify_usable
+        try:
+            r = _SESSION.get(
+                "https://api.apify.com/v2/users/me",
+                params={"token": token},
+                timeout=10,
+            )
+            if r.status_code == 401:
+                print("  [apify] Invalid token — skipping all Apify sources")
+                _apify_usable = False
+                return False
+            r.raise_for_status()
+            _apify_usable = True
+            return True
+        except requests.Timeout:
+            print("  [apify] Pre-flight check timed out — skipping Apify sources")
+            _apify_usable = False
+            return False
+        except Exception as e:
+            print(f"  [apify] Pre-flight check failed ({e}) — skipping Apify sources")
+            _apify_usable = False
+            return False
+
+
+def _apify_should_run() -> bool:
+    """Return False once any actor call has reported HTTP 402 (quota exceeded)."""
+    return not _apify_quota_exceeded
+
+
+def _apify_mark_quota_exceeded() -> None:
+    """Mark that the Apify account has run out of compute credits."""
+    global _apify_quota_exceeded
+    with _apify_quota_lock:
+        if not _apify_quota_exceeded:
+            print("  [apify] Free-tier compute credits exhausted — skipping remaining Apify sources")
+            _apify_quota_exceeded = True
 
 
 # ── Role Alias Map ────────────────────────────────────────────────────────────
@@ -204,7 +265,7 @@ def _get(url: str, headers: dict = None, params: dict = None, timeout: int = 15)
         return r
     except Exception as e:
         print(f"  [scraper] GET failed: {url[:70]}  —  {e}")
-        return None55
+        return None
 
 
 # ── Date normalizer ───────────────────────────────────────────────────────────
@@ -499,21 +560,26 @@ def search_apify_linkedin(title: str, location: str, max_results: int = 100, dat
     if not token:
         print("  [apify] APIFY_API_TOKEN not set — skipping (sign up at apify.com)")
         return []
+    if not _apify_check_token(token) or not _apify_should_run():
+        return []
 
     aliases = _expand_aliases(title)
     jobs = []
     try:
         r = _SESSION.post(
             "https://api.apify.com/v2/acts/bebity~linkedin-jobs-scraper/run-sync-get-dataset-items",
-            params={"token": token, "timeout": 120, "memory": 256},
+            params={"token": token, "timeout": 25, "memory": 256},
             json={
                 "searchQueries": aliases,
                 "location":      location,
                 "datePosted":    date_posted,
                 "maxResults":    max_results,
             },
-            timeout=130,
+            timeout=30,
         )
+        if r.status_code == 402:
+            _apify_mark_quota_exceeded()
+            return []
         r.raise_for_status()
         for j in r.json():
             jobs.append({
@@ -528,6 +594,8 @@ def search_apify_linkedin(title: str, location: str, max_results: int = 100, dat
                 "description": _strip_html(j.get("description") or "")[:8000],
                 "type":        (j.get("employmentType") or "").replace("_", " ").title(),
             })
+    except requests.Timeout:
+        print("  [apify] LinkedIn request timed out — skipping")
     except Exception as e:
         print(f"  [apify] Error: {e}")
 
@@ -546,13 +614,15 @@ def search_apify_indeed(title: str, location: str, max_results: int = 100, date_
     token = os.environ.get("APIFY_API_TOKEN", "")
     if not token:
         return []
+    if not _apify_check_token(token) or not _apify_should_run():
+        return []
 
     aliases = _expand_aliases(title)
     jobs = []
     try:
         r = _SESSION.post(
             "https://api.apify.com/v2/acts/misceres~indeed-scraper/run-sync-get-dataset-items",
-            params={"token": token, "timeout": 120, "memory": 256},
+            params={"token": token, "timeout": 25, "memory": 256},
             json={
                 "searchTerms":  aliases,
                 "location":     location,
@@ -560,8 +630,11 @@ def search_apify_indeed(title: str, location: str, max_results: int = 100, date_
                 "datePosted":   "last3days" if date_posted == "past24Hours" else ("lastweek" if date_posted == "pastWeek" else "lastmonth"),
                 "countryCode":  "us",
             },
-            timeout=130,
+            timeout=30,
         )
+        if r.status_code == 402:
+            _apify_mark_quota_exceeded()
+            return []
         r.raise_for_status()
         for j in r.json():
             jobs.append({
@@ -576,6 +649,8 @@ def search_apify_indeed(title: str, location: str, max_results: int = 100, date_
                 "description": _strip_html(j.get("description") or j.get("jobDescription") or "")[:8000],
                 "type":        (j.get("jobType") or j.get("employmentType") or "").replace("_", " ").title(),
             })
+    except requests.Timeout:
+        print("  [apify-indeed] Request timed out — skipping")
     except Exception as e:
         print(f"  [apify-indeed] Error: {e}")
 
@@ -594,21 +669,26 @@ def search_apify_glassdoor(title: str, location: str, max_results: int = 100, da
     token = os.environ.get("APIFY_API_TOKEN", "")
     if not token:
         return []
+    if not _apify_check_token(token) or not _apify_should_run():
+        return []
 
     aliases = _expand_aliases(title)
     jobs = []
     try:
         r = _SESSION.post(
             "https://api.apify.com/v2/acts/bebity~glassdoor-jobs-scraper/run-sync-get-dataset-items",
-            params={"token": token, "timeout": 120, "memory": 256},
+            params={"token": token, "timeout": 25, "memory": 256},
             json={
                 "searchQuery":  " OR ".join(aliases),   # Glassdoor supports OR queries
                 "location":     location,
                 "maxResults":   max_results,
                 "datePosted":   "1" if date_posted == "past24Hours" else ("7" if date_posted == "pastWeek" else "30"),
             },
-            timeout=130,
+            timeout=30,
         )
+        if r.status_code == 402:
+            _apify_mark_quota_exceeded()
+            return []
         r.raise_for_status()
         for j in r.json():
             sal_min = j.get("payPeriodAdjustedPay", {}).get("p10") if isinstance(j.get("payPeriodAdjustedPay"), dict) else None
@@ -626,6 +706,8 @@ def search_apify_glassdoor(title: str, location: str, max_results: int = 100, da
                 "description": _strip_html(j.get("description") or j.get("jobDescription") or "")[:8000],
                 "type":        (j.get("jobType") or j.get("employmentType") or "").replace("_", " ").title(),
             })
+    except requests.Timeout:
+        print("  [apify-glassdoor] Request timed out — skipping")
     except Exception as e:
         print(f"  [apify-glassdoor] Error: {e}")
 
@@ -644,21 +726,26 @@ def search_apify_ziprecruiter(title: str, location: str, max_results: int = 100,
     token = os.environ.get("APIFY_API_TOKEN", "")
     if not token:
         return []
+    if not _apify_check_token(token) or not _apify_should_run():
+        return []
 
     aliases = _expand_aliases(title)
     jobs = []
     try:
         r = _SESSION.post(
             "https://api.apify.com/v2/acts/radekmie~ziprecruiter-scraper/run-sync-get-dataset-items",
-            params={"token": token, "timeout": 120, "memory": 256},
+            params={"token": token, "timeout": 25, "memory": 256},
             json={
                 "search":     " OR ".join(aliases),   # ZipRecruiter supports OR queries
                 "location":   location,
                 "maxResults": max_results,
                 "days":       1 if date_posted == "past24Hours" else (7 if date_posted == "pastWeek" else 30),
             },
-            timeout=130,
+            timeout=30,
         )
+        if r.status_code == 402:
+            _apify_mark_quota_exceeded()
+            return []
         r.raise_for_status()
         for j in r.json():
             jobs.append({
@@ -673,6 +760,8 @@ def search_apify_ziprecruiter(title: str, location: str, max_results: int = 100,
                 "description": _strip_html(j.get("job_description") or j.get("description") or "")[:8000],
                 "type":        (j.get("job_type") or j.get("employmentType") or "").replace("_", " ").title(),
             })
+    except requests.Timeout:
+        print("  [apify-ziprecruiter] Request timed out — skipping")
     except Exception as e:
         print(f"  [apify-ziprecruiter] Error: {e}")
 
@@ -1019,6 +1108,12 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
     """
     print(f"\n[scraper] Searching: '{title}' in '{location}'")
     all_jobs: list[dict] = []
+
+    # ── Pre-flight: verify Apify token once before dispatching any actor tasks ─
+    # This avoids spinning up 4 parallel threads that all wait 30 s only to fail.
+    apify_token = os.environ.get("APIFY_API_TOKEN", "")
+    if apify_token:
+        _apify_check_token(apify_token)   # caches result; scrapers will read it
 
     scrapers = [
         lambda: search_apify_linkedin(title, location, max_results=100, date_posted=date_posted),
