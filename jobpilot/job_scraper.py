@@ -2,22 +2,19 @@
 job_scraper.py  —  Enterprise job search via real aggregator APIs
 
 Sources (in order of coverage):
-  1. Apify / LinkedIn     — direct LinkedIn Jobs scrape, exact titles, past 24hrs
-  2. Apify / Indeed       — largest job board globally, all industries
-  3. Apify / Glassdoor    — salary data + company ratings alongside listings
-  4. Apify / ZipRecruiter — strong US mid-size and SMB coverage
-  5. Adzuna               — broad US market, excellent small-company coverage
-  6. The Muse             — free, no key, tech & startup companies
-  7. Remotive             — free, no key, remote-only positions
-  8. USAJobs              — free, government / federal positions
-  9. Arbeitnow            — free, no key, remote + international with US filter
+  1. JSearch (RapidAPI)   — aggregates LinkedIn, Indeed, Glassdoor, ZipRecruiter via Google Jobs
+  2. Adzuna               — broad US market, excellent small-company coverage
+  3. The Muse             — free, no key, tech & startup companies
+  4. Remotive             — free, no key, remote-only positions
+  5. USAJobs              — free, government / federal positions
+  6. Arbeitnow            — free, no key, remote + international with US filter
 
 All sources are filtered to US + Remote jobs only.
 Results are deduplicated by title+company.
 
 Required env vars (set in .env):
   ANTHROPIC_API_KEY   — already set
-  APIFY_API_TOKEN     — sign up free at apify.com (bebity/linkedin-jobs-scraper)
+  RAPIDAPI_KEY        — sign up free at rapidapi.com, subscribe to JSearch (500 req/mo free)
   ADZUNA_APP_ID       — sign up free at developer.adzuna.com
   ADZUNA_APP_KEY      — same as above
   USAJOBS_API_KEY     — sign up free at developer.usajobs.gov
@@ -46,7 +43,9 @@ import os
 import re
 import time
 import random
+import json
 import urllib.parse
+from pathlib import Path
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -204,7 +203,90 @@ def _get(url: str, headers: dict = None, params: dict = None, timeout: int = 15)
         return r
     except Exception as e:
         print(f"  [scraper] GET failed: {url[:70]}  —  {e}")
-        return None55
+        return None
+
+
+APIFY_ACTOR_CONFIG_FILE = Path(__file__).with_name("apify_actors.json")
+DEFAULT_APIFY_ACTORS = {
+    "linkedin":    "bebity/linkedin-jobs-scraper",
+    "indeed":     "misceres/indeed-scraper",
+    "glassdoor":  "bebity/glassdoor-jobs-scraper",
+    "ziprecruiter":"radekmie/ziprecruiter-scraper",
+    "modular":    "",
+}
+
+
+def _load_apify_actor_config() -> dict[str, str]:
+    actors = DEFAULT_APIFY_ACTORS.copy()
+    if not APIFY_ACTOR_CONFIG_FILE.exists():
+        return actors
+    try:
+        data = json.loads(APIFY_ACTOR_CONFIG_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if isinstance(value, str) and key in actors:
+                    actors[key] = value.strip()
+    except Exception as e:
+        print(f"  [apify] Failed to load {APIFY_ACTOR_CONFIG_FILE.name}: {e}")
+    return actors
+
+
+def _discover_apify_actors(token: str) -> dict[str, str]:
+    discovered: dict[str, str] = {}
+    if not token:
+        return discovered
+    try:
+        r = _SESSION.get(
+            "https://api.apify.com/v2/acts",
+            params={"token": token, "search": "job", "limit": 200},
+            timeout=30,
+        )
+        r.raise_for_status()
+        payload = r.json()
+        items = payload.get("data", {}).get("items", []) if isinstance(payload, dict) else []
+        for item in items:
+            actor_name = str(item.get("name", "")).strip()
+            username = str(item.get("username", "")).strip()
+            if not actor_name or not username:
+                continue
+            full_id = f"{username}~{actor_name}"
+            lower = actor_name.lower()
+            if "linkedin" in lower and "linkedin" not in discovered:
+                discovered["linkedin"] = full_id
+            elif "glassdoor" in lower and "glassdoor" not in discovered:
+                discovered["glassdoor"] = full_id
+            elif "ziprecruiter" in lower and "ziprecruiter" not in discovered:
+                discovered["ziprecruiter"] = full_id
+            elif "indeed" in lower and "indeed" not in discovered:
+                discovered["indeed"] = full_id
+            elif "monster" in lower and "modular" not in discovered:
+                discovered["modular"] = full_id
+            elif "job" in lower and ("scraper" in lower or "search" in lower):
+                discovered.setdefault("modular", full_id)
+    except Exception as e:
+        print(f"  [apify] Actor discovery failed: {e}")
+    return discovered
+
+
+def _get_apify_actor_ids() -> dict[str, str]:
+    actors = DEFAULT_APIFY_ACTORS.copy()
+    token = os.environ.get("APIFY_API_TOKEN", "").strip()
+    if token:
+        discovered = _discover_apify_actors(token)
+        for key, actor_id in discovered.items():
+            if actor_id:
+                actors[key] = actor_id
+    config_actors = _load_apify_actor_config()
+    for key, actor_id in config_actors.items():
+        if actor_id:
+            actors[key] = actor_id
+    env_modular = os.environ.get("APIFY_MODULAR_ACTOR_ID", "").strip()
+    if env_modular:
+        actors["modular"] = env_modular
+    return actors
+
+
+APIFY_ACTORS = _get_apify_actor_ids()
 
 
 # ── Date normalizer ───────────────────────────────────────────────────────────
@@ -496,15 +578,19 @@ def search_apify_linkedin(title: str, location: str, max_results: int = 100, dat
       jobUrl, description, employmentType, seniorityLevel
     """
     token = os.environ.get("APIFY_API_TOKEN", "")
+    actor_id = APIFY_ACTORS.get("linkedin", "").strip()
     if not token:
         print("  [apify] APIFY_API_TOKEN not set — skipping (sign up at apify.com)")
+        return []
+    if not actor_id:
+        print("  [apify] LinkedIn actor id not configured — skipping")
         return []
 
     aliases = _expand_aliases(title)
     jobs = []
     try:
         r = _SESSION.post(
-            "https://api.apify.com/v2/acts/bebity~linkedin-jobs-scraper/run-sync-get-dataset-items",
+            f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items",
             params={"token": token, "timeout": 120, "memory": 256},
             json={
                 "searchQueries": aliases,
@@ -544,14 +630,18 @@ def search_apify_indeed(title: str, location: str, max_results: int = 100, date_
     Same APIFY_API_TOKEN used across all Apify actors.
     """
     token = os.environ.get("APIFY_API_TOKEN", "")
+    actor_id = APIFY_ACTORS.get("indeed", "").strip()
     if not token:
+        return []
+    if not actor_id:
+        print("  [apify] Indeed actor id not configured — skipping")
         return []
 
     aliases = _expand_aliases(title)
     jobs = []
     try:
         r = _SESSION.post(
-            "https://api.apify.com/v2/acts/misceres~indeed-scraper/run-sync-get-dataset-items",
+            f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items",
             params={"token": token, "timeout": 120, "memory": 256},
             json={
                 "searchTerms":  aliases,
@@ -592,14 +682,18 @@ def search_apify_glassdoor(title: str, location: str, max_results: int = 100, da
     Same APIFY_API_TOKEN used across all Apify actors.
     """
     token = os.environ.get("APIFY_API_TOKEN", "")
+    actor_id = APIFY_ACTORS.get("glassdoor", "").strip()
     if not token:
+        return []
+    if not actor_id:
+        print("  [apify] Glassdoor actor id not configured — skipping")
         return []
 
     aliases = _expand_aliases(title)
     jobs = []
     try:
         r = _SESSION.post(
-            "https://api.apify.com/v2/acts/bebity~glassdoor-jobs-scraper/run-sync-get-dataset-items",
+            f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items",
             params={"token": token, "timeout": 120, "memory": 256},
             json={
                 "searchQuery":  " OR ".join(aliases),   # Glassdoor supports OR queries
@@ -642,14 +736,18 @@ def search_apify_ziprecruiter(title: str, location: str, max_results: int = 100,
     Same APIFY_API_TOKEN used across all Apify actors.
     """
     token = os.environ.get("APIFY_API_TOKEN", "")
+    actor_id = APIFY_ACTORS.get("ziprecruiter", "").strip()
     if not token:
+        return []
+    if not actor_id:
+        print("  [apify] ZipRecruiter actor id not configured — skipping")
         return []
 
     aliases = _expand_aliases(title)
     jobs = []
     try:
         r = _SESSION.post(
-            "https://api.apify.com/v2/acts/radekmie~ziprecruiter-scraper/run-sync-get-dataset-items",
+            f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items",
             params={"token": token, "timeout": 120, "memory": 256},
             json={
                 "search":     " OR ".join(aliases),   # ZipRecruiter supports OR queries
@@ -680,7 +778,129 @@ def search_apify_ziprecruiter(title: str, location: str, max_results: int = 100,
     return jobs
 
 
-# ── 2. Adzuna ─────────────────────────────────────────────────────────────────
+# ── 1e. Apify — Modular Job Scraper ────────────────────────────────────────────
+
+def search_apify_modular(title: str, location: str, max_results: int = 100, date_posted: str = "pastWeek") -> list[dict]:
+    """
+    Use a single modular Apify actor that scrapes multiple job platforms.
+    Set APIFY_MODULAR_ACTOR_ID in .env if you have an actor that normalizes job data.
+    """
+    token = os.environ.get("APIFY_API_TOKEN", "")
+    actor_id = APIFY_ACTORS.get("modular", "").strip()
+    if not token:
+        return []
+    if not actor_id:
+        return []
+
+    aliases = _expand_aliases(title)
+    jobs = []
+    try:
+        r = _SESSION.post(
+            f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items",
+            params={"token": token, "timeout": 180, "memory": 512},
+            json={
+                "searchQueries": aliases,
+                "location":      location,
+                "datePosted":    date_posted,
+                "maxResults":    max_results,
+            },
+            timeout=190,
+        )
+        r.raise_for_status()
+        for j in r.json():
+            jobs.append({
+                "id":          f"apify_mod_{j.get('id', len(jobs))}",
+                "title":       (j.get("title") or j.get("jobTitle") or j.get("positionName") or "").strip(),
+                "company":     j.get("company") or j.get("companyName") or j.get("employer") or j.get("organization") or "Unknown",
+                "location":    j.get("location") or j.get("locationName") or location,
+                "posted":      _normalize_date(j.get("publishedAt") or j.get("datePosted") or j.get("postedAt")),
+                "salary":      j.get("salary") or j.get("salaryText") or j.get("pay") or "Not listed",
+                "url":         j.get("jobUrl") or j.get("url") or j.get("applyUrl") or "",
+                "source":      j.get("source") or "Apify",
+                "description": _strip_html(j.get("description") or j.get("jobDescription") or "")[:8000],
+                "type":        (j.get("employmentType") or j.get("jobType") or "").replace("_", " ").title(),
+            })
+    except Exception as e:
+        print(f"  [apify-modular] Error: {e}")
+
+    print(f"  [apify-modular] {len(jobs)} raw jobs fetched for '{title}'")
+    return jobs
+
+
+# ── 2. JSearch (RapidAPI) ────────────────────────────────────────────────────
+
+def search_jsearch(title: str, location: str, max_results: int = 100, date_posted: str = "pastWeek") -> list[dict]:
+    """
+    JSearch via RapidAPI — aggregates LinkedIn, Indeed, Glassdoor, ZipRecruiter
+    and more via Google Jobs under the hood.
+    Sign up free at: https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch
+    Free tier: 500 requests/month. Set RAPIDAPI_KEY in .env.
+    """
+    api_key = os.environ.get("RAPIDAPI_KEY", "")
+    if not api_key:
+        print("  [jsearch] RAPIDAPI_KEY not set — skipping")
+        return []
+
+    date_map = {"past24Hours": "today", "pastWeek": "week", "pastMonth": "month"}
+    date_param = date_map.get(date_posted, "week")
+
+    query = f"{title} in {location}"
+    pages_needed = min((max_results // 10) + 1, 5)  # 10 results/page, cap at 5 pages
+
+    jobs = []
+    for page in range(1, pages_needed + 1):
+        r = _get(
+            "https://jsearch.p.rapidapi.com/search",
+            headers={
+                "X-RapidAPI-Key":  api_key,
+                "X-RapidAPI-Host": "jsearch.p.rapidapi.com",
+            },
+            params={
+                "query":       query,
+                "page":        page,
+                "num_pages":   1,
+                "date_posted": date_param,
+            },
+        )
+        if not r:
+            break
+        try:
+            batch = r.json().get("data", [])
+            if not batch:
+                break
+            for j in batch:
+                is_remote = bool(j.get("job_is_remote"))
+                loc_str   = _location(
+                    j.get("job_city"), j.get("job_state"), j.get("job_country"), is_remote
+                )
+                jobs.append({
+                    "id":          f"jsearch_{j.get('job_id', len(jobs))}",
+                    "title":       (j.get("job_title") or "").strip(),
+                    "company":     j.get("employer_name") or "Unknown",
+                    "location":    loc_str,
+                    "posted":      _normalize_date(j.get("job_posted_at_datetime_utc")),
+                    "salary":      _salary(
+                                       j.get("job_min_salary"),
+                                       j.get("job_max_salary"),
+                                       j.get("job_salary_period"),
+                                   ),
+                    "url":         j.get("job_apply_link") or j.get("job_google_link") or "",
+                    "source":      j.get("job_publisher") or "JSearch",
+                    "description": (j.get("job_description") or "")[:8000],
+                    "type":        (j.get("job_employment_type") or "").replace("_", " ").title(),
+                })
+        except Exception as e:
+            print(f"  [jsearch] Parse error page {page}: {e}")
+            break
+
+        if len(jobs) >= max_results:
+            break
+
+    print(f"  [jsearch] {len(jobs)} raw jobs fetched for '{title}'")
+    return jobs
+
+
+# ── 3. Adzuna ─────────────────────────────────────────────────────────────────
 
 def search_adzuna(title: str, location: str, pages: int = 4, date_posted: str = "pastWeek") -> list[dict]:
     """
@@ -1021,10 +1241,7 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
     all_jobs: list[dict] = []
 
     scrapers = [
-        lambda: search_apify_linkedin(title, location, max_results=100, date_posted=date_posted),
-        lambda: search_apify_indeed(title, location, max_results=100, date_posted=date_posted),
-        lambda: search_apify_glassdoor(title, location, max_results=100, date_posted=date_posted),
-        lambda: search_apify_ziprecruiter(title, location, max_results=100, date_posted=date_posted),
+        lambda: search_jsearch(title, location, max_results=100, date_posted=date_posted),
         lambda: search_adzuna(title, location, pages=4, date_posted=date_posted),
         lambda: search_themuse(title, location, pages=4),
         lambda: search_remotive(title),
@@ -1033,7 +1250,7 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
     ]
 
     # Run all scrapers in parallel — total time = slowest single source, not sum of all
-    with ThreadPoolExecutor(max_workers=9) as pool:
+    with ThreadPoolExecutor(max_workers=len(scrapers)) as pool:
         futures = {pool.submit(fn): fn for fn in scrapers}
         for future in as_completed(futures):
             try:

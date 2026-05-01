@@ -137,7 +137,7 @@ function checkAuth() {
 }
 // ── End Auth ──────────────────────────────────────────────────────────────────
 const THEME_STORAGE_KEY = "jobpilot-theme";
-const DEFAULT_THEME = "dark-pro";
+const DEFAULT_THEME = "light-pro";
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let allJobs      = [];
