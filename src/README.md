@@ -346,34 +346,33 @@ Configure these in your `.env` file (local) or Railway **Variables** panel (prod
 ## Project Structure
 
 ```
-jobpilot/                        ← Application root (build context for Docker)
-├── app.py                       ← FastAPI backend — all routes and startup logic
-├── ai_engine.py                 ← Claude AI: ATS scoring, resume tailoring, chat, generation
-├── job_scraper.py               ← Multi-platform job search aggregator
-├── resume_reader.py             ← Resume file reader and export (.docx, .pdf, .txt)
-├── resume_normalizer.py         ← Normalises resume section headings
-├── resume_templates.py          ← DOCX and PDF resume template builder
-├── auth.py                      ← JWT auth, bcrypt password hashing, SQLite user store
-├── requirements.txt             ← Python dependencies
-├── Dockerfile                   ← Docker build definition
-├── .dockerignore                ← Files excluded from Docker build context
-├── .env                         ← Local secrets (never commit with real values)
-├── resumes/                     ← Place resume files here for local development
-├── generated/                   ← Tailored resumes saved here after download
-├── logs/                        ← Rotating application logs
-└── static/
-    ├── landing.html             ← Marketing landing page (served at /)
-    ├── index.html               ← Main application UI (served at /app)
-    ├── css/
-    │   └── style.css            ← All application styles + theme tokens
-    └── js/
-        └── app.js               ← All frontend logic (vanilla JS)
-
-src/
-└── README.md                    ← This file
-
-railway.toml                     ← Railway deployment configuration
-docker-compose.yml               ← Local Docker Compose setup
+<repo root>/
+├── jobpilot/                        ← Application root (build context for Docker)
+│   ├── app.py                       ← FastAPI backend — all routes and startup logic
+│   ├── ai_engine.py                 ← Claude AI: ATS scoring, resume tailoring, chat, generation
+│   ├── job_scraper.py               ← Multi-platform job search aggregator
+│   ├── resume_reader.py             ← Resume file reader and export (.docx, .pdf, .txt)
+│   ├── resume_normalizer.py         ← Normalizes resume section headings
+│   ├── resume_templates.py          ← DOCX and PDF resume template builder
+│   ├── auth.py                      ← JWT auth, bcrypt password hashing, SQLite user store
+│   ├── requirements.txt             ← Python dependencies
+│   ├── Dockerfile                   ← Docker build definition
+│   ├── .dockerignore                ← Files excluded from Docker build context
+│   ├── .env                         ← Local secrets (never commit with real values)
+│   ├── resumes/                     ← Place resume files here for local development
+│   ├── generated/                   ← Tailored resumes saved here after download
+│   ├── logs/                        ← Rotating application logs
+│   └── static/
+│       ├── landing.html             ← Marketing landing page (served at /)
+│       ├── index.html               ← Main application UI (served at /app)
+│       ├── css/
+│       │   └── style.css            ← All application styles + theme tokens
+│       └── js/
+│           └── app.js               ← All frontend logic (vanilla JS)
+├── src/
+│   └── README.md                    ← This file
+├── railway.toml                     ← Railway deployment configuration
+└── docker-compose.yml               ← Local Docker Compose setup
 ```
 
 ---
