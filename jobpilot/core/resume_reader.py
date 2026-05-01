@@ -4,7 +4,7 @@ resume_reader.py  —  reads .txt, .docx, and .pdf resume files
 
 import os
 from pathlib import Path
-from resume_normalizer import get_canonical_section
+from core.resume_normalizer import get_canonical_section
 
 
 RESUMES_DIR = Path(__file__).parent / "resumes"
@@ -100,7 +100,7 @@ def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
     out_path = out_dir / f"{base}_tailored.pdf"
 
     try:
-        from resume_templates import render_to_pdf
+        from core.resume_templates import render_to_pdf
         pdf_bytes = render_to_pdf(content, max_pages=max_pages)
         out_path.write_bytes(pdf_bytes)
         return str(out_path)
