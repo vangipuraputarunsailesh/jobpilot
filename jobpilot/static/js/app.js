@@ -337,7 +337,7 @@ function initApp() {
       if (locInp) locInp.value = storedLocation;
     }
     searchJobs();
-    return;
+    return;  // skip focus — search already initiated from landing page params
   }
   const inp = document.getElementById("job-title-input");
   if (inp) inp.focus();
