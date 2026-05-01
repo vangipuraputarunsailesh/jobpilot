@@ -26,9 +26,8 @@ function authHeaders() {
 }
 
 function showAuthOverlay() {
-  document.getElementById("auth-overlay").style.display = "flex";
-  document.getElementById("app-layout").style.display   = "none";
-  document.body.style.overflow = "hidden";
+  // Redirect to landing page instead of showing an inline overlay on the app page
+  window.location.href = "/";
 }
 
 function hideAuthOverlay() {
@@ -124,9 +123,7 @@ async function handleGoogleCredential(response) {
 function logout() {
   localStorage.removeItem("jp_token");
   localStorage.removeItem("jp_email");
-  document.getElementById("topbar-user").style.display = "none";
-  document.getElementById("logout-btn").style.display  = "none";
-  showAuthOverlay();
+  window.location.href = "/";
 }
 
 function checkAuth() {
@@ -327,6 +324,21 @@ function setupAutocomplete(inputId, data, onSelect) {
 
 function initApp() {
   checkHealth();
+  // Pre-fill search from landing page hero search or trending chips
+  const storedTitle    = sessionStorage.getItem("jp_search_title");
+  const storedLocation = sessionStorage.getItem("jp_search_location");
+  if (storedTitle) {
+    sessionStorage.removeItem("jp_search_title");
+    const titleInp = document.getElementById("job-title-input");
+    if (titleInp) titleInp.value = storedTitle;
+    if (storedLocation) {
+      sessionStorage.removeItem("jp_search_location");
+      const locInp = document.getElementById("location-input");
+      if (locInp) locInp.value = storedLocation;
+    }
+    searchJobs();
+    return;
+  }
   const inp = document.getElementById("job-title-input");
   if (inp) inp.focus();
 }

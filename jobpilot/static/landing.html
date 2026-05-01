@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JobPilot — Your AI Co-Pilot for Career Success</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@300;400;500;600;700;800&family=DM+Sans:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ── RESET & TOKENS ── */
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --t:#00c896;--t2:#00a67e;--t3:#007a5e;
+  --dark:#060d0b;--dark2:#0a1714;--dark3:#0f2018;
+  --white:#ffffff;--off:#f0faf6;
+  --g1:linear-gradient(135deg,#060d0b 0%,#0a1f18 50%,#0c2a1e 100%);
+  --font:'Bricolage Grotesque',sans-serif;
+  --font2:'DM Sans',sans-serif;
+  --r:14px;--r2:20px;--r3:28px;
+}
+html{scroll-behavior:smooth}
+body{font-family:var(--font);background:var(--dark);color:#fff;overflow-x:hidden;line-height:1}
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:#0a1714}
+::-webkit-scrollbar-thumb{background:#00c896;border-radius:4px}
+
+/* NAV */
+nav{
+  position:fixed;top:0;left:0;right:0;z-index:200;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 56px;height:68px;
+  background:rgba(6,13,11,0.85);backdrop-filter:blur(20px);
+  border-bottom:1px solid rgba(0,200,150,0.1);
+}
+.logo{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:800;color:#fff;letter-spacing:-0.5px;text-decoration:none}
+.logo-icon{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,var(--t),var(--t3));display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.logo-icon svg{width:20px;height:20px}
+.nav-mid{display:flex;gap:36px}
+.nav-mid a{font-size:14px;font-weight:500;color:rgba(255,255,255,0.5);text-decoration:none;transition:.2s;font-family:var(--font2)}
+.nav-mid a:hover{color:#fff}
+.nav-right{display:flex;gap:12px;align-items:center}
+.btn-n{padding:9px 22px;border-radius:8px;border:1px solid rgba(255,255,255,0.15);background:transparent;font-family:var(--font);font-size:14px;font-weight:500;color:rgba(255,255,255,0.7);cursor:pointer;transition:.2s}
+.btn-n:hover{border-color:var(--t);color:var(--t)}
+.btn-p{padding:9px 24px;border-radius:8px;border:none;background:linear-gradient(135deg,var(--t),var(--t2));font-family:var(--font);font-size:14px;font-weight:700;color:#fff;cursor:pointer;transition:.2s;letter-spacing:-0.2px}
+.btn-p:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(0,200,150,0.4)}
+
+/* HERO */
+.hero{
+  min-height:100vh;
+  background:var(--g1);
+  padding:130px 56px 80px;
+  position:relative;overflow:hidden;
+  display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:center;
+}
+.hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 700px 500px at 70% 50%,rgba(0,200,150,0.12),transparent 70%),radial-gradient(ellipse 400px 400px at 10% 80%,rgba(0,166,126,0.08),transparent 60%);pointer-events:none}
+.hero::after{
+  content:'';position:absolute;inset:0;
+  background-image:linear-gradient(rgba(0,200,150,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,200,150,0.04) 1px,transparent 1px);
+  background-size:60px 60px;
+  pointer-events:none;mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,black,transparent);
+}
+.hero-left{position:relative;z-index:2}
+.hero-tag{
+  display:inline-flex;align-items:center;gap:8px;
+  background:rgba(0,200,150,0.1);border:1px solid rgba(0,200,150,0.25);
+  border-radius:100px;padding:7px 18px;margin-bottom:30px;
+  font-size:12px;font-weight:600;color:var(--t);letter-spacing:1px;text-transform:uppercase;font-family:var(--font2);
+}
+.dot-live{width:7px;height:7px;border-radius:50%;background:var(--t);animation:blink 2s infinite;flex-shrink:0}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+h1{font-size:62px;font-weight:800;line-height:1.05;letter-spacing:-2.5px;color:#fff;margin-bottom:24px}
+h1 .hl{background:linear-gradient(135deg,var(--t),#7fffd4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero-sub{font-size:17px;color:rgba(255,255,255,0.55);line-height:1.75;max-width:480px;margin-bottom:40px;font-family:var(--font2);font-weight:400}
+.search-wrap{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:6px;display:flex;gap:0;max-width:540px;backdrop-filter:blur(10px)}
+.sf{flex:1;display:flex;align-items:center;gap:10px;padding:12px 16px;border-right:1px solid rgba(255,255,255,0.08)}
+.sf:last-of-type{border-right:none}
+.sf svg{color:var(--t);flex-shrink:0;width:16px;height:16px}
+.sf input{border:none;outline:none;background:transparent;font-family:var(--font);font-size:14px;color:#fff;width:100%}
+.sf input::placeholder{color:rgba(255,255,255,0.3)}
+.sbtn{padding:14px 28px;background:linear-gradient(135deg,var(--t),var(--t2));border:none;border-radius:10px;font-family:var(--font);font-size:15px;font-weight:700;color:#fff;cursor:pointer;white-space:nowrap;transition:.2s;flex-shrink:0}
+.sbtn:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,200,150,0.5)}
+.hero-chips{margin-top:20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hero-chips span{font-size:12px;color:rgba(255,255,255,0.35);font-family:var(--font2)}
+.chip{padding:6px 14px;border-radius:100px;border:1px solid rgba(255,255,255,0.1);font-size:12px;color:rgba(255,255,255,0.55);cursor:pointer;transition:.2s;font-family:var(--font2);background:rgba(255,255,255,0.03)}
+.chip:hover{border-color:var(--t);color:var(--t);background:rgba(0,200,150,0.08)}
+.hero-proof{margin-top:40px;display:flex;align-items:center;gap:20px}
+.avatars{display:flex}
+.av{width:34px;height:34px;border-radius:50%;border:2px solid var(--dark);margin-left:-10px;overflow:hidden}
+.av:first-child{margin-left:0}
+.av-img{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#4dd9b4}
+.proof-text{font-size:13px;color:rgba(255,255,255,0.5);font-family:var(--font2);line-height:1.5}
+.proof-text strong{color:#fff;font-weight:600}
+
+/* HERO RIGHT FLOATING */
+.hero-right{position:relative;height:560px;z-index:2}
+.resume-card{
+  position:absolute;top:0;left:0;right:0;
+  background:rgba(15,30,24,0.9);border:1px solid rgba(0,200,150,0.2);
+  border-radius:20px;padding:24px;backdrop-filter:blur(20px);
+  box-shadow:0 32px 80px rgba(0,0,0,0.6),0 0 0 1px rgba(0,200,150,0.05);
+  animation:floatA 6s ease-in-out infinite;
+}
+@keyframes floatA{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+.rc-header{display:flex;align-items:center;gap:14px;margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid rgba(255,255,255,0.06)}
+.rc-avatar{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,#00c896,#007a5e);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff;flex-shrink:0}
+.rc-name{font-size:16px;font-weight:700;color:#fff;letter-spacing:-0.3px}
+.rc-role{font-size:12px;color:var(--t);font-family:var(--font2);margin-top:2px}
+.ats-badge{margin-left:auto;text-align:center}
+.ats-ring-sm{width:52px;height:52px;position:relative;display:flex;align-items:center;justify-content:center}
+.ats-ring-sm svg{position:absolute;inset:0;width:100%;height:100%}
+.ats-num-sm{font-size:14px;font-weight:800;color:#fff;z-index:1;line-height:1}
+.ats-lbl-sm{font-size:9px;color:rgba(255,255,255,0.4);font-family:var(--font2);margin-top:2px;text-align:center}
+.rc-skills{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.skill-tag{padding:4px 10px;border-radius:100px;background:rgba(0,200,150,0.1);border:1px solid rgba(0,200,150,0.2);font-size:11px;color:var(--t);font-family:var(--font2);font-weight:500}
+.rc-bars{display:flex;flex-direction:column;gap:8px}
+.rb-row{display:flex;align-items:center;gap:8px}
+.rb-label{font-size:11px;color:rgba(255,255,255,0.4);width:80px;font-family:var(--font2)}
+.rb-track{flex:1;height:4px;background:rgba(255,255,255,0.08);border-radius:100px;overflow:hidden}
+.rb-fill{height:100%;border-radius:100px;background:linear-gradient(90deg,var(--t),var(--t2))}
+.rb-pct{font-size:11px;color:var(--t);font-weight:600;width:28px;text-align:right;font-family:var(--font2)}
+.match-card{
+  position:absolute;bottom:0;right:-20px;width:220px;
+  background:rgba(10,23,18,0.95);border:1px solid rgba(0,200,150,0.25);
+  border-radius:16px;padding:16px;backdrop-filter:blur(20px);
+  box-shadow:0 24px 60px rgba(0,0,0,0.5);
+  animation:floatB 7s ease-in-out infinite;
+}
+@keyframes floatB{0%,100%{transform:translateY(0)}50%{transform:translateY(8px)}}
+.mc-title{font-size:11px;font-weight:600;color:rgba(255,255,255,0.4);letter-spacing:1px;text-transform:uppercase;font-family:var(--font2);margin-bottom:12px}
+.mc-job{display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px;border-radius:10px;background:rgba(255,255,255,0.03);transition:.2s}
+.mc-job:hover{background:rgba(0,200,150,0.08)}
+.mc-logo{width:28px;height:28px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;flex-shrink:0;color:#fff}
+.mc-jname{font-size:11px;font-weight:600;color:#fff;line-height:1.3}
+.mc-jco{font-size:10px;color:rgba(255,255,255,0.35);font-family:var(--font2)}
+.mc-pct{font-size:11px;font-weight:700;color:var(--t);margin-left:auto;flex-shrink:0}
+.notif-card{
+  position:absolute;top:50%;left:-30px;transform:translateY(-50%);
+  background:rgba(10,23,18,0.95);border:1px solid rgba(0,200,150,0.3);
+  border-radius:12px;padding:12px 16px;
+  display:flex;align-items:center;gap:10px;
+  box-shadow:0 16px 40px rgba(0,0,0,0.5);
+  animation:floatC 5s ease-in-out infinite;width:200px;
+}
+@keyframes floatC{0%,100%{transform:translateY(-50%)}50%{transform:translateY(calc(-50% - 8px))}}
+.notif-icon{width:32px;height:32px;border-radius:8px;background:rgba(0,200,150,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.notif-text{font-size:12px;font-weight:600;color:#fff;line-height:1.4}
+.notif-sub{font-size:10px;color:var(--t);font-family:var(--font2);margin-top:2px}
+
+/* SECTION COMMONS */
+.section{padding:100px 56px}
+.s-tag{font-size:11px;font-weight:700;color:var(--t);letter-spacing:2px;text-transform:uppercase;font-family:var(--font2);margin-bottom:14px}
+.s-title{font-size:clamp(34px,3.5vw,52px);font-weight:800;color:#fff;letter-spacing:-1.5px;line-height:1.1;margin-bottom:16px}
+.s-sub{font-size:16px;color:rgba(255,255,255,0.45);font-family:var(--font2);line-height:1.75;max-width:480px}
+
+/* LOGOS STRIP */
+.logos-strip{background:rgba(255,255,255,0.02);border-top:1px solid rgba(255,255,255,0.06);border-bottom:1px solid rgba(255,255,255,0.06);padding:28px 56px}
+.logos-inner{max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:center;gap:0;flex-wrap:wrap}
+.logos-label{font-size:11px;font-weight:600;color:rgba(255,255,255,0.25);letter-spacing:2px;text-transform:uppercase;font-family:var(--font2);margin-right:40px;white-space:nowrap}
+.logo-co{padding:0 28px;font-size:15px;font-weight:700;color:rgba(255,255,255,0.2);letter-spacing:-0.3px;white-space:nowrap;transition:.2s;border-right:1px solid rgba(255,255,255,0.06)}
+.logo-co:last-child{border-right:none}
+.logo-co:hover{color:rgba(255,255,255,0.5)}
+
+/* STATS */
+.stats-row{background:rgba(0,200,150,0.04);border-top:1px solid rgba(0,200,150,0.1);padding:0 56px}
+.stats-inner{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr)}
+.stat{padding:48px 32px;text-align:center;border-right:1px solid rgba(255,255,255,0.06)}
+.stat:last-child{border-right:none}
+.stat-n{font-size:52px;font-weight:800;color:var(--t);letter-spacing:-2px;line-height:1}
+.stat-l{font-size:13px;color:rgba(255,255,255,0.35);margin-top:8px;font-family:var(--font2)}
+
+/* FEATURES */
+.feat-section{background:var(--dark2);padding:100px 56px}
+.feat-wrap{max-width:1200px;margin:0 auto}
+.feat-header{display:grid;grid-template-columns:1fr 1fr;gap:60px;align-items:end;margin-bottom:60px}
+.big-grid{display:grid;grid-template-columns:5fr 4fr;gap:20px}
+.big-grid-right{display:grid;grid-template-rows:1fr 1fr;gap:20px}
+.fcard{border-radius:var(--r2);border:1px solid rgba(255,255,255,0.07);background:rgba(255,255,255,0.03);overflow:hidden;position:relative;transition:.3s;cursor:default}
+.fcard:hover{border-color:rgba(0,200,150,0.25);transform:translateY(-4px);box-shadow:0 24px 60px rgba(0,0,0,0.4),0 0 0 1px rgba(0,200,150,0.08)}
+.fcard-body{padding:32px}
+.fcard-icon{width:44px;height:44px;border-radius:12px;background:rgba(0,200,150,0.12);display:flex;align-items:center;justify-content:center;margin-bottom:22px}
+.fcard-icon svg{color:var(--t);width:22px;height:22px}
+.fcard-title{font-size:20px;font-weight:700;color:#fff;margin-bottom:10px;letter-spacing:-0.3px}
+.fcard-desc{font-size:14px;color:rgba(255,255,255,0.45);line-height:1.7;font-family:var(--font2)}
+.fake-jobs{margin-top:22px;display:flex;flex-direction:column;gap:8px}
+.fj{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.05);transition:.2s}
+.fj:hover{border-color:rgba(0,200,150,0.2);background:rgba(0,200,150,0.05)}
+.fj-logo{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;flex-shrink:0}
+.fj-info{flex:1}
+.fj-title{font-size:12px;font-weight:600;color:#fff}
+.fj-meta{font-size:11px;color:rgba(255,255,255,0.35);font-family:var(--font2)}
+.fj-badge{font-size:10px;font-weight:700;color:var(--t);background:rgba(0,200,150,0.1);padding:3px 8px;border-radius:100px;flex-shrink:0}
+.fj-src{font-size:9px;color:rgba(255,255,255,0.25);font-family:var(--font2);background:rgba(255,255,255,0.05);padding:2px 7px;border-radius:4px;flex-shrink:0}
+
+/* RESUME SECTION */
+.resume-section{padding:100px 56px;background:var(--dark)}
+.resume-inner{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:center}
+.resume-preview{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:var(--r2);overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,0.5)}
+.rp-topbar{background:rgba(0,200,150,0.06);border-bottom:1px solid rgba(255,255,255,0.07);padding:12px 20px;display:flex;align-items:center;gap:8px}
+.rp-dot{width:10px;height:10px;border-radius:50%}
+.rp-title{font-size:12px;color:rgba(255,255,255,0.3);font-family:var(--font2);margin-left:8px;flex:1;text-align:center}
+.rp-badge{font-size:10px;background:rgba(0,200,150,0.15);color:var(--t);padding:3px 10px;border-radius:4px;font-weight:600;font-family:var(--font2)}
+.rp-body{padding:28px}
+.rp-name{font-size:22px;font-weight:800;color:#fff;letter-spacing:-0.5px}
+.rp-role{font-size:12px;color:var(--t);font-family:var(--font2);margin-top:4px;margin-bottom:16px}
+.rp-contact{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid rgba(255,255,255,0.06)}
+.rp-c{font-size:11px;color:rgba(255,255,255,0.35);font-family:var(--font2)}
+.rp-sec{margin-bottom:18px}
+.rp-sec-title{font-size:10px;font-weight:700;color:var(--t);letter-spacing:1.5px;text-transform:uppercase;font-family:var(--font2);margin-bottom:10px}
+.rp-exp{margin-bottom:12px}
+.rp-exp-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+.rp-co{font-size:13px;font-weight:700;color:#fff}
+.rp-date{font-size:11px;color:rgba(255,255,255,0.3);font-family:var(--font2)}
+.rp-pos{font-size:12px;color:var(--t);font-family:var(--font2);margin-bottom:6px}
+.rp-bullet{font-size:11px;color:rgba(255,255,255,0.5);font-family:var(--font2);line-height:1.7;padding-left:10px;position:relative;margin-bottom:4px}
+.rp-bullet::before{content:'•';position:absolute;left:0;color:var(--t)}
+.rp-skills-row{display:flex;gap:6px;flex-wrap:wrap}
+.rp-stag{padding:4px 10px;border-radius:100px;background:rgba(0,200,150,0.1);border:1px solid rgba(0,200,150,0.2);font-size:10px;color:var(--t);font-family:var(--font2);font-weight:500}
+.ai-line{background:rgba(0,200,150,0.12);border-left:2px solid var(--t);padding:6px 10px;border-radius:0 6px 6px 0;position:relative;margin-bottom:4px}
+.ai-tag{position:absolute;right:-8px;top:50%;transform:translateY(-50%);background:var(--t);color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;font-family:var(--font2);white-space:nowrap}
+.mode-toggle{display:flex;gap:10px;margin-bottom:32px}
+.mode-btn{flex:1;padding:14px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.03);cursor:pointer;transition:.2s;text-align:center}
+.mode-btn.active{border-color:var(--t);background:rgba(0,200,150,0.1)}
+.mb-title{font-size:14px;font-weight:700;color:#fff;margin-bottom:4px}
+.mb-desc{font-size:12px;color:rgba(255,255,255,0.4);font-family:var(--font2)}
+
+/* COVER LETTER */
+.cl-section{background:var(--dark2);padding:100px 56px}
+.cl-inner{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:center}
+.cl-preview{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:var(--r2);overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,0.5)}
+.cl-topbar{background:rgba(0,200,150,0.06);border-bottom:1px solid rgba(255,255,255,0.07);padding:12px 20px;display:flex;align-items:center;gap:8px}
+.cl-body{padding:32px}
+.cl-company{display:flex;align-items:center;gap:10px;margin-bottom:24px}
+.cl-co-logo{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0}
+.cl-co-name{font-size:15px;font-weight:700;color:#fff}
+.cl-co-role{font-size:12px;color:rgba(255,255,255,0.4);font-family:var(--font2);margin-top:2px}
+.match-pill{background:rgba(0,200,150,0.15);border:1px solid rgba(0,200,150,0.3);padding:5px 12px;border-radius:100px;font-size:12px;font-weight:700;color:var(--t);font-family:var(--font2);margin-left:auto}
+.cl-letter{font-size:13px;color:rgba(255,255,255,0.55);font-family:var(--font2);line-height:1.9;margin-bottom:20px}
+.cl-letter p{margin-bottom:12px}
+.cl-letter strong{color:rgba(255,255,255,0.8);font-weight:600}
+.cl-letter .cl-hi{color:var(--t);font-weight:600}
+.cl-footer{display:flex;justify-content:space-between;align-items:center;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06)}
+.cl-sig{font-size:14px;font-weight:700;color:#fff}
+.cl-dl{padding:8px 20px;border-radius:8px;background:var(--t);border:none;font-family:var(--font);font-size:12px;font-weight:700;color:#fff;cursor:pointer}
+
+/* ATS SECTION */
+.ats-section{background:linear-gradient(135deg,#050f0c,#091a14);padding:100px 56px;position:relative;overflow:hidden}
+.ats-section::before{content:'';position:absolute;top:-200px;right:-200px;width:600px;height:600px;border-radius:50%;background:radial-gradient(circle,rgba(0,200,150,0.08),transparent 70%);pointer-events:none}
+.ats-inner{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:center}
+.ats-visual{background:rgba(255,255,255,0.03);border:1px solid rgba(0,200,150,0.15);border-radius:var(--r2);padding:36px}
+.big-ring{width:180px;height:180px;margin:0 auto 32px;position:relative;display:flex;align-items:center;justify-content:center;flex-direction:column}
+.big-ring svg{position:absolute;inset:0;width:100%;height:100%}
+.ring-num{font-size:52px;font-weight:800;color:#fff;z-index:1;line-height:1;letter-spacing:-2px}
+.ring-lbl{font-size:11px;color:rgba(255,255,255,0.35);z-index:1;font-family:var(--font2);margin-top:4px}
+.ats-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px}
+.ats-mini{padding:14px;border-radius:12px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.07)}
+.am-val{font-size:24px;font-weight:800;color:var(--t);letter-spacing:-1px}
+.am-lbl{font-size:11px;color:rgba(255,255,255,0.35);font-family:var(--font2);margin-top:4px}
+.ats-fullbars{display:flex;flex-direction:column;gap:14px}
+.afb-row{display:flex;align-items:center;gap:10px}
+.afb-label{font-size:12px;color:rgba(255,255,255,0.5);font-family:var(--font2);width:110px;flex-shrink:0}
+.afb-track{flex:1;height:6px;background:rgba(255,255,255,0.07);border-radius:100px;overflow:hidden}
+.afb-fill{height:100%;border-radius:100px;background:linear-gradient(90deg,var(--t),var(--t2))}
+.afb-pct{font-size:12px;color:var(--t);font-weight:700;width:36px;text-align:right;font-family:var(--font2)}
+.ats-fixes{margin-top:20px;display:flex;flex-direction:column;gap:8px}
+.fix{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)}
+.fix-icon{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.fix-text{font-size:12px;color:rgba(255,255,255,0.55);font-family:var(--font2);flex:1}
+.fix-boost{font-size:11px;font-weight:700;color:var(--t)}
+
+/* AGENT */
+.agent-section{background:var(--dark);padding:100px 56px}
+.agent-inner{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:80px;align-items:center}
+.chat-frame{background:rgba(10,23,18,0.9);border:1px solid rgba(0,200,150,0.15);border-radius:var(--r2);overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,0.5)}
+.cf-bar{background:rgba(0,200,150,0.06);border-bottom:1px solid rgba(255,255,255,0.06);padding:14px 20px;display:flex;align-items:center;gap:12px}
+.cf-av{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--t),var(--t3));display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.cf-name{font-size:14px;font-weight:700;color:#fff}
+.cf-status{font-size:11px;color:var(--t);font-family:var(--font2)}
+.cf-msgs{padding:20px;display:flex;flex-direction:column;gap:12px;min-height:280px}
+.msg{max-width:82%;padding:11px 15px;border-radius:14px;font-size:13px;line-height:1.65;font-family:var(--font2)}
+.msg.bot{background:rgba(255,255,255,0.06);align-self:flex-start;color:rgba(255,255,255,0.75);border-radius:4px 14px 14px 14px}
+.msg.user{background:linear-gradient(135deg,var(--t),var(--t2));align-self:flex-end;color:#fff;border-radius:14px 14px 4px 14px}
+.cf-input-row{padding:12px 16px;border-top:1px solid rgba(255,255,255,0.06);display:flex;gap:8px;align-items:center;background:rgba(255,255,255,0.02)}
+.cf-input{flex:1;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:10px 14px;font-size:13px;font-family:var(--font2);color:#fff;outline:none}
+.cf-send{padding:10px 18px;background:var(--t);border:none;border-radius:8px;font-family:var(--font);font-size:13px;font-weight:700;color:#fff;cursor:pointer}
+
+/* COMPANIES */
+.hired-section{background:var(--dark2);padding:80px 56px}
+.hired-inner{max-width:1200px;margin:0 auto}
+.hired-grid{margin-top:50px;display:grid;grid-template-columns:repeat(5,1fr);gap:16px}
+.hco{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:16px;padding:24px 20px;text-align:center;transition:.3s;cursor:default}
+.hco:hover{border-color:rgba(0,200,150,0.3);background:rgba(0,200,150,0.05);transform:translateY(-4px);box-shadow:0 16px 40px rgba(0,0,0,0.3)}
+.hco-logo{width:52px;height:52px;border-radius:14px;margin:0 auto 14px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#fff}
+.hco-name{font-size:14px;font-weight:700;color:#fff;margin-bottom:4px}
+.hco-jobs{font-size:12px;color:rgba(255,255,255,0.35);font-family:var(--font2)}
+.hco-tag{display:inline-block;margin-top:8px;padding:3px 10px;border-radius:100px;font-size:10px;font-weight:600;font-family:var(--font2);background:rgba(0,200,150,0.1);color:var(--t)}
+
+/* CTA */
+.cta{padding:100px 56px;background:linear-gradient(135deg,#060d0b,#0a2318);text-align:center;position:relative;overflow:hidden}
+.cta::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:700px;height:400px;background:radial-gradient(ellipse,rgba(0,200,150,0.12),transparent 70%);pointer-events:none}
+.cta h2{font-size:clamp(40px,5vw,68px);font-weight:800;color:#fff;letter-spacing:-2px;line-height:1.05;max-width:700px;margin:0 auto 20px;position:relative}
+.cta h2 span{background:linear-gradient(135deg,var(--t),#7fffd4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.cta p{font-size:17px;color:rgba(255,255,255,0.45);font-family:var(--font2);margin-bottom:48px;line-height:1.7;position:relative}
+.cta-btns{display:flex;gap:16px;justify-content:center;position:relative}
+.btn-big{padding:18px 48px;border-radius:12px;font-family:var(--font);font-size:17px;font-weight:700;cursor:pointer;transition:.2s;letter-spacing:-0.3px}
+.btn-big.primary{background:linear-gradient(135deg,var(--t),var(--t2));border:none;color:#fff}
+.btn-big.primary:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(0,200,150,0.5)}
+.btn-big.ghost{background:transparent;border:1.5px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.7)}
+.btn-big.ghost:hover{border-color:rgba(255,255,255,0.35);color:#fff}
+.cta-note{margin-top:20px;font-size:13px;color:rgba(255,255,255,0.25);font-family:var(--font2);position:relative}
+
+/* FOOTER */
+footer{background:#030806;padding:40px 56px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid rgba(255,255,255,0.05)}
+.ft-logo{font-size:17px;font-weight:800;color:#fff;display:flex;align-items:center;gap:8px}
+.ft-mid{display:flex;gap:32px}
+.ft-mid a{font-size:13px;color:rgba(255,255,255,0.25);text-decoration:none;font-family:var(--font2);transition:.2s}
+.ft-mid a:hover{color:rgba(255,255,255,0.6)}
+.ft-right{font-size:13px;color:rgba(255,255,255,0.2);font-family:var(--font2)}
+
+/* ANIMATIONS */
+@keyframes fadeUp{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:translateY(0)}}
+.hero-left>*{animation:fadeUp .8s ease both}
+.hero-left>*:nth-child(1){animation-delay:.05s}
+.hero-left>*:nth-child(2){animation-delay:.15s}
+.hero-left>*:nth-child(3){animation-delay:.25s}
+.hero-left>*:nth-child(4){animation-delay:.35s}
+.hero-left>*:nth-child(5){animation-delay:.45s}
+.hero-left>*:nth-child(6){animation-delay:.55s}
+.hero-right{animation:fadeUp .9s .4s ease both}
+
+/* FEATURE CHIP */
+.agent-chip{padding:12px 16px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);font-size:13px;color:rgba(255,255,255,0.55);cursor:pointer;transition:.2s;font-family:var(--font2);background:rgba(255,255,255,0.03);display:block;margin-bottom:10px;text-align:left}
+.agent-chip:hover{border-color:var(--t);color:var(--t);background:rgba(0,200,150,0.08)}
+
+/* ── AUTH OVERLAY ── */
+#auth-overlay{
+  position:fixed;inset:0;z-index:999;
+  display:none;align-items:stretch;
+  font-family:'Inter',sans-serif;
+  overflow:hidden;
+}
+#auth-overlay.visible{display:flex}
+.auth-error{
+  background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);
+  color:#e05252;border-radius:8px;padding:8px 12px;
+  font-size:12.5px;margin-bottom:14px;display:none;
+}
+.jp-wrap{display:flex;flex:1}
+.jp-left{
+  flex:1;
+  background:linear-gradient(160deg,#134e4a 0%,#0d9488 55%,#14b8a6 100%);
+  padding:56px 52px 44px;
+  display:flex;flex-direction:column;justify-content:space-between;
+  color:#fff;position:relative;overflow:hidden;
+}
+.jp-left-bg{
+  position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse at 80% 20%,rgba(94,234,212,0.18) 0%,transparent 60%);
+}
+.jp-logo{display:flex;align-items:center;gap:10px;margin-bottom:32px}
+.jp-logo-icon{
+  width:36px;height:36px;background:rgba(255,255,255,0.18);
+  border-radius:10px;display:flex;align-items:center;justify-content:center;
+}
+.jp-logo-icon svg{width:20px;height:20px}
+.jp-logo-text{font-size:20px;font-weight:700;letter-spacing:-0.3px}
+.jp-headline{font-size:26px;font-weight:700;line-height:1.22;letter-spacing:-0.5px;margin-bottom:14px}
+.jp-headline span{color:#ccfbf1}
+.jp-sub{font-size:13.5px;color:rgba(255,255,255,0.72);line-height:1.55;margin-bottom:28px}
+.jp-features{display:flex;flex-direction:column;gap:16px}
+.jp-feat{display:flex;align-items:flex-start;gap:13px}
+.jp-feat-icon{
+  width:34px;height:34px;min-width:34px;
+  background:rgba(255,255,255,0.12);border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+}
+.jp-feat-icon svg{width:17px;height:17px}
+.jp-feat-title{font-size:13px;font-weight:600;color:#fff;margin-bottom:2px}
+.jp-feat-desc{font-size:12px;color:rgba(255,255,255,0.62)}
+.jp-illus{margin-top:24px}
+.jp-road{width:100%;border-radius:8px;display:block}
+.jp-right{
+  flex:1;background:#fff;
+  padding:56px 72px 44px;
+  display:flex;flex-direction:column;justify-content:center;
+  overflow-y:auto;
+}
+.jp-topnav{
+  display:flex;align-items:center;justify-content:flex-end;
+  gap:7px;font-size:13px;color:#6b7280;margin-bottom:32px;
+}
+.jp-topnav a{color:#0d9488;font-weight:500;text-decoration:none}
+.jp-topnav a:hover{text-decoration:underline}
+.jp-welcome-icon{
+  width:44px;height:44px;background:linear-gradient(135deg,#0d9488,#14b8a6);
+  border-radius:12px;display:flex;align-items:center;justify-content:center;
+  margin-bottom:16px;
+}
+.jp-welcome-icon svg{width:22px;height:22px}
+.jp-welcome-title{font-size:22px;font-weight:700;color:#111827;margin-bottom:5px;letter-spacing:-0.3px}
+.jp-welcome-sub{font-size:13.5px;color:#6b7280;margin-bottom:24px}
+.jp-label{font-size:13px;font-weight:500;color:#374151;margin-bottom:6px}
+.jp-input-wrap{
+  display:flex;align-items:center;gap:10px;
+  border:1.5px solid #e5e7eb;border-radius:10px;
+  padding:0 14px;background:#f9fafb;
+  transition:border-color .15s,box-shadow .15s;
+  margin-bottom:16px;
+}
+.jp-input-wrap:focus-within{border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,0.12);background:#fff}
+.jp-input-wrap svg{width:16px;height:16px;flex-shrink:0}
+.jp-input-wrap input{
+  flex:1;border:none;outline:none;background:transparent;
+  font-size:14px;color:#111827;padding:13px 0;
+  font-family:'Inter',sans-serif;
+}
+.jp-input-wrap input::placeholder{color:#9ca3af}
+.jp-btn-primary{
+  width:100%;padding:13px;font-size:14px;font-weight:600;
+  border:none;border-radius:10px;cursor:pointer;
+  background:linear-gradient(135deg,#0d9488,#14b8a6);
+  color:#fff;display:flex;align-items:center;justify-content:center;gap:8px;
+  transition:opacity .15s,box-shadow .15s,transform .15s;margin-bottom:16px;
+  box-shadow:0 2px 12px rgba(13,148,136,0.22);
+}
+.jp-btn-primary:hover{opacity:.92;box-shadow:0 4px 20px rgba(13,148,136,0.36);transform:translateY(-1px)}
+.jp-btn-primary:active{transform:translateY(0)}
+.jp-btn-primary svg{width:16px;height:16px}
+.jp-divider{
+  display:flex;align-items:center;gap:12px;
+  margin:4px 0 12px;color:#9ca3af;font-size:12px;
+}
+.jp-divider::before,.jp-divider::after{content:"";flex:1;height:1px;background:#e5e7eb}
+.jp-btn-google{
+  width:100%;padding:12px;font-size:14px;font-weight:500;
+  border:1.5px solid #e5e7eb;border-radius:10px;cursor:pointer;
+  background:#fff;color:#374151;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  transition:background .15s,border-color .15s,box-shadow .15s;
+  margin-bottom:16px;font-family:'Inter',sans-serif;
+}
+.jp-btn-google:hover{background:#f9fafb;border-color:#d1d5db;box-shadow:0 1px 6px rgba(0,0,0,0.07)}
+.jp-terms{font-size:11.5px;color:#9ca3af;text-align:center;line-height:1.6}
+.jp-terms a{color:#6b7280;text-decoration:underline}
+.jp-footer-note{position:fixed;bottom:16px;left:0;right:0;font-size:12px;color:#9ca3af;text-align:center;pointer-events:none}
+
+@media(max-width:680px){
+  .jp-left{display:none}
+  .jp-right{padding:36px 28px}
+  nav{padding:0 20px}
+  .nav-mid{display:none}
+  .hero{padding:100px 20px 60px;grid-template-columns:1fr}
+  .hero-right{display:none}
+  .section,.feat-section,.resume-section,.cl-section,.ats-section,.agent-section,.hired-section,.cta{padding:60px 20px}
+  h1{font-size:40px}
+  .stats-inner{grid-template-columns:repeat(2,1fr)}
+  .hired-grid{grid-template-columns:repeat(2,1fr)}
+  .big-grid{grid-template-columns:1fr}
+  .resume-inner,.cl-inner,.ats-inner,.agent-inner{grid-template-columns:1fr}
+  footer{flex-direction:column;gap:16px;text-align:center}
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a class="logo" href="/">
+    <div class="logo-icon">
+      <svg viewBox="0 0 20 20" fill="none"><path d="M4 14L10 5L16 14M7 11H13" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    JobPilot
+  </a>
+  <div class="nav-mid">
+    <a href="#features">Job Search</a>
+    <a href="#resume">Resume AI</a>
+    <a href="#cover-letter">Cover Letter</a>
+    <a href="#ats">ATS Score</a>
+  </div>
+  <div class="nav-right">
+    <button class="btn-n" onclick="openAuth('login')">Log in</button>
+    <button class="btn-p" onclick="openAuth('register')">Start free →</button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-left">
+    <div class="hero-tag"><span class="dot-live"></span>AI-Powered Career Platform</div>
+    <h1>Get Hired<br><span class="hl">10× Faster</span><br>With AI</h1>
+    <p class="hero-sub">Search 50,000+ jobs across every platform, tailor your resume with AI, generate stunning cover letters, and crush every ATS — all in one place.</p>
+    <div class="search-wrap">
+      <div class="sf">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        <input type="text" id="hero-job-input" placeholder="Job title, role, or skills...">
+      </div>
+      <div class="sf">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+        <input type="text" id="hero-loc-input" placeholder="City or remote...">
+      </div>
+      <button class="sbtn" onclick="heroSearch()">Search Jobs</button>
+    </div>
+    <div class="hero-chips">
+      <span>Trending:</span>
+      <span class="chip" onclick="chipSearch('Data Engineer')">Data Engineer</span>
+      <span class="chip" onclick="chipSearch('ML Engineer')">ML Engineer</span>
+      <span class="chip" onclick="chipSearch('AI Researcher')">AI Researcher</span>
+      <span class="chip" onclick="chipSearch('Software Engineer')">Software Engineer</span>
+      <span class="chip" onclick="chipSearch('Remote')">Remote</span>
+    </div>
+    <div class="hero-proof">
+      <div class="avatars">
+        <div class="av"><div class="av-img" style="background:linear-gradient(135deg,#1a6b52,#0a3d2e)">RK</div></div>
+        <div class="av"><div class="av-img" style="background:linear-gradient(135deg,#1a4a6b,#0a2d42)">SM</div></div>
+        <div class="av"><div class="av-img" style="background:linear-gradient(135deg,#5a1a6b,#3a0a42)">AN</div></div>
+        <div class="av"><div class="av-img" style="background:linear-gradient(135deg,#6b3a1a,#42200a)">JL</div></div>
+        <div class="av"><div class="av-img" style="background:linear-gradient(135deg,#1a6b3a,#0a4220)">PV</div></div>
+      </div>
+      <div class="proof-text">Joined by <strong>14,200+ professionals</strong><br>this month · ★★★★★ 4.9/5</div>
+    </div>
+  </div>
+
+  <!-- FLOATING UI -->
+  <div class="hero-right">
+    <div class="resume-card">
+      <div class="rc-header">
+        <div class="rc-avatar">TS</div>
+        <div>
+          <div class="rc-name">Tarun Sailesh V.</div>
+          <div class="rc-role">Senior Data &amp; AI Engineer · Redmond, WA</div>
+        </div>
+        <div class="ats-badge">
+          <div class="ats-ring-sm">
+            <svg viewBox="0 0 52 52">
+              <circle cx="26" cy="26" r="21" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="5"/>
+              <circle cx="26" cy="26" r="21" fill="none" stroke="#00c896" stroke-width="5" stroke-dasharray="131.9" stroke-dashoffset="20" stroke-linecap="round" transform="rotate(-90 26 26)"/>
+            </svg>
+            <div class="ats-num-sm">92</div>
+          </div>
+          <div class="ats-lbl-sm">ATS Score</div>
+        </div>
+      </div>
+      <div class="rc-skills">
+        <span class="skill-tag">Azure Synapse</span>
+        <span class="skill-tag">Databricks</span>
+        <span class="skill-tag">LangChain</span>
+        <span class="skill-tag">Python</span>
+        <span class="skill-tag">FastAPI</span>
+        <span class="skill-tag">RAG Systems</span>
+      </div>
+      <div class="rc-bars">
+        <div class="rb-row"><div class="rb-label">Keywords</div><div class="rb-track"><div class="rb-fill" style="width:94%"></div></div><div class="rb-pct">94%</div></div>
+        <div class="rb-row"><div class="rb-label">Experience</div><div class="rb-track"><div class="rb-fill" style="width:89%"></div></div><div class="rb-pct">89%</div></div>
+        <div class="rb-row"><div class="rb-label">Skills match</div><div class="rb-track"><div class="rb-fill" style="width:95%"></div></div><div class="rb-pct">95%</div></div>
+      </div>
+    </div>
+    <div class="match-card">
+      <div class="mc-title">Top Matches</div>
+      <div class="mc-job">
+        <div class="mc-logo" style="background:linear-gradient(135deg,#0052cc,#003999)">MS</div>
+        <div><div class="mc-jname">Sr. Data Engineer</div><div class="mc-jco">Microsoft</div></div>
+        <div class="mc-pct">97%</div>
+      </div>
+      <div class="mc-job">
+        <div class="mc-logo" style="background:linear-gradient(135deg,#ea4335,#b31412)">G</div>
+        <div><div class="mc-jname">AI Platform Lead</div><div class="mc-jco">Google</div></div>
+        <div class="mc-pct">94%</div>
+      </div>
+      <div class="mc-job">
+        <div class="mc-logo" style="background:linear-gradient(135deg,#ff9900,#c47600)">Az</div>
+        <div><div class="mc-jname">ML Engineer</div><div class="mc-jco">Amazon</div></div>
+        <div class="mc-pct">91%</div>
+      </div>
+    </div>
+    <div class="notif-card">
+      <div class="notif-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00c896" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <div>
+        <div class="notif-text">Resume optimized!</div>
+        <div class="notif-sub">ATS: 71 → 92 ↑ +21 pts</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- LOGOS -->
+<div class="logos-strip">
+  <div class="logos-inner">
+    <span class="logos-label">Jobs from</span>
+    <span class="logo-co">LinkedIn</span>
+    <span class="logo-co">Indeed</span>
+    <span class="logo-co">Glassdoor</span>
+    <span class="logo-co">Greenhouse</span>
+    <span class="logo-co">Lever</span>
+    <span class="logo-co">Workday</span>
+    <span class="logo-co">AngelList</span>
+    <span class="logo-co">Wellfound</span>
+  </div>
+</div>
+
+<!-- STATS -->
+<div class="stats-row">
+  <div class="stats-inner">
+    <div class="stat"><div class="stat-n">50K+</div><div class="stat-l">Jobs scraped daily</div></div>
+    <div class="stat"><div class="stat-n">94%</div><div class="stat-l">ATS pass rate</div></div>
+    <div class="stat"><div class="stat-n">8×</div><div class="stat-l">More interviews landed</div></div>
+    <div class="stat"><div class="stat-n">21K+</div><div class="stat-l">Careers launched</div></div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<div class="feat-section" id="features">
+  <div class="feat-wrap">
+    <div class="feat-header">
+      <div>
+        <div class="s-tag">Everything you need</div>
+        <div class="s-title">Your unfair advantage in the job market</div>
+      </div>
+      <div class="s-sub">From job discovery to offer letter — JobPilot automates every step with AI that actually understands your career.</div>
+    </div>
+    <div class="big-grid">
+      <div class="fcard">
+        <div class="fcard-body">
+          <div class="fcard-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></div>
+          <div class="fcard-title">Smart Multi-Platform Job Search</div>
+          <div class="fcard-desc">One search. Every major job board. AI ranks results by how well they match your profile — no more scrolling through irrelevant listings.</div>
+          <div class="fake-jobs">
+            <div class="fj">
+              <div class="fj-logo" style="background:linear-gradient(135deg,#0052cc,#003999)">MS</div>
+              <div class="fj-info"><div class="fj-title">Principal Data Engineer</div><div class="fj-meta">Microsoft · Redmond, WA · $155k–$195k</div></div>
+              <div class="fj-badge">97%</div>
+              <div class="fj-src">LinkedIn</div>
+            </div>
+            <div class="fj">
+              <div class="fj-logo" style="background:linear-gradient(135deg,#ea4335,#b31412)">G</div>
+              <div class="fj-info"><div class="fj-title">Senior ML Engineer</div><div class="fj-meta">Google · Remote · $160k–$210k</div></div>
+              <div class="fj-badge">94%</div>
+              <div class="fj-src">Greenhouse</div>
+            </div>
+            <div class="fj">
+              <div class="fj-logo" style="background:linear-gradient(135deg,#ff9900,#c47600)">Az</div>
+              <div class="fj-info"><div class="fj-title">Data &amp; AI Architect</div><div class="fj-meta">Amazon · Seattle, WA · $150k–$200k</div></div>
+              <div class="fj-badge">91%</div>
+              <div class="fj-src">Indeed</div>
+            </div>
+            <div class="fj">
+              <div class="fj-logo" style="background:linear-gradient(135deg,#0077b5,#005a87)">Sf</div>
+              <div class="fj-info"><div class="fj-title">AI Platform Engineer</div><div class="fj-meta">Salesforce · Hybrid · $140k–$185k</div></div>
+              <div class="fj-badge">88%</div>
+              <div class="fj-src">Lever</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="big-grid-right">
+        <div class="fcard">
+          <div class="fcard-body">
+            <div class="fcard-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+            <div class="fcard-title">Real-Time ATS Score</div>
+            <div class="fcard-desc">Know your exact match score before you apply. Fix gaps instantly with one-click AI suggestions.</div>
+          </div>
+        </div>
+        <div class="fcard">
+          <div class="fcard-body">
+            <div class="fcard-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+            <div class="fcard-title">AI Cover Letter Generator</div>
+            <div class="fcard-desc">Personalized, compelling cover letters in 30 seconds. Tailored to each company's voice and the role's requirements.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- RESUME SECTION -->
+<div class="resume-section" id="resume">
+  <div class="resume-inner">
+    <div>
+      <div class="s-tag">Resume Intelligence</div>
+      <div class="s-title">Two ways to land your dream job</div>
+      <div class="s-sub" style="margin-bottom:32px">Whether building from scratch or tailoring what you have — our AI makes your resume impossible to ignore.</div>
+      <div class="mode-toggle">
+        <div class="mode-btn active">
+          <div class="mb-title">✦ AI Generation</div>
+          <div class="mb-desc">Build from your LinkedIn or a blank slate</div>
+        </div>
+        <div class="mode-btn">
+          <div class="mb-title">⚡ Smart Tailoring</div>
+          <div class="mb-desc">Upload &amp; optimize for any specific role</div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="width:20px;height:20px;border-radius:50%;background:rgba(0,200,150,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#00c896" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <span style="font-size:14px;color:rgba(255,255,255,0.55);font-family:var(--font2);line-height:1.6">AI rewrites your bullets with <strong style="color:rgba(255,255,255,0.8)">quantified impact metrics</strong> automatically</span>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="width:20px;height:20px;border-radius:50%;background:rgba(0,200,150,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#00c896" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <span style="font-size:14px;color:rgba(255,255,255,0.55);font-family:var(--font2);line-height:1.6">Keyword optimization tuned to the <strong style="color:rgba(255,255,255,0.8)">exact job description</strong></span>
+        </div>
+        <div style="display:flex;align-items:flex-start;gap:12px">
+          <div style="width:20px;height:20px;border-radius:50%;background:rgba(0,200,150,0.15);display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#00c896" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <span style="font-size:14px;color:rgba(255,255,255,0.55);font-family:var(--font2);line-height:1.6">Export as <strong style="color:rgba(255,255,255,0.8)">PDF, DOCX</strong> or share a live link instantly</span>
+        </div>
+      </div>
+    </div>
+    <div class="resume-preview">
+      <div class="rp-topbar">
+        <div class="rp-dot" style="background:#ff5f57"></div>
+        <div class="rp-dot" style="background:#febc2e"></div>
+        <div class="rp-dot" style="background:#28c840"></div>
+        <div class="rp-title">resume_microsoft_de.pdf</div>
+        <div class="rp-badge">ATS: 92</div>
+      </div>
+      <div class="rp-body">
+        <div class="rp-name">Tarun Sailesh Vangipurapu</div>
+        <div class="rp-role">Senior Data &amp; AI Engineer</div>
+        <div class="rp-contact">
+          <span class="rp-c">tarunsailesh@email.com</span>
+          <span class="rp-c">Redmond, WA</span>
+          <span class="rp-c">linkedin.com/in/tarunsailesh</span>
+        </div>
+        <div class="rp-sec">
+          <div class="rp-sec-title">Experience</div>
+          <div class="rp-exp">
+            <div class="rp-exp-header"><span class="rp-co">Unilever</span><span class="rp-date">2022–Present</span></div>
+            <div class="rp-pos">Data &amp; AI Engineer · Azure · Global Supply Chain</div>
+            <div class="ai-line">
+              <div class="rp-bullet">Engineered end-to-end Medallion pipelines on Azure Databricks, processing <strong style="color:var(--t)">2.8B+ records/day</strong> with 99.97% uptime across 14 global markets</div>
+              <div class="ai-tag">AI Enhanced</div>
+            </div>
+            <div class="rp-bullet">Reduced ETL latency by <strong style="color:var(--t)">68%</strong> via Spark optimization, saving $420K annually</div>
+          </div>
+          <div class="rp-exp">
+            <div class="rp-exp-header"><span class="rp-co">Wipro</span><span class="rp-date">2020–2022</span></div>
+            <div class="rp-pos">Data Engineer · Azure Synapse · Cloud Migration</div>
+            <div class="rp-bullet">Migrated 60+ legacy workloads to Azure Synapse, improving query performance by <strong style="color:var(--t)">4.2×</strong></div>
+          </div>
+        </div>
+        <div class="rp-sec">
+          <div class="rp-sec-title">Skills</div>
+          <div class="rp-skills-row">
+            <span class="rp-stag">Python</span><span class="rp-stag">Azure Synapse</span><span class="rp-stag">Databricks</span><span class="rp-stag">LangChain</span><span class="rp-stag">Spark</span><span class="rp-stag">FastAPI</span><span class="rp-stag">RAG</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- COVER LETTER -->
+<div class="cl-section" id="cover-letter">
+  <div class="cl-inner">
+    <div class="cl-preview">
+      <div class="cl-topbar">
+        <div class="rp-dot" style="background:#ff5f57"></div>
+        <div class="rp-dot" style="background:#febc2e"></div>
+        <div class="rp-dot" style="background:#28c840"></div>
+        <div class="rp-title">cover_letter_microsoft.pdf</div>
+        <div class="rp-badge">99% Match</div>
+      </div>
+      <div class="cl-body">
+        <div class="cl-company">
+          <div class="cl-co-logo" style="background:linear-gradient(135deg,#0052cc,#003999)">MS</div>
+          <div>
+            <div class="cl-co-name">Microsoft Corporation</div>
+            <div class="cl-co-role">Principal Data Engineer · Redmond, WA</div>
+          </div>
+          <span class="match-pill">✦ 99% match</span>
+        </div>
+        <div class="cl-letter">
+          <p>Dear Hiring Manager,</p>
+          <p>I'm writing to express my strong interest in the <span class="cl-hi">Principal Data Engineer</span> role at <strong>Microsoft</strong>. With 4+ years architecting <span class="cl-hi">enterprise-scale data pipelines</span> on Azure — and a track record of turning raw data into strategic assets — I'm excited by Microsoft's mission to empower every person and organization on the planet.</p>
+          <p>At <strong>Unilever</strong>, I built Medallion Architecture pipelines on <span class="cl-hi">Azure Databricks</span> that process <span class="cl-hi">2.8B+ records daily</span> across 14 global markets. I reduced latency by 68% and saved $420K in annual compute costs. This is exactly the kind of impact I'd bring to your Azure data infrastructure team.</p>
+          <p>I'd welcome the opportunity to discuss how my background in <span class="cl-hi">LangChain, RAG systems, and Azure Synapse</span> aligns with Microsoft's AI-first roadmap.</p>
+        </div>
+        <div class="cl-footer">
+          <div class="cl-sig">Tarun Sailesh V.</div>
+          <button class="cl-dl" onclick="openAuth('register')">Get Started</button>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="s-tag">Cover Letters</div>
+      <div class="s-title">Personalized letters that open doors</div>
+      <div class="s-sub" style="margin-bottom:36px">Stop sending generic cover letters. JobPilot studies the company, the role, and your background — then writes a letter that feels human, targeted, and impossible to ignore.</div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="padding:16px 20px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08)">
+          <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:4px">Company Voice Matching</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.4);font-family:var(--font2)">Mirrors the tone and culture of each company's brand</div>
+        </div>
+        <div style="padding:16px 20px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08)">
+          <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:4px">Role-Specific Achievement Highlights</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.4);font-family:var(--font2)">Pulls your most relevant wins from your resume automatically</div>
+        </div>
+        <div style="padding:16px 20px;border-radius:12px;background:rgba(0,200,150,0.05);border:1px solid rgba(0,200,150,0.2)">
+          <div style="font-size:13px;font-weight:600;color:var(--t);margin-bottom:4px">Ready in 30 seconds ⚡</div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.4);font-family:var(--font2)">One click. Full personalization. Zero cringe.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ATS SECTION -->
+<div class="ats-section" id="ats">
+  <div class="ats-inner">
+    <div>
+      <div class="s-tag">ATS Intelligence</div>
+      <div class="s-title">Beat the bots.<br>Get to the humans.</div>
+      <div class="s-sub" style="margin-bottom:36px">75% of resumes are rejected before a human reads them. JobPilot's ATS engine analyzes your resume against the exact job description and fixes every gap instantly.</div>
+      <div class="ats-fixes">
+        <div class="fix">
+          <div class="fix-icon" style="background:rgba(0,200,150,0.15)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#00c896" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="fix-text">Add "Azure Synapse Analytics" to skills section</div>
+          <div class="fix-boost">+8 pts</div>
+        </div>
+        <div class="fix">
+          <div class="fix-icon" style="background:rgba(0,200,150,0.15)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#00c896" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="fix-text">Quantify the ETL pipeline impact with metrics</div>
+          <div class="fix-boost">+5 pts</div>
+        </div>
+        <div class="fix">
+          <div class="fix-icon" style="background:rgba(0,200,150,0.15)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#00c896" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="fix-text">Move "Databricks" higher in skills ranking</div>
+          <div class="fix-boost">+3 pts</div>
+        </div>
+        <div class="fix">
+          <div class="fix-icon" style="background:rgba(254,188,46,0.15)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#febc2e" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="fix-text">Resume format passes all ATS parsers ✓</div>
+          <div class="fix-boost" style="color:#febc2e">✓ Pass</div>
+        </div>
+      </div>
+    </div>
+    <div class="ats-visual">
+      <div class="big-ring">
+        <svg viewBox="0 0 180 180">
+          <circle cx="90" cy="90" r="72" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="14"/>
+          <circle cx="90" cy="90" r="72" fill="none" stroke="#00c896" stroke-width="14" stroke-dasharray="452.4" stroke-dashoffset="72" stroke-linecap="round" transform="rotate(-90 90 90)"/>
+        </svg>
+        <div class="ring-num">92</div>
+        <div class="ring-lbl">ATS Score</div>
+      </div>
+      <div class="ats-grid">
+        <div class="ats-mini"><div class="am-val">94%</div><div class="am-lbl">Keywords</div></div>
+        <div class="ats-mini"><div class="am-val">89%</div><div class="am-lbl">Experience</div></div>
+        <div class="ats-mini"><div class="am-val">95%</div><div class="am-lbl">Skills</div></div>
+        <div class="ats-mini"><div class="am-val">96%</div><div class="am-lbl">Formatting</div></div>
+      </div>
+      <div class="ats-fullbars">
+        <div class="afb-row"><div class="afb-label">Job Title Match</div><div class="afb-track"><div class="afb-fill" style="width:98%"></div></div><div class="afb-pct">98%</div></div>
+        <div class="afb-row"><div class="afb-label">Tech Stack</div><div class="afb-track"><div class="afb-fill" style="width:95%"></div></div><div class="afb-pct">95%</div></div>
+        <div class="afb-row"><div class="afb-label">Soft Skills</div><div class="afb-track"><div class="afb-fill" style="width:82%"></div></div><div class="afb-pct">82%</div></div>
+        <div class="afb-row"><div class="afb-label">Edu &amp; Certs</div><div class="afb-track"><div class="afb-fill" style="width:90%"></div></div><div class="afb-pct">90%</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- AGENT -->
+<div class="agent-section">
+  <div class="agent-inner">
+    <div>
+      <div class="s-tag">AI Resume Agent</div>
+      <div class="s-title">Just talk.<br>Your resume updates.</div>
+      <div class="s-sub" style="margin-bottom:36px">No more manual editing. Chat with your AI career agent — it rewrites, tailors, and improves your resume in real time based on your natural language instructions.</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="agent-chip" onclick="openAuth('register')">"Make my Databricks experience sound more senior"</div>
+        <div class="agent-chip" onclick="openAuth('register')">"Tailor my whole resume for a Microsoft Principal role"</div>
+        <div class="agent-chip" onclick="openAuth('register')">"Add more impact numbers to my Unilever bullets"</div>
+        <div class="agent-chip" onclick="openAuth('register')">"Rewrite my summary for a startup, make it punchy"</div>
+      </div>
+    </div>
+    <div class="chat-frame">
+      <div class="cf-bar">
+        <div class="cf-av">✦</div>
+        <div>
+          <div class="cf-name">JobPilot Agent</div>
+          <div class="cf-status">● Active · Resume mode · ATS: 92</div>
+        </div>
+      </div>
+      <div class="cf-msgs">
+        <div class="msg bot">Hey! Your resume is loaded. I can see 3 quick wins to boost your ATS score from 72 to 90+. Want me to do them?</div>
+        <div class="msg user">Yes! And tailor it for the Microsoft Principal Data Engineer role</div>
+        <div class="msg bot">Done! I rewrote your Unilever bullets with impact metrics, added "Azure Synapse" and "Medallion Architecture" keywords. ATS jumped from 72 → 92 ↑</div>
+        <div class="msg user">Also make my summary punchier and more senior-sounding</div>
+        <div class="msg bot">Updated: "Data &amp; AI engineer with 4+ years building enterprise-scale pipelines on Azure — processing billions of records, cutting costs by $420K, and shipping AI that ships decisions." Ready to export? ✓</div>
+      </div>
+      <div class="cf-input-row">
+        <input class="cf-input" placeholder="Tell the agent what to improve..." onfocus="openAuth('register')" readonly>
+        <button class="cf-send" onclick="openAuth('register')">Send ↗</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- COMPANIES -->
+<div class="hired-section">
+  <div class="hired-inner">
+    <div class="s-tag">Get hired at</div>
+    <div class="s-title">Top companies our users get hired at</div>
+    <div class="hired-grid">
+      <div class="hco"><div class="hco-logo" style="background:linear-gradient(135deg,#0052cc,#003999)">MS</div><div class="hco-name">Microsoft</div><div class="hco-jobs">847 open roles</div><div class="hco-tag">Most hired ↑</div></div>
+      <div class="hco"><div class="hco-logo" style="background:linear-gradient(135deg,#ea4335,#b31412)">G</div><div class="hco-name">Google</div><div class="hco-jobs">1,204 open roles</div><div class="hco-tag">Top employer</div></div>
+      <div class="hco"><div class="hco-logo" style="background:linear-gradient(135deg,#ff9900,#c47600)">Am</div><div class="hco-name">Amazon</div><div class="hco-jobs">2,103 open roles</div><div class="hco-tag">Hiring fast ⚡</div></div>
+      <div class="hco"><div class="hco-logo" style="background:linear-gradient(135deg,#0077b5,#005a87)">Sf</div><div class="hco-name">Salesforce</div><div class="hco-jobs">412 open roles</div><div class="hco-tag">AI-first</div></div>
+      <div class="hco"><div class="hco-logo" style="background:linear-gradient(135deg,#1877f2,#0d5fc4)">Me</div><div class="hco-name">Meta</div><div class="hco-jobs">689 open roles</div><div class="hco-tag">Top payer 💰</div></div>
+      <div class="hco"><div class="hco-logo" style="background:linear-gradient(135deg,#00a1f1,#007ab8)">Db</div><div class="hco-name">Databricks</div><div class="hco-jobs">203 open roles</div><div class="hco-tag">High match</div></div>
+      <div class="hco"><div class="hco-logo" style="background:linear-gradient(135deg,#6c5ce7,#4834d4)">Op</div><div class="hco-name">OpenAI</div><div class="hco-jobs">98 open roles</div><div class="hco-tag">🔥 Hot</div></div>
+      <div class="hco"><div class="hco-logo" style="background:linear-gradient(135deg,#00c896,#007a5e)">Ap</div><div class="hco-name">Apple</div><div class="hco-jobs">534 open roles</div><div class="hco-tag">Premium</div></div>
+      <div class="hco"><div class="hco-logo" style="background:linear-gradient(135deg,#635bff,#4f46e5)">St</div><div class="hco-name">Stripe</div><div class="hco-jobs">156 open roles</div><div class="hco-tag">Unicorn 🦄</div></div>
+      <div class="hco"><div class="hco-logo" style="background:linear-gradient(135deg,#ff3e00,#cc3200)">Sp</div><div class="hco-name">SpaceX</div><div class="hco-jobs">87 open roles</div><div class="hco-tag">Dream job 🚀</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- CTA -->
+<div class="cta">
+  <h2>Your dream job<br>is one click <span>away</span></h2>
+  <p>Join 21,000+ professionals who landed roles at top companies.<br>Start free. No credit card needed.</p>
+  <div class="cta-btns">
+    <button class="btn-big primary" onclick="openAuth('register')">Start for free — it's instant →</button>
+    <button class="btn-big ghost" onclick="openAuth('login')">Log in</button>
+  </div>
+  <div class="cta-note">✓ Free forever plan &nbsp;·&nbsp; ✓ No credit card &nbsp;·&nbsp; ✓ Cancel anytime</div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <div class="ft-logo">
+    <div class="logo-icon" style="width:28px;height:28px;border-radius:7px;flex-shrink:0">
+      <svg viewBox="0 0 20 20" fill="none" style="width:16px;height:16px"><path d="M4 14L10 5L16 14M7 11H13" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+    JobPilot
+  </div>
+  <div class="ft-mid">
+    <a href="#features">Features</a>
+    <a href="#ats">ATS Score</a>
+    <a href="#resume">Resume AI</a>
+    <a href="#">Privacy</a>
+    <a href="#">Terms</a>
+  </div>
+  <div class="ft-right">© 2025 JobPilot · All rights reserved</div>
+</footer>
+
+<!-- AUTH OVERLAY -->
+<div id="auth-overlay">
+  <div class="jp-wrap">
+
+    <!-- LEFT PANEL -->
+    <div class="jp-left">
+      <div class="jp-left-bg"></div>
+      <div class="jp-logo">
+        <div class="jp-logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/></svg>
+        </div>
+        <span class="jp-logo-text">JobPilot</span>
+      </div>
+      <div class="jp-headline">Your <span>AI Co-Pilot</span><br>for Career Success</div>
+      <p class="jp-sub">Find the right job, build your career, and grow with AI-powered insights tailored just for you.</p>
+      <div class="jp-features">
+        <div class="jp-feat">
+          <div class="jp-feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><circle cx="11" cy="11" r="8" stroke="#ccfbf1"/><path d="M21 21l-4.35-4.35" stroke="#ccfbf1"/></svg></div>
+          <div>
+            <div class="jp-feat-title">Smart Job Search</div>
+            <div class="jp-feat-desc">Discover relevant opportunities faster with AI.</div>
+          </div>
+        </div>
+        <div class="jp-feat">
+          <div class="jp-feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#ccfbf1" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></div>
+          <div>
+            <div class="jp-feat-title">AI Resume Review</div>
+            <div class="jp-feat-desc">Your resume, rewritten for the job that matters.</div>
+          </div>
+        </div>
+        <div class="jp-feat">
+          <div class="jp-feat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#ccfbf1" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+          <div>
+            <div class="jp-feat-title">Career Insights</div>
+            <div class="jp-feat-desc">Make better decisions with data-driven insights.</div>
+          </div>
+        </div>
+      </div>
+      <div class="jp-illus">
+        <svg class="jp-road" viewBox="0 0 320 80" xmlns="http://www.w3.org/2000/svg">
+          <defs><linearGradient id="skyg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#5eead4" stop-opacity="0.25"/><stop offset="100%" stop-color="#0d9488" stop-opacity="0.05"/></linearGradient></defs>
+          <rect width="320" height="80" fill="url(#skyg)" rx="8"/>
+          <ellipse cx="160" cy="85" rx="120" ry="30" fill="#134e4a" opacity="0.4"/>
+          <line x1="160" y1="80" x2="130" y2="30" stroke="rgba(255,255,255,0.15)" stroke-width="18"/>
+          <line x1="160" y1="80" x2="190" y2="30" stroke="rgba(255,255,255,0.15)" stroke-width="18"/>
+          <line x1="160" y1="80" x2="160" y2="25" stroke="rgba(255,255,255,0.3)" stroke-width="2" stroke-dasharray="4,4"/>
+          <circle cx="160" cy="22" r="5" fill="#5eead4"/>
+          <text x="168" y="20" font-size="8" fill="#ccfbf1" font-family="Inter,sans-serif">Better Jobs</text>
+          <circle cx="120" cy="38" r="4" fill="#99f6e4" opacity="0.8"/>
+          <text x="90" y="36" font-size="7" fill="rgba(255,255,255,0.6)" font-family="Inter,sans-serif">Higher Growth</text>
+          <circle cx="200" cy="42" r="4" fill="#99f6e4" opacity="0.8"/>
+          <text x="207" y="40" font-size="7" fill="rgba(255,255,255,0.6)" font-family="Inter,sans-serif">Bright Future</text>
+          <circle cx="160" cy="68" r="10" fill="#134e4a"/>
+          <circle cx="160" cy="64" r="7" fill="#0d9488"/>
+          <circle cx="160" cy="62" r="4" fill="#5eead4" opacity="0.7"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div class="jp-right">
+      <div class="jp-topnav">
+        <span id="auth-switch-hint">New here?</span>
+        <a href="#" id="auth-switch-btn" onclick="switchAuthTab(_authTab==='login'?'register':'login'); return false;">Create an account</a>
+      </div>
+      <div class="jp-welcome-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/></svg>
+      </div>
+      <div class="jp-welcome-title" id="auth-form-title">Welcome back</div>
+      <div class="jp-welcome-sub" id="auth-form-sub">Log in to your JobPilot account</div>
+
+      <div id="auth-error" class="auth-error"></div>
+
+      <div class="jp-label">Email address</div>
+      <div class="jp-input-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="#b0b7c3"/><polyline points="22,6 12,13 2,6" stroke="#b0b7c3"/></svg>
+        <input type="email" id="auth-email" placeholder="Enter your email" autocomplete="email"/>
+      </div>
+
+      <div class="jp-label">Password</div>
+      <div class="jp-input-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#b0b7c3" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+        <input type="password" id="auth-password" placeholder="Enter your password" onkeydown="if(event.key==='Enter') submitAuth()"/>
+      </div>
+
+      <button class="jp-btn-primary" id="auth-submit-btn" onclick="submitAuth()">
+        Continue with Email
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </button>
+
+      <div class="jp-divider"><span>or</span></div>
+
+      <button class="jp-btn-google" onclick="googleSignIn()">
+        <svg viewBox="0 0 48 48" width="18" height="18">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          <path fill="none" d="M0 0h48v48H0z"/>
+        </svg>
+        Continue with Google
+      </button>
+
+      <div id="g_id_onload"
+           data-client_id="353353015098-70d8omlhib7n82c2gnds8filvus1rsn7.apps.googleusercontent.com"
+           data-callback="handleGoogleCredential"
+           data-auto_prompt="false"
+           style="display:none">
+      </div>
+
+      <div class="jp-terms">
+        By continuing, you agree to JobPilot's<br>
+        <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>.
+      </div>
+    </div>
+
+  </div>
+  <div class="jp-footer-note">JobPilot © 2025</div>
+</div>
+
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+// ── Auth state ──────────────────────────────────────────────────────────────
+var _authTab = 'login';
+
+// Redirect already-authenticated users straight to the app
+(function() {
+  if (localStorage.getItem('jp_token')) {
+    window.location.replace('/app');
+  }
+})();
+
+// ── Auth overlay helpers ────────────────────────────────────────────────────
+function openAuth(tab) {
+  switchAuthTab(tab || 'login');
+  document.getElementById('auth-overlay').classList.add('visible');
+  document.body.style.overflow = 'hidden';
+  setTimeout(function() {
+    var el = document.getElementById('auth-email');
+    if (el) el.focus();
+  }, 50);
+}
+
+function closeAuth() {
+  document.getElementById('auth-overlay').classList.remove('visible');
+  document.body.style.overflow = '';
+}
+
+function switchAuthTab(tab) {
+  _authTab = tab;
+  var isLogin = tab === 'login';
+  document.getElementById('auth-form-title').textContent  = isLogin ? 'Welcome back'      : 'Create your account';
+  document.getElementById('auth-form-sub').textContent    = isLogin ? 'Log in to your JobPilot account' : 'Start your AI-powered job search';
+  document.getElementById('auth-submit-btn').innerHTML    = (isLogin ? 'Continue with Email' : 'Create Account') +
+    '<svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" style="width:16px;height:16px"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>';
+  document.getElementById('auth-switch-hint').textContent = isLogin ? 'New here?'       : 'Already have an account?';
+  document.getElementById('auth-switch-btn').textContent  = isLogin ? 'Create an account' : 'Sign in';
+  var errEl = document.getElementById('auth-error');
+  errEl.style.display = 'none';
+  errEl.textContent = '';
+}
+
+function showAuthError(msg) {
+  var el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+// ── Submit auth ─────────────────────────────────────────────────────────────
+async function submitAuth() {
+  var email    = document.getElementById('auth-email').value.trim();
+  var password = document.getElementById('auth-password').value;
+  var btn      = document.getElementById('auth-submit-btn');
+
+  if (!email || !password) { showAuthError('Please enter email and password'); return; }
+
+  btn.disabled = true;
+  btn.textContent = _authTab === 'login' ? 'Signing in...' : 'Creating account...';
+
+  try {
+    var endpoint = _authTab === 'login' ? '/api/auth/login' : '/api/auth/register';
+    var r = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email, password: password }),
+    });
+    var d = await r.json();
+    if (!r.ok) { showAuthError(d.detail || 'Something went wrong'); return; }
+    localStorage.setItem('jp_token', d.token);
+    localStorage.setItem('jp_email', d.email);
+    window.location.href = '/app';
+  } catch (e) {
+    showAuthError('Connection error — is the server running?');
+  } finally {
+    btn.disabled = false;
+    switchAuthTab(_authTab); // restore button text
+  }
+}
+
+// ── Google Sign-In ──────────────────────────────────────────────────────────
+function googleSignIn() {
+  var clientId = document.getElementById('g_id_onload').dataset.client_id;
+  if (!clientId) {
+    showAuthError('Google login is not configured yet. Please use email/password.');
+    return;
+  }
+  google.accounts.id.initialize({ client_id: clientId, callback: handleGoogleCredential });
+  google.accounts.id.prompt();
+}
+
+async function handleGoogleCredential(response) {
+  try {
+    var r = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential: response.credential })
+    });
+    var d = await r.json();
+    if (!r.ok) { showAuthError(d.detail || 'Google sign-in failed'); return; }
+    localStorage.setItem('jp_token', d.token);
+    localStorage.setItem('jp_email', d.email);
+    window.location.href = '/app';
+  } catch (e) {
+    showAuthError('Google sign-in failed — server error');
+  }
+}
+
+// Close overlay when clicking the dark backdrop (outside the form card)
+document.getElementById('auth-overlay').addEventListener('click', function(e) {
+  if (e.target === this) closeAuth();
+});
+
+// ── Hero search ─────────────────────────────────────────────────────────────
+function heroSearch() {
+  var title = document.getElementById('hero-job-input').value.trim();
+  var loc   = document.getElementById('hero-loc-input').value.trim();
+  if (title) sessionStorage.setItem('jp_search_title', title);
+  if (loc)   sessionStorage.setItem('jp_search_location', loc);
+  if (localStorage.getItem('jp_token')) {
+    window.location.href = '/app';
+  } else {
+    openAuth('register');
+  }
+}
+
+function chipSearch(title) {
+  sessionStorage.setItem('jp_search_title', title);
+  if (localStorage.getItem('jp_token')) {
+    window.location.href = '/app';
+  } else {
+    openAuth('register');
+  }
+}
+
+// Allow pressing Enter in hero search inputs
+document.getElementById('hero-job-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') heroSearch();
+});
+document.getElementById('hero-loc-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') heroSearch();
+});
+
+// Mode toggle for resume section (purely cosmetic on landing page)
+document.querySelectorAll('.mode-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.mode-btn').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>

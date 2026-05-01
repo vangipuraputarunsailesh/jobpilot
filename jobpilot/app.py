@@ -88,7 +88,7 @@ async def log_requests(request: Request, call_next):
 
 # ── Auth guard ────────────────────────────────────────────────────────────────
 
-_PUBLIC = {"/", "/api/auth/login", "/api/auth/register", "/api/auth/google", "/api/health"}
+_PUBLIC = {"/", "/app", "/api/auth/login", "/api/auth/register", "/api/auth/google", "/api/health"}
 
 @app.middleware("http")
 async def auth_guard(request: Request, call_next):
@@ -181,6 +181,11 @@ class GenerateResumeRequest(BaseModel):
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 @app.get("/", include_in_schema=False)
+async def landing():
+    return FileResponse(str(Path(__file__).parent / "static" / "landing.html"))
+
+
+@app.get("/app", include_in_schema=False)
 async def index():
     return FileResponse(str(Path(__file__).parent / "static" / "index.html"))
 
