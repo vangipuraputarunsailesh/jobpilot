@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}JobPilot — AI Job Search{% endblock %}
+
+{% block head %}
+<script>if (!localStorage.getItem('jp_token')) { window.location.replace('/'); }</script>
+{% endblock %}
+
+{% block body %}
+<!-- TOP BAR -->
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" width="16" height="16">
+        <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+      </svg>
+    </div>
+    <span class="brand-name">JobPilot</span>
+    <span class="brand-sub">AI · Real jobs from every US company</span>
+  </div>
+  <div class="topbar-right">
+    <label class="theme-switch" title="Toggle theme">
+      <span class="theme-switch-label">Theme</span>
+      <select id="theme-select" class="theme-select">
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+    <div class="live-chip"><div class="live-dot"></div>Live</div>
+    <div id="source-chip" class="source-chip" style="display:none"></div>
+    <div class="health-indicator" id="health-dot" title="Checking connection…" onclick="toggleUsagePanel()"></div>
+    <span id="topbar-user" class="topbar-user" style="display:none"></span>
+    <button id="logout-btn" class="logout-btn" style="display:none" onclick="logout()">Sign out</button>
+  </div>
+</header>
+
+<!-- USAGE PANEL -->
+<div class="usage-panel" id="usage-panel" style="display:none">
+  <div class="usage-title">API Usage</div>
+  <div class="usage-grid" id="usage-grid">Loading…</div>
+  <div class="usage-note">Counters reset on server restart</div>
+</div>
+
+<!-- MAIN 3-PANEL LAYOUT -->
+<div class="layout" id="app-layout">
+
+  <!-- LEFT: SEARCH SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <div class="sidebar-section">
+        <div class="s-label">Job title / keyword</div>
+        <input class="ctrl-input" id="job-title-input"
+               placeholder="e.g. Software Engineer, Data Analyst…"
+               onkeydown="if(event.key==='Enter') searchJobs()"/>
+        <div class="s-hint">Any title or keyword — exact search</div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="s-label">Location</div>
+        <input class="ctrl-input" id="location-input"
+               value="United States"
+               placeholder="City, State or Remote"/>
+        <div class="s-hint">e.g. Seattle WA · Remote</div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="s-label">Seniority level</div>
+        <select class="ctrl-select" id="seniority-input">
+          <option value="any">Any level</option>
+          <option value="entry">Entry / Junior</option>
+          <option value="mid">Mid level</option>
+          <option value="senior">Senior</option>
+          <option value="lead">Staff / Principal / Lead</option>
+        </select>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="s-label">Date posted</div>
+        <select class="ctrl-select" id="date-posted-input">
+          <option value="past24Hours">Last 24 hours</option>
+          <option value="pastWeek" selected>Last 7 days</option>
+          <option value="pastMonth">Last 30 days</option>
+        </select>
+      </div>
+
+      <div class="sidebar-section api-status-section" id="api-status-section" style="display:none">
+        <div class="s-label">Active sources</div>
+        <div class="api-status-list" id="api-status-list"></div>
+      </div>
+
+      <button class="search-btn" id="search-btn" onclick="searchJobs()">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <circle cx="6" cy="6" r="4.5" stroke="#fff" stroke-width="1.8"/>
+          <line x1="9.5" y1="9.5" x2="13" y2="13" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+        <span id="search-btn-text">Find jobs now</span>
+      </button>
+
+      <div class="sidebar-footer">
+        <div class="footer-note">FAANG, Fortune 500, startups — updated daily.</div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="panel-resizer" data-resize="left" role="separator" aria-orientation="vertical" tabindex="0"></div>
+
+  <!-- MIDDLE: JOB LIST -->
+  <main class="mid">
+    <div class="mid-top">
+      <div class="mid-count" id="mid-count">Enter a job title and search</div>
+      <div class="sort-tabs">
+        <button class="sort-tab active" onclick="sortJobs('newest', this)">Newest</button>
+        <button class="sort-tab" onclick="sortJobs('salary', this)">Salary</button>
+        <button class="sort-tab" onclick="sortJobs('company', this)">Company</button>
+      </div>
+    </div>
+
+    <div class="job-scroll" id="job-list">
+      <div class="empty-state">
+        <div class="empty-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+            <circle cx="11" cy="11" r="8" stroke="var(--text3)" stroke-width="1.5"/>
+            <path d="m21 21-4.35-4.35" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="empty-title">No jobs yet</div>
+        <div class="empty-sub">Type any job title and click "Find jobs now" to search across millions of US companies.</div>
+      </div>
+    </div>
+
+    <div class="stat-bar">
+      <div class="stat"><div class="stat-v" id="stat-total">—</div><div class="stat-l">Total</div></div>
+      <div class="stat"><div class="stat-v" id="stat-sources">—</div><div class="stat-l">Sources</div></div>
+      <div class="stat"><div class="stat-v" id="stat-scored">0</div><div class="stat-l">Scored</div></div>
+    </div>
+  </main>
+
+  <div class="panel-resizer" data-resize="right" role="separator" aria-orientation="vertical" tabindex="0"></div>
+
+  <!-- RIGHT: JOB DETAIL / RESUME PANEL -->
+  <aside class="right-panel" id="right-panel">
+    <div class="rp-empty" id="rp-empty">
+      <div class="empty-icon">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="var(--text3)" stroke-width="1.5"/>
+          <polyline points="14,2 14,8 20,8" stroke="var(--text3)" stroke-width="1.5"/>
+          <line x1="16" y1="13" x2="8" y2="13" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="16" y1="17" x2="8" y2="17" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="empty-title">Select a job</div>
+      <div class="empty-sub">Click any job to read the description, tailor your resume with AI, check your ATS score, and apply.</div>
+    </div>
+    <div id="rp-content" style="display:none; flex-direction:column; height:100%; overflow:hidden;"></div>
+  </aside>
+
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- Hidden file input -->
+<input type="file" id="resume-file-input" accept=".pdf,.docx,.txt" style="display:none" onchange="handleResumeFile(this)"/>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="/static/js/app.js"></script>
+{% endblock %}
