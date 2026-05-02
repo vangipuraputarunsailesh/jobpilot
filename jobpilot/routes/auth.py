@@ -27,8 +27,8 @@ def register():
         token = create_token(email.lower())
         logger.info(f"REGISTER | {email}")
         return jsonify({"token": token, "email": email.lower()})
-    except ValueError as e:
-        return jsonify({"detail": str(e)}), 400
+    except ValueError:
+        return jsonify({"detail": "Email already registered"}), 400
 
 
 @auth_bp.post("/api/auth/login")

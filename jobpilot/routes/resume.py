@@ -23,19 +23,6 @@ from core.resume_reader import (
 resume_bp = Blueprint("resume", __name__)
 logger = logging.getLogger("jobpilot")
 
-_GENERATED = Path(__file__).parent.parent / "generated"
-
-
-def _safe_out_path(filename: str, suffix: str) -> Path:
-    """Return a safe output path inside the generated/ directory."""
-    stem = Path(os.path.basename(filename)).stem or "resume"
-    # Strip any remaining path separators
-    stem = stem.replace("/", "_").replace("\\", "_")
-    out = (_GENERATED / f"{stem}{suffix}").resolve()
-    if not str(out).startswith(str(_GENERATED.resolve())):
-        raise ValueError("Invalid filename")
-    return out
-
 
 @resume_bp.post("/api/upload-resume")
 def upload_resume():
