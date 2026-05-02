@@ -31,7 +31,7 @@ def search_jobs():
         jobs = search_all_platforms(title, location, seniority, date_posted)
     except Exception as e:
         logger.error(f"SEARCH ERROR | {e}", exc_info=True)
-        return jsonify({"detail": str(e)}), 500
+        return jsonify({"detail": "Job search failed. Please try again."}), 500
     sources = list({j["source"] for j in jobs})
     logger.info(f"SEARCH DONE | {len(jobs)} jobs from {sources}")
     return jsonify({"jobs": jobs, "count": len(jobs), "sources": sources,

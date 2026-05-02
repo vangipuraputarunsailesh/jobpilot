@@ -98,7 +98,8 @@ def create_app() -> Flask:
 
     @app.get("/")
     def landing():
-        return render_template("landing.html")
+        return render_template("landing.html",
+                               google_client_id=os.environ.get("GOOGLE_CLIENT_ID", ""))
 
     @app.get("/app")
     def index():

@@ -4,6 +4,7 @@ Handles upload, generate, score, tailor, improve, chat, certs, answer, download.
 """
 import io
 import os
+import re
 import logging
 from pathlib import Path
 
@@ -54,7 +55,8 @@ def upload_resume():
             doc = Document(io.BytesIO(content))
             text = "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
         except Exception as e:
-            return jsonify({"detail": f"Could not read .docx: {e}"}), 500
+            logger.error(f"DOCX read error: {e}", exc_info=True)
+            return jsonify({"detail": "Could not read the .docx file."}), 500
     elif ext == ".pdf":
         try:
             from pypdf import PdfReader
@@ -68,7 +70,8 @@ def upload_resume():
                 with pdfplumber.open(io.BytesIO(content)) as pdf:
                     text = "\n".join(p.extract_text() or "" for p in pdf.pages)
             except Exception as e:
-                return jsonify({"detail": f"Could not read .pdf: {e}"}), 500
+                logger.error(f"PDF read error: {e}", exc_info=True)
+                return jsonify({"detail": "Could not read the .pdf file."}), 500
     if not text.strip():
         return jsonify({"detail": "Could not extract text. Try a .txt or .docx version."}), 422
     return jsonify({"text": text.strip(), "filename": f.filename})
@@ -111,7 +114,7 @@ def score():
         return jsonify(result)
     except Exception as e:
         logger.error(f"ATS SCORE ERROR | {e}", exc_info=True)
-        return jsonify({"detail": str(e)}), 500
+        return jsonify({"detail": "ATS scoring failed. Please try again."}), 500
 
 
 @resume_bp.post("/api/tailor")
@@ -140,7 +143,7 @@ def tailor():
         })
     except Exception as e:
         logger.error(f"TAILOR ERROR | {e}", exc_info=True)
-        return jsonify({"detail": str(e)}), 500
+        return jsonify({"detail": "Resume tailoring failed. Please try again."}), 500
 
 
 @resume_bp.post("/api/improve-line")
@@ -210,13 +213,15 @@ def download():
     content = data.get("content", "")
     if not content:
         return jsonify({"detail": "No content to download"}), 400
-    filename  = data.get("filename", "resume")
+    # Sanitize filename: strip directory components and limit to alphanumeric/dash/underscore
+    raw_name  = data.get("filename", "resume")
+    safe_stem = re.sub(r"[^A-Za-z0-9_\-]", "_", Path(os.path.basename(raw_name)).stem) or "resume"
     fmt       = data.get("format", "pdf")
     fit_pages = data.get("fit_pages", 0)
 
     try:
         if fmt == "docx":
-            path = save_tailored_docx(filename, content)
+            path = save_tailored_docx(safe_stem, content)
             return send_file(
                 path,
                 mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -224,11 +229,11 @@ def download():
                 download_name=Path(path).name,
             )
         if fmt == "pdf":
-            path = save_tailored_pdf(filename, content, max_pages=fit_pages)
+            path = save_tailored_pdf(safe_stem, content, max_pages=fit_pages)
             return send_file(path, mimetype="application/pdf",
                              as_attachment=True, download_name=Path(path).name)
-        path = save_tailored_resume(filename, content)
+        path = save_tailored_resume(safe_stem, content)
         return send_file(path, mimetype="text/plain",
                          as_attachment=True, download_name=Path(path).name)
-    except ValueError as e:
-        return jsonify({"detail": str(e)}), 400
+    except ValueError:
+        return jsonify({"detail": "Invalid filename or download failed."}), 400
