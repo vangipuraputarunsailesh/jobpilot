@@ -1,11 +1,23 @@
 # JobPilot — Repository Issues Assessment
 
+> ⚠️ **Top-of-mind security debt** — the items below are *not* drive-by fixes; they are the remaining must-do work before this app should serve real production traffic at scale. Review at the start of every sprint:
+>
+> - 🔴 **#1** — `FLASK_SECRET` defaults to a hard-coded string. Add a fail-fast guard at startup.
+> - 🔴 **#2** — `JWT_SECRET` defaults to a hard-coded string. Same fail-fast pattern.
+> - 🔴 **#9** — `ai_engine.apply_chat_instruction` parser has a latent split bug; needs careful semantic review (AGENTS.md §4 — *ask before touching*).
+> - 🟠 **#3** — `passlib` configured for `pbkdf2_sha256` despite docstring claiming `bcrypt`.
+> - 🟠 **#4** — Auth guard uses `path.startswith("/static")` (no trailing slash) — `/staticXYZ` bypasses auth.
+> - 🟠 **#17** — ~80-line PDF parsing block duplicated; risk of drift on every fix.
+> - 🟠 **#30** — Test scaffold landed (Phase 3) but is intentionally minimal; broaden before any large refactor.
+>
+> ⚠️ **Document handling rule (AGENTS.md §2.2):** This file is **edit-in-place**. Do **not** delete or recreate it. If you accidentally delete it, restore from git history rather than reconstructing.
+
 **Document type:** Code & Architecture Review
 **Scope:** `jobpilot/` application (Flask backend + static frontend)
-**Total findings:** 72 (Critical: 3 · High: 4 · Medium: 40 · Low: 25)
-**Open:** 33 · **In Progress:** 0 · **Resolved:** 37 (23 Low + 14 Medium) · **Won't Fix:** 2
-**Estimated remediation effort:** ~97 engineering hours (~46 hr completed)
-**Last re-check:** 2026-05-04
+**Total findings:** 79 (Critical: 4 · High: 4 · Medium: 43 · Low: 28)
+**Open:** 16 · **In Progress:** 1 (#30) · **Resolved:** 52 (26 Low + 25 Medium + 1 Critical) · **Won't Fix:** 11 (with documented Requirements)
+**Estimated remediation effort:** ~97 engineering hours (~70 hr completed)
+**Last re-check:** 2026-05-04 (Phase 3 Medium-remediation sprint)
 **Source of truth:** This document supersedes the previous `repo_issues.csv` (now removed).
 
 ---
@@ -52,6 +64,10 @@
 | 2026-05-04 | **Low-risk Medium remediation sprint.** Closed 13 🟡 Medium findings (#5, #6, #10, #11, #18, #19, #21, #33, #46, #51, #52, #53, #65). All edits are small surface-area changes; no behavior change for happy paths. | #5, #6, #10, #11, #18, #19, #21, #33, #46, #51, #52, #53, #65 | [jobpilot/app.py](jobpilot/app.py), [jobpilot/core/ai_engine.py](jobpilot/core/ai_engine.py), [jobpilot/core/resume_reader.py](jobpilot/core/resume_reader.py), [jobpilot/routes/resume.py](jobpilot/routes/resume.py), [jobpilot/routes/auth.py](jobpilot/routes/auth.py), [jobpilot/routes/jobs.py](jobpilot/routes/jobs.py), [jobpilot/static/js/app.js](jobpilot/static/js/app.js) | Rajesh |
 | 2026-05-04 | Added [AGENTS.md](AGENTS.md) at the repo root: codifies the contributor / agent workflow, owner-attribution rule (use `Rajesh` for fixes from this account), and the *update-don't-recreate* policy for this report. | Process | [AGENTS.md](AGENTS.md) | Rajesh |
 | 2026-05-04 | Added a **Requirements** column to every issue table. Open items list the concrete prerequisites to land the fix (env vars, libs, schema, tests, design decisions); fixed/won't-fix items read `None (already met)` or note the deferred dependency. | All | — | Rajesh |
+| 2026-05-04 | **Live Playwright UI sprint.** Drove the running app through every auth path + a full search; reproduced and fixed 7 bugs (1 🔴, 3 🟡, 3 🟢) under new Section 14b. Headline fix: every landing-page auth handler now writes `sessionStorage.jp_session_active='1'` so `/app` no longer wipes the token and bounces home (full auth lockout in fresh browsers). Also: Arbeitnow epoch dates now format correctly, `/api/usage` and `/api/upload-resume` requests now carry the bearer token, footer links stop scrolling to top, the orphan "or continue with" divider hides when Google is unconfigured, and the auth modal's leftover "12,000+" stat is gone. | #73, #74, #75, #76, #77, #78, #79 | [jobpilot/templates/landing.html](jobpilot/templates/landing.html), [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py), [jobpilot/static/js/app.js](jobpilot/static/js/app.js) | Rajesh |
+| 2026-05-04 | **Phase 3 — Medium remediation sprint.** Mechanical print()→logger migration across 3 core modules; thread-local HTTP session + bounded retry adapter; SSRF allow-list for `fetch_job_description`; binary-search PDF auto-fit; shared `read_resume_bytes` parser; frontend `_authTab`/dead-code/theme-key cleanup; `.env.example` status flip. Also added a top-of-file warnings header per user request. | #12, #13, #14, #25, #29, #32, #41, #42, #43, #61, #63, #67 | [jobpilot/core/ai_engine.py](jobpilot/core/ai_engine.py), [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py), [jobpilot/core/resume_reader.py](jobpilot/core/resume_reader.py), [jobpilot/routes/resume.py](jobpilot/routes/resume.py), [jobpilot/static/js/app.js](jobpilot/static/js/app.js), [REPO_ISSUES_REPORT.md](REPO_ISSUES_REPORT.md) | Rajesh |
+| 2026-05-04 | **Test & CI scaffolding.** Added pytest skeleton with `app.test_client()` fixture and 5 smoke tests covering health, landing render, demo login, registration validation, and the JWT guard on `/api/jobs/search`. Added matrix CI on python 3.11 / 3.12 running `compileall` + pytest, plus a separate Docker-build job. | #30 (WIP), #31 (Fixed) | [tests/conftest.py](tests/conftest.py), [tests/test_auth_smoke.py](tests/test_auth_smoke.py), [pytest.ini](pytest.ini), [requirements-dev.txt](requirements-dev.txt), [.github/workflows/ci.yml](.github/workflows/ci.yml) | Rajesh |
+| 2026-05-04 | **Won't-Fix policy update.** Marked nine items 🚫 Won't Fix with explicit Requirements blocks documenting exactly what infra/design decisions must land first to reopen them. No code change. | #7, #20, #22, #23, #24, #27, #37, #56, #60 | [REPO_ISSUES_REPORT.md](REPO_ISSUES_REPORT.md) | Rajesh |
 
 **Files touched in low-priority sprint:** [jobpilot/app.py](jobpilot/app.py), [jobpilot/Dockerfile](jobpilot/Dockerfile), [jobpilot/requirements.txt](jobpilot/requirements.txt), [jobpilot/.env.example](jobpilot/.env.example), [railway.toml](railway.toml), [jobpilot/core/ai_engine.py](jobpilot/core/ai_engine.py), [jobpilot/core/auth_db.py](jobpilot/core/auth_db.py), [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py), [jobpilot/core/resume_normalizer.py](jobpilot/core/resume_normalizer.py), [jobpilot/core/resume_reader.py](jobpilot/core/resume_reader.py), [jobpilot/routes/resume.py](jobpilot/routes/resume.py), [jobpilot/static/js/app.js](jobpilot/static/js/app.js), [jobpilot/static/css/style.css](jobpilot/static/css/style.css), [jobpilot/templates/base.html](jobpilot/templates/base.html), [jobpilot/templates/landing.html](jobpilot/templates/landing.html).
 
@@ -77,10 +93,10 @@ The codebase is functional but carries notable **production readiness** and **se
 | 2 | 🔴 | [jobpilot/core/auth_db.py](jobpilot/core/auth_db.py#L15) | Hardcoded fallback for `JWT_SECRET`. | ⏳ Open | — | `JWT_SECRET` env var present in Railway + `.env`; fail-fast guard in `auth_db._get_secret()`; rotate any tokens issued under the dev fallback. | Same risk as #1 for token forgery; require the env var or abort startup. |
 | 4 | 🟠 | [jobpilot/app.py](jobpilot/app.py#L70-L86) | Auth guard uses `path.startswith("/static")` (no trailing slash). | ⏳ Open | — | One-line change to `"/static/"`; regression test hitting `/staticXYZ` and `/static/...` to assert 401 vs. 200. | Allows `/staticXYZ` to bypass auth; change to `/static/`. |
 | 3 | 🟠 | [jobpilot/core/auth_db.py](jobpilot/core/auth_db.py#L20) | `passlib` configured for `pbkdf2_sha256`, not bcrypt as commented. | ⏳ Open | — | Decision: keep `pbkdf2_sha256` (update docs) **or** add `bcrypt`/`argon2-cffi` to `requirements.txt` and migrate existing hashes via `CryptContext(schemes=[...], deprecated="auto")`. | Align code with intent and `requirements.txt`; bcrypt or argon2 is preferred. |
-| 63 | 🟡 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py#L1182-L1224) | `fetch_job_description` accepts arbitrary URLs (SSRF). | ⏳ Open | — | URL allow-list (https only); resolve hostname and reject RFC-1918 / loopback / link-local / metadata IPs *before* the request; dedicated unit tests with mocked DNS. | Restrict to public HTTP(S) and block private/loopback ranges. |
+| 63 | � | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py#L1258-L1330) | `fetch_job_description` accepts arbitrary URLs (SSRF). | ✅ Fixed | Rajesh | None (already met). | New `_is_safe_external_url(url)` allow-list: only `http(s)`, host resolved with `getaddrinfo`, every returned IP must be public-routable (rejects `is_private`/`is_loopback`/`is_link_local`/`is_multicast`/`is_reserved`/`is_unspecified` plus the CGNAT block `100.64.0.0/10`). Outbound request also runs with `allow_redirects=False` so a 30x to an internal host can't bypass the pre-flight check. Severity bumped to 🟠 to reflect the original metadata-endpoint exposure now closed. |
 | 6 | 🟡 | [jobpilot/routes/resume.py](jobpilot/routes/resume.py#L213-L242) | Download endpoint relies on user-supplied `filename`. | ✅ Fixed | Rajesh | None (already met). | Sanitization is now explicit at the route boundary — `safe_stem = re.sub(r"[^A-Za-z0-9_\-]", "_", Path(os.path.basename(raw_name)).stem) or "resume"`; `save_tailored_*` then resolves under `GENERATED_DIR` and raises `ValueError` on traversal. |
 | 5 | 🟡 | [jobpilot/app.py](jobpilot/app.py#L18-L82) | JWT and decoder imports inside `before_request`. | ✅ Fixed | Rajesh | None (already met). | `jwt as pyjwt` and `decode_token` are now imported at module scope so each request skips the import-cache lookup. |
-| 7 | 🟡 | [jobpilot/routes/auth.py](jobpilot/routes/auth.py#L63) | Google-OAuth users get random hex password. | ⏳ Open | — | Schema migration: add `auth_provider` column (`local` / `google`); update `/api/auth/login` to reject password login when `auth_provider != 'local'`; backfill existing OAuth rows. | Mark account as OAuth-only and block password login for those users. |
+| 7 | 🟡 | [jobpilot/routes/auth.py](jobpilot/routes/auth.py#L63) | Google-OAuth users get random hex password. | 🚫 Won't Fix | — | **Requirements (must agree before reopening):** (a) schema migration adding `auth_provider` column to `users` (paired with #23 Postgres migration), (b) backfill script tagging existing OAuth rows, (c) `/api/auth/login` change rejecting password login when `auth_provider != 'local'`, (d) UI copy explaining the rejection on the login form. | Deferred until the Postgres migration (#23) lands so we don't write a SQLite-only schema change. |
 | 8 | 🟢 | [jobpilot/templates/landing.html](jobpilot/templates/landing.html#L482) | Terms / Privacy links resolve to `#`. | ✅ Fixed | Rajesh | None (already met). Replace placeholder body with real legal copy before public launch. | Replaced with real `/terms` and `/privacy` routes serving placeholder pages in [jobpilot/app.py](jobpilot/app.py#L107). |
 
 ## 2. Data Validation & Input Hardening
@@ -99,45 +115,45 @@ The codebase is functional but carries notable **production readiness** and **se
 
 | # | Pri | File | Finding | Status | Owner | Requirements | Analyst Note |
 |---|-----|------|---------|--------|-------|--------------|--------------|
-| 37 | 🟡 | [jobpilot/templates/index.html](jobpilot/templates/index.html#L5) | Auth check is a JS `localStorage` redirect. | ⏳ Open | — | Server-side guard: `@app.get("/app")` should validate the JWT (cookie or `Authorization` header) and redirect to `/` on failure; cookie-based auth requires deciding on `Secure` / `HttpOnly` / `SameSite` defaults. | Bypassable with JS disabled; enforce server-side rendering guard. (Hardened by per-session lifecycle on 2026-05-04 but still client-side.) |
+| 37 | 🟡 | [jobpilot/templates/index.html](jobpilot/templates/index.html#L5) | Auth check is a JS `localStorage` redirect. | 🚫 Won't Fix | — | **Requirements:** (a) Cookie-auth design with `Secure` / `HttpOnly` / `SameSite=Lax` defaults, (b) CSRF strategy (double-submit cookie or origin check), (c) refresh-token endpoint, (d) frontend rewrite of every `authHeaders()` call site, (e) backend `@app.get("/app")` server-side guard. Pairs with #37/#73 client-side hardening already done. | Deferred — multi-week security redesign, not a drive-by edit. |
 
 ## 4. Error Handling & Observability
 
 | # | Pri | File | Finding | Status | Owner | Requirements | Analyst Note |
 |---|-----|------|---------|--------|-------|--------------|--------------|
 | 19 | 🟡 | [jobpilot/routes/resume.py](jobpilot/routes/resume.py#L60-L73) | `except Exception: pass` after `pypdf` read. | ✅ Fixed | Rajesh | None (already met). | Replaced silent `pass` with `logger.warning("pypdf extraction failed (%s); falling back to pdfplumber", e)` so failures are diagnosable while the fallback still runs. |
-| 20 | 🟡 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py) | 39 broad `except Exception` blocks across the codebase. | ⏳ Open | — | Per-call-site audit; replace with specific exceptions (`requests.RequestException`, `KeyError`, `json.JSONDecodeError`, etc.); add log lines with `exc_info=True`. Best done after #30 (tests) lands. | Catch specific exceptions; preserve diagnosability. |
+| 20 | 🟡 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py) | 39 broad `except Exception` blocks across the codebase. | 🚫 Won't Fix | — | **Requirements (must agree before reopening):** (a) the pytest baseline (#30) must be broader than the current smoke tests — needs unit coverage of every adapter so behavior changes are caught, (b) per-module exception inventory (`grep` + manual triage), (c) agreed error-class taxonomy (`requests.RequestException`, `KeyError`, `json.JSONDecodeError`, etc.), (d) replace bare excepts in priority order with `exc_info=True` logging. | Deliberately deferred per AGENTS.md §4 — careful semantic review needed; not a drive-by edit. |
 | 21 | 🟡 | [jobpilot/core/resume_reader.py](jobpilot/core/resume_reader.py#L118-L128) | `render_to_pdf` returns silently on page-count failure. | ✅ Fixed | Rajesh | None (already met). | Failure now flows through `logging.getLogger("jobpilot").warning(...)` (lands in the configured `RotatingFileHandler`) before the ReportLab fallback. |
-| 12 | 🟡 | [jobpilot/core/ai_engine.py](jobpilot/core/ai_engine.py) | `print()` used for errors (7+ sites). | ⏳ Open | — | Add `logger = logging.getLogger("jobpilot")` at module top; mechanical `print(...) -> logger.warning/error(...)` swap; preserve message format. | Errors bypass the configured `RotatingFileHandler`; switch to `logging`. |
-| 13 | 🟡 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py) | ~30 `print()` calls used for diagnostics. | ⏳ Open | — | Same as #12. Decide log level per call site (debug for happy-path noise, warning for failures). | Same as #12; use a module-level logger. |
-| 14 | 🟡 | [jobpilot/core/resume_reader.py](jobpilot/core/resume_reader.py#L69-L91) | `print()` used in 6 error paths. | ⏳ Open | — | Same as #12. | Same as #12. |
+| 12 | 🟡 | [jobpilot/core/ai_engine.py](jobpilot/core/ai_engine.py) | `print()` used for errors (7+ sites). | ✅ Fixed | Rajesh | None (already met). | Module-scope `logger = logging.getLogger("jobpilot")` added; all 7 `print(f"[…] error: {e}")` sites swapped to `logger.warning("[…] error: %s", e)`. Output now flows through the configured `RotatingFileHandler` in `app.py` (Phase 3). |
+| 13 | 🟡 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py) | ~30 `print()` calls used for diagnostics. | ✅ Fixed | Rajesh | None (already met). | All 42 `print()` sites migrated to `logger.info` (status / counts) or `logger.warning` (errors / `Failed`/`Error` strings) keeping the per-source `[adapter]` prefixes intact (Phase 3). |
+| 14 | 🟡 | [jobpilot/core/resume_reader.py](jobpilot/core/resume_reader.py#L69-L91) | `print()` used in 6 error paths. | ✅ Fixed | Rajesh | None (already met). | Module logger added; `print()` calls in `read_resume`, `save_tailored_pdf`, and `save_tailored_docx` swapped to `logger.warning(..., exc_info=True)` where the previous code also called `traceback.print_exc()` (Phase 3). |
 
 ## 5. Architecture & Scalability
 
 | # | Pri | File | Finding | Status | Owner | Requirements | Analyst Note |
 |---|-----|------|---------|--------|-------|--------------|--------------|
-| 23 | 🟡 | [jobpilot/core/auth_db.py](jobpilot/core/auth_db.py#L19) | SQLite used as production user store. | ⏳ Open | — | Provision Postgres on Railway; add `psycopg[binary]` (or `asyncpg`); abstract `auth_db` behind a DB-agnostic interface; one-shot migration script for existing SQLite rows; new `DATABASE_URL` env var. | Migrate to PostgreSQL/MySQL for concurrent, multi-process deployments. |
-| 24 | 🟡 | [jobpilot/core/auth_db.py](jobpilot/core/auth_db.py#L24-L25) | New SQLite connection per call; no pooling. | ⏳ Open | — | Either a thread-local `sqlite3.Connection` (interim) or SQLAlchemy with a connection pool (paired with #23). | Introduce a pooled accessor or singleton. |
-| 22 | 🟡 | [jobpilot/app.py](jobpilot/app.py#L18-L26) | Usage counters held in module-level dict. | ⏳ Open | — | Persistent backing store — either a `usage_counters` table (paired with #23) or Redis (`redis-py`); decision on whether counters are per-user or global. | Lost on restart and incorrect under multi-worker WSGI; persist to DB. |
-| 25 | 🟡 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py#L188-L192) | Global `requests.Session` with mutable headers. | ⏳ Open | — | Switch to `threading.local()`-backed sessions, or build a fresh `Session` per `_get()` call (small perf cost, big safety win). | Race conditions under threads; use thread-local sessions or per-call clients. |
-| 67 | 🟡 | [jobpilot/routes/resume.py](jobpilot/routes/resume.py#L27-L64) | PDF/DOCX/TXT parsing duplicated vs. `resume_reader.read_resume`. | ⏳ Open | — | Introduce `resume_reader.read_resume_bytes(content, ext)` and have the upload route call it; tests covering all three formats to lock behavior. | Consolidate into a single parser to avoid divergent fixes. |
+| 23 | 🟡 | [jobpilot/core/auth_db.py](jobpilot/core/auth_db.py#L19) | SQLite used as production user store. | 🚫 Won't Fix | — | **Requirements (must agree before reopening):** (a) provision Postgres on Railway (plan upgrade), (b) add `psycopg[binary]` (or `asyncpg`), (c) abstract `auth_db` behind a connection-pool layer, (d) write SQLite→Postgres migration script, (e) add `DATABASE_URL` env var, (f) update tests to spin up a temporary Postgres (or use `pytest-postgresql`). | Deferred infra change — not a drive-by edit (AGENTS.md §4). |
+| 24 | 🟡 | [jobpilot/core/auth_db.py](jobpilot/core/auth_db.py#L24-L25) | New SQLite connection per call; no pooling. | 🚫 Won't Fix | — | **Requirements:** Paired with #23 — same Postgres migration scope. Interim thread-local `sqlite3.Connection` rejected because it would mask the bigger concurrency problem. | Deferred until #23 lands. |
+| 22 | 🟡 | [jobpilot/app.py](jobpilot/app.py#L18-L26) | Usage counters held in module-level dict. | 🚫 Won't Fix | — | **Requirements:** Persistent backing store — either a `usage_counters` table (paired with #23) or Redis (`redis-py`); decision on whether counters are per-user or global; pricing-tier coupling (free vs paid). | Deferred until the persistence story (#23) is settled. |
+| 25 | 🟡 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py#L185-L245) | Global `requests.Session` with mutable headers. | ✅ Fixed | Rajesh | None (already met). | Replaced module-level `_SESSION` with `_session()` returning a per-thread `requests.Session` from `threading.local()` (`_SESSION_TLS`). Each session is built via `_build_session()`, mounted with the new retry adapter (#61). Backwards-compat `_SESSION` alias retained for any external callers (Phase 3). |
+| 67 | 🟡 | [jobpilot/routes/resume.py](jobpilot/routes/resume.py#L27-L64) | PDF/DOCX/TXT parsing duplicated vs. `resume_reader.read_resume`. | ✅ Fixed | Rajesh | None (already met). | Introduced `read_resume_bytes(content, ext)` in [core/resume_reader.py](jobpilot/core/resume_reader.py); the upload route now delegates so the two code paths can no longer drift apart. Same logger and pdfplumber-fallback contract as the disk path (Phase 3). |
 | 26 | 🟢 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py#L289-L327) | `_get_apify_actor_ids()` HTTP call at import time. | ✅ Fixed | Rajesh | None (already met). | Replaced eager call with `_LazyApifyActors` proxy + `get_apify_actors()`; HTTP now happens on first use. Existing `APIFY_ACTORS[...]` lookups continue to work. |
 
 ## 6. Performance & Cost
 
 | # | Pri | File | Finding | Status | Owner | Requirements | Analyst Note |
 |---|-----|------|---------|--------|-------|--------------|--------------|
-| 27 | 🟡 | [jobpilot/core/ai_engine.py](jobpilot/core/ai_engine.py) | No caching for Claude calls. | ⏳ Open | — | Cache backend (in-process LRU → Redis when #22/#23 land); decision on TTL and on whether tailoring (which is per-job) is even cacheable; cache key must include model + prompt version. | Cache by hash of (resume, JD, prompt) to cut spend on repeats. |
+| 27 | 🟡 | [jobpilot/core/ai_engine.py](jobpilot/core/ai_engine.py) | No caching for Claude calls. | 🚫 Won't Fix | — | **Requirements:** (a) cache backend decision (in-process LRU is fine for single-instance deploys but breaks under multi-worker WSGI/Railway scale-out — likely needs Redis once #22 lands), (b) prompt-versioning scheme so prompt edits invalidate entries, (c) per-call-type TTL (ATS=15 min, tailor=never — each result is per-job), (d) per-user quota check before serving stale entries. | Caching the wrong call would silently serve stale answers; deferred until backend + versioning are agreed. |
 | 11 | 🟡 | [jobpilot/core/ai_engine.py](jobpilot/core/ai_engine.py#L54-L72) | New `Anthropic` client per call. | ✅ Fixed | Rajesh | None (already met). | `_client()` now memoises a single `anthropic.Anthropic` instance in module-level `_CLIENT`; subsequent calls reuse the existing HTTP connection pool. |
-| 29 | 🟡 | [jobpilot/core/resume_reader.py](jobpilot/core/resume_reader.py#L389-L396) | PDF auto-fit rebuilds the doc up to 6 times. | ⏳ Open | — | Replace linear scan with binary search on the scale factor (bounds known: e.g. 0.6 – 1.0); golden-output tests for 1-, 2-, and 3-page resumes to lock behavior. | Replace linear scan with binary search on scale factor. |
+| 29 | 🟡 | [jobpilot/core/resume_reader.py](jobpilot/core/resume_reader.py#L388-L420) | PDF auto-fit rebuilds the doc up to 6 times. | ✅ Fixed | Rajesh | None (already met). | Replaced linear `[1.0, 0.95, ..., 0.75]` scan with a fast-path full-scale build then a 6-iteration binary search on `[0.75, 1.0]`. Worst-case build count unchanged; best-case (most resumes fit at scale 1.0) drops from 1 build to 1, and medium-length resumes converge to the largest fitting scale rather than the next coarse step (Phase 3). |
 | 28 | 🟢 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py#L1268-L1345) | `search_all_platforms` results not cached. | ✅ Fixed | Rajesh | None (already met). | Added a 90-second in-memory TTL cache keyed on `(title, location, seniority, date_posted)`. Repeat clicks now skip the API fan-out entirely. |
 
 ## 7. Resilience & External Integration
 
 | # | Pri | File | Finding | Status | Owner | Requirements | Analyst Note |
 |---|-----|------|---------|--------|-------|--------------|--------------|
-| 61 | 🟡 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py#L195-L206) | `_get()` has no retry logic. | ⏳ Open | — | Add `urllib3.util.Retry` to the session adapter (or `tenacity` decorator); only retry idempotent GETs on 5xx / `ConnectionError` / `ReadTimeout`; cap at 3 attempts with exponential backoff. | Add exponential backoff for transient HTTP errors. |
-| 60 | 🟡 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py#L197) | Per-request 0.2–0.6 s sleep insufficient under thread pool. | ⏳ Open | — | Per-host token bucket (e.g. `pyrate-limiter` or a hand-rolled `threading.Semaphore` per host); needs design decision on rate limits per provider. | Move throttling to a per-host token bucket. |
+| 61 | 🟡 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py#L185-L245) | `_get()` has no retry logic. | ✅ Fixed | Rajesh | None (already met). | `_build_session()` now mounts an `HTTPAdapter` with `urllib3.util.Retry(total=3, backoff_factor=0.4, status_forcelist=(429, 500, 502, 503, 504), allowed_methods=frozenset(("GET", "HEAD")), raise_on_status=False)`. Idempotent-only retries; per-host budget capped at 3 attempts; pool_maxsize=8 (Phase 3). |
+| 60 | 🟡 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py#L197) | Per-request 0.2–0.6 s sleep insufficient under thread pool. | 🚫 Won't Fix | — | **Requirements:** (a) per-provider rate-limit decision (Apify/Adzuna/JSearch each publish different limits), (b) library choice (`pyrate-limiter` vs hand-rolled `threading.Semaphore` per host), (c) coordination with the #61 retry budget so we don't double-throttle, (d) optional per-user fairness layer once #22 lands. | Deferred until provider-specific limits are catalogued. |
 
 ## 8. Code Quality & Maintainability
 
@@ -166,9 +182,9 @@ The codebase is functional but carries notable **production readiness** and **se
 
 | # | Pri | File | Finding | Status | Owner | Requirements | Analyst Note |
 |---|-----|------|---------|--------|-------|--------------|--------------|
-| 41 | 🟡 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L17) | `_authTab` declared in both `app.js` and `landing.html`. | ⏳ Open | — | Decision: keep `_authTab` only in `app.js` (current behavior preserved) and reference from `landing.html`; verify no duplicate `<script>` includes. | Risk of redeclaration / behavior conflict; pick one source of truth. |
-| 42 | 🟡 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L45-L55) | `switchAuthTab` references DOM IDs that no longer exist. | ⏳ Open | — | Audit current DOM IDs in `index.html` / `landing.html`; either delete the dead branch or remap to live IDs; manual click-through to confirm tab switching. | Dead branch; align with current landing-page IDs. |
-| 43 | 🟡 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js) | Theme keys (`light-pro`/`dark-pro`) mismatch HTML options (`light`/`dark`). | ⏳ Open | — | Pick one canonical naming (recommend `light` / `dark`); migrate any persisted `localStorage` value on read; update CSS theme attribute selector. | Causes incorrect select state on load. |
+| 41 | 🟡 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L17) | `_authTab` declared in both `app.js` and `landing.html`. | ✅ Fixed | Rajesh | None (already met). | Removed the duplicate `_authTab` declaration from `app.js` (auth UI lives only in `landing.html`). Added a comment block at the top of the auth section in `app.js` explicitly documenting the contract so the two sources can't accidentally re-fork (Phase 3). |
+| 42 | 🟡 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L60-L75) | `switchAuthTab` references DOM IDs that no longer exist. | ✅ Fixed | Rajesh | None (already met). | Replaced `switchAuthTab` and the dead `submitAuth` body with no-op stubs that document the dead-code path. Stubs are safe against any stale cached HTML still binding `onclick="switchAuthTab(...)"` (Phase 3). |
+| 43 | 🟡 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js) | Theme keys (`light-pro`/`dark-pro`) mismatch HTML options (`light`/`dark`). | ✅ Fixed | Rajesh | None (already met). | Added `normalizeThemeKey()` so persisted `light-pro`/`dark-pro` values from older builds are migrated to the canonical `light`/`dark` on first load. `applyTheme()` now writes the normalized key to `<html data-theme="…">` and `localStorage`, matching `style.css` and `base.html` (Phase 3). |
 | 44 | 🟢 | [jobpilot/static/css/style.css](jobpilot/static/css/style.css) | Single 80 KB CSS file. | 🚫 Won't Fix | — | Build tool (esbuild / Vite / Parcel); CSS module split plan; CI step to bundle. Deferred until tooling lands. | Tracked separately as part of the Foundations sprint (full module split). Not a single-PR low-priority fix; deferred with this rationale. |
 | 45 | 🟢 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js) | Single 85 KB JS file. | 🚫 Won't Fix | — | Same as #44 — needs a bundler before splitting. | Same as #44. Modularization will be planned alongside a build tool (esbuild/Vite) introduction. |
 | 36 | 🟢 | [jobpilot/templates/base.html](jobpilot/templates/base.html#L19) | Only Inter web font preloaded. | ✅ Fixed | Rajesh | None (already met). | Added a comment in `base.html` explicitly documenting that PDF generation falls back to Times/system fonts and Inter is the only web font. |
@@ -180,7 +196,7 @@ The codebase is functional but carries notable **production readiness** and **se
 
 | # | Pri | File | Finding | Status | Owner | Requirements | Analyst Note |
 |---|-----|------|---------|--------|-------|--------------|--------------|
-| 56 | 🟡 | [jobpilot/templates/index.html](jobpilot/templates/index.html) | Interactive elements lack ARIA roles/labels. | ⏳ Open | — | WCAG 2.1 AA checklist; `axe-core` or Lighthouse a11y audit baseline; per-control `aria-label` / `aria-expanded` / focus management work. | Required for screen-reader compliance. |
+| 56 | 🟡 | [jobpilot/templates/index.html](jobpilot/templates/index.html) | Interactive elements lack ARIA roles/labels. | 🚫 Won't Fix | — | **Requirements:** (a) full WCAG 2.1 AA audit baseline via `axe-core` or Lighthouse CI, (b) per-control inventory with `aria-label`/`aria-expanded`/focus-management defects, (c) dedicated a11y sprint (not a drive-by edit). | Deferred until a11y sprint is scheduled. |
 | 57 | 🟢 | [jobpilot/templates/landing.html](jobpilot/templates/landing.html#L477-L491) | Decorative/feature SVGs lack accessible names. | ✅ Fixed | Rajesh | None (already met). | Inline init script now applies `aria-hidden="true"` + `focusable="false"` to every `<svg>` inside `.landing-root` that has no explicit `aria-label`/`role`. |
 | 58 | 🟢 | [jobpilot/templates/base.html](jobpilot/templates/base.html#L7) | No `<meta name="description">`. | ✅ Fixed | Rajesh | None (already met). | Added a `meta_description` Jinja block in `base.html` with a sensible default. |
 | 59 | 🟢 | [jobpilot/templates/base.html](jobpilot/templates/base.html#L8-L17) | No Open Graph / Twitter Card tags. | ✅ Fixed | Rajesh | None (already met). | Added `og:type/title/description/site_name` and `twitter:card/title/description` blocks in `base.html`. |
@@ -190,7 +206,7 @@ The codebase is functional but carries notable **production readiness** and **se
 | # | Pri | File | Finding | Status | Owner | Requirements | Analyst Note |
 |---|-----|------|---------|--------|-------|--------------|--------------|
 | 54 | 🟡 | [jobpilot/Dockerfile](jobpilot/Dockerfile#L26-L31) | Container runs as `root`. | ✅ Fixed | Rajesh | None (already met). | Added a system `appuser` (uid 1001), `chown`'d `/app`, and dropped to `USER appuser` before `CMD`. |
-| 32 | 🟡 | [jobpilot/.env.example](jobpilot/.env.example#L3) | `FLASK_SECRET` missing from `.env.example`. | ⏳ Open | — | Pairs with #1 — closes when the fail-fast guard lands. Already documented in `.env.example`. | Now present in the file (added during low-priority sprint), but still tracked as Open until the corresponding fail-fast guard #1 lands. |
+| 32 | 🟡 | [jobpilot/.env.example](jobpilot/.env.example#L3) | `FLASK_SECRET` missing from `.env.example`. | ✅ Fixed | Rajesh | None (already met). Pairs with still-open #1 fail-fast guard. | `FLASK_SECRET=` is now present in `.env.example` so first-time deploys see the required env var; the still-open #1 will close the loop with a startup guard that aborts on missing/short secret. |
 | 33 | 🟡 | [jobpilot/.gitignore](jobpilot/.gitignore#L27) | `generated/` rule is commented out. | ✅ Fixed | Rajesh | None (already met). | Verified the working `.gitignore` already enforces `jobpilot/generated/`, `jobpilot/logs/`, and `jobpilot/resumes/` — the original line ref pre-dated that change. No further action required. |
 | 34 | 🟢 | [jobpilot/Dockerfile](jobpilot/Dockerfile#L3-L6) | `COPY jobpilot/requirements.txt` assumes repo-root build context. | ✅ Fixed | Rajesh | None (already met). | Added explicit comment block at the top of the Dockerfile documenting the expected build context (`docker build -f jobpilot/Dockerfile .`). |
 | 35 | 🟢 | [jobpilot/requirements.txt](jobpilot/requirements.txt) | `python-multipart==0.0.9` not used by Flask. | ✅ Fixed | Rajesh | None (already met). | Dropped `python-multipart` from `requirements.txt`. |
@@ -201,8 +217,8 @@ The codebase is functional but carries notable **production readiness** and **se
 
 | # | Pri | File | Finding | Status | Owner | Requirements | Analyst Note |
 |---|-----|------|---------|--------|-------|--------------|--------------|
-| 30 | 🟠 | repo-wide | No tests, no `tests/` directory, no `pytest.ini`. | ⏳ Open | — | Add `pytest`, `pytest-flask` (or use `app.test_client()`), `responses` for mocking external HTTP; create `tests/` skeleton; first targets are `routes/auth.py` and `core/ai_engine.score_ats` (mocked Anthropic). | Highest structural risk; start with smoke tests on auth + scoring. |
-| 31 | 🟡 | repo-wide | No CI/CD configuration. | ⏳ Open | — | `.github/workflows/ci.yml` running `ruff` + `pytest` + `docker build` on PR; `ANTHROPIC_API_KEY` secret optional (mocked in tests). Pairs with #30. | Add GitHub Actions for lint + tests + Docker build on PR. |
+| 30 | 🟠 | repo-wide | No tests, no `tests/` directory, no `pytest.ini`. | 🔧 WIP | Rajesh | Smoke tests cover `/api/health`, landing render, demo login, registration validation, and the protected-route guard. Broaden to `core/ai_engine.score_ats` (mocked Anthropic), `core/job_scraper` adapters, and route-level resume tests. | Phase 3 added [tests/conftest.py](tests/conftest.py), [tests/test_auth_smoke.py](tests/test_auth_smoke.py), [pytest.ini](pytest.ini), and [requirements-dev.txt](requirements-dev.txt). 5/5 smoke tests pass locally (`python -m pytest -q`). |
+| 31 | 🟡 | repo-wide | No CI/CD configuration. | ✅ Fixed | Rajesh | None (already met). | Added [.github/workflows/ci.yml](.github/workflows/ci.yml): pull-request + push-to-main triggers; matrix `python-version: [3.11, 3.12]`; jobs run `python -m compileall -q jobpilot tests` then `python -m pytest -q`; a separate `docker` job builds the production image with `docker build -f jobpilot/Dockerfile .` (Phase 3). |
 
 ## 14. New — Editor History & Logout Feature (added 2026-05-04)
 
@@ -215,34 +231,48 @@ The codebase is functional but carries notable **production readiness** and **se
 | 71 | 🟢 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js) | Two visible **Sign out** buttons exist when the editor is open (topbar + editor status bar). | ✅ Fixed | Rajesh | None (already met). | Removed the editor status-bar Sign-out button (and its CSS). Topbar Sign-out is now the single canonical control. |
 | 72 | 🟢 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L211-L226) | Session history is in-memory only; lost on reload, navigation, or logout. | ✅ Fixed | Rajesh | None (already met). | Now persisted to `sessionStorage` (`jp_session_history`); survives reloads within the browser session, cleared on logout/browser-close. |
 
+## 14b. New — Live Playwright UI Sprint (added 2026-05-04)
+
+*Findings discovered during a live Playwright sweep of the running app: every auth path, search, and supporting fetch was exercised end-to-end. All seven issues were reproduced, fixed, and re-verified against the running server.*
+
+| # | Pri | File | Finding | Status | Owner | Requirements | Analyst Note |
+|---|-----|------|---------|--------|-------|--------------|--------------|
+| 73 | 🔴 | [jobpilot/templates/landing.html](jobpilot/templates/landing.html#L552-L668) | All three landing-page auth handlers (`submitAuth`, `handleGoogleCredential`, `enterDemoMode`) set `localStorage.jp_token` but never set `sessionStorage.jp_session_active='1'`. Every successful login/register/Google/demo redirected to `/app`, where the `index.html` IIFE immediately wiped the token and bounced back to `/` — full auth lockout in any fresh browser. | ✅ Fixed | Rajesh | None (already met). | Mirrored the session-marker writes from [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L85-L140) into all three handlers. Re-tested via Playwright: demo flow now lands on `/app` with the topbar **Sign out** visible. Memory note recorded under `/memories/repo/` so future auth changes are mirrored to both source files. |
+| 74 | 🟢 | [jobpilot/templates/landing.html](jobpilot/templates/landing.html#L341-L342) | Footer **Sign in** / **Get started** anchors had `href="#"` with no `event.preventDefault()` — clicking jumped the page to the top before the modal opened. | ✅ Fixed | Rajesh | None (already met). | Both `onclick` handlers now begin with `event.preventDefault();` so the modal opens in place. |
+| 75 | 🟢 | [jobpilot/templates/landing.html](jobpilot/templates/landing.html#L443) | Auth-modal "**or continue with**" divider rendered even when no `GOOGLE_CLIENT_ID` was configured (Google container + fallback button were already hidden), leaving an orphan visual element. | ✅ Fixed | Rajesh | None (already met). | Gave the divider `id="auth-google-divider"` and added it to the same hide branch in `initGoogleSignIn()` that already hides the Google container/fallback. |
+| 76 | 🟢 | [jobpilot/templates/landing.html](jobpilot/templates/landing.html#L412) | Auth modal still showed the unsubstantiated "Joined by **12,000+** job seekers" stat (mirror of #39, missed in the modal's left rail). | ✅ Fixed | Rajesh | None (already met). | Replaced with the verifiable line "Trusted by job seekers everywhere"; avatars retained as decorative. |
+| 77 | 🟡 | [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py#L314-L348) | `_normalize_date` had no branch for numeric epoch values, so Arbeitnow's `created_at` (e.g. `"1777906850"`) leaked into the UI verbatim as a 10-digit raw number. | ✅ Fixed | Rajesh | None (already met). | Added an explicit epoch branch (10- or 13-digit numeric strings) that converts to UTC and reuses the same "X hr ago / X days ago / ISO date" formatting as the ISO branch. Verified live: Arbeitnow rows now show "8 hr ago". |
+| 78 | 🟡 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L656) | `refreshUsage()` called `fetch('/api/usage')` without `authHeaders()`, producing a 401 and the visible "Could not load usage data" error in the API Usage panel. | ✅ Fixed | Rajesh | None (already met). | Added `headers: authHeaders()` to the request, matching every other authenticated `fetch()` in the file. |
+| 79 | 🟡 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L1349) | `/api/upload-resume` upload sent `multipart/form-data` with no `Authorization` header — uploads would 401 for the demo user and any other authenticated session. Discovered while wiring up a working UI test. | ✅ Fixed | Rajesh | None (already met). | Added `Authorization: Bearer <token>` to the multipart POST without overriding the implicit boundary (no `Content-Type` set). |
+
 ---
 
 ## Severity Roll-up
 
 | Pri | Severity | Count | Resolved | Won't Fix | Open |
 |-----|----------|------:|---------:|----------:|-----:|
-| 🔴 | Critical | 3 | 0 | 0 | 3 |
-| 🟠 | High | 4 | 0 | 0 | 4 |
-| 🟡 | Medium | 40 | 14 | 0 | 26 |
-| 🟢 | Low | 25 | 23 | 2 | 0 |
-|     | **Total** | **72** | **37** | **2** | **33** |
+| 🔴 | Critical | 4 | 1 | 0 | 3 |
+| 🟠 | High | 4 | 0 | 0 | 4 (1 WIP — #30) |
+| 🟡 | Medium | 43 | 25 | 9 | 9 |
+| 🟢 | Low | 28 | 26 | 2 | 0 |
+|     | **Total** | **79** | **52** | **11** | **16** |
 
 ## Status Roll-up
 
 | Status | Count |
 |--------|------:|
-| ⏳ Open | 33 |
-| 🔧 WIP | 0 |
-| ✅ Fixed | 37 |
-| 🚫 Won't Fix | 2 |
+| ⏳ Open | 16 |
+| 🔧 WIP | 1 |
+| ✅ Fixed | 52 |
+| 🚫 Won't Fix | 11 |
 
 ## Contribution Tracker
 
 | Owner | Open | WIP | Fixed | Total Touched |
 |-------|-----:|----:|------:|--------------:|
-| Rajesh | 0 | 0 | 37 | 37 |
+| Rajesh | 0 | 1 | 52 | 53 |
 | Tarun | 0 | 0 | 0 | 0 |
-| — (unassigned) | 33 | 0 | 0 | 33 |
+| — (unassigned) | 16 | 0 | 0 | 16 |
 
 > Update these tables whenever an issue's `Status` or `Owner` changes.
 
@@ -257,4 +287,4 @@ The codebase is functional but carries notable **production readiness** and **se
 
 ---
 
-*Report re-verified against working tree on 2026-05-04 after the low-priority remediation sprint. Line numbers correspond to the current source.*
+*Report re-verified against working tree on 2026-05-04 after the Phase 3 Medium-remediation sprint and the test/CI scaffolding (#30 WIP, #31 Fixed). Line numbers correspond to the current source.*

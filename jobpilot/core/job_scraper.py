@@ -44,12 +44,15 @@ import re
 import time
 import random
 import json
+import logging
 import urllib.parse
 from pathlib import Path
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from itertools import product as itertools_product
+
+logger = logging.getLogger("jobpilot")
 
 
 # ── Role Alias Map ────────────────────────────────────────────────────────────
@@ -184,25 +187,61 @@ def _strip_html(text: str) -> str:
 
 
 # ── Shared HTTP helper ────────────────────────────────────────────────────────
+# Per-thread session so worker threads in `search_all_platforms`'s ThreadPool
+# don't share a mutable `headers` dict (Issue #25). Also installs an HTTPAdapter
+# with bounded retries on idempotent GETs (Issue #61).
+import threading as _threading
+from requests.adapters import HTTPAdapter as _HTTPAdapter
+from urllib3.util.retry import Retry as _Retry
 
-_SESSION = requests.Session()
-_SESSION.headers.update({
+_SESSION_TLS = _threading.local()
+_DEFAULT_HEADERS = {
     "User-Agent": "JobPilot/2.0 (Enterprise Job Aggregator)",
     "Accept":     "application/json",
-})
+}
+
+
+def _build_session() -> requests.Session:
+    s = requests.Session()
+    s.headers.update(_DEFAULT_HEADERS)
+    retry = _Retry(
+        total=3,
+        backoff_factor=0.4,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(("GET", "HEAD")),
+        raise_on_status=False,
+    )
+    adapter = _HTTPAdapter(max_retries=retry, pool_connections=4, pool_maxsize=8)
+    s.mount("http://",  adapter)
+    s.mount("https://", adapter)
+    return s
+
+
+def _session() -> requests.Session:
+    s = getattr(_SESSION_TLS, "session", None)
+    if s is None:
+        s = _build_session()
+        _SESSION_TLS.session = s
+    return s
+
+
+# Backwards-compat alias retained for external callers; per-thread sessions
+# are accessed via `_session()` inside `_get`.
+_SESSION = _build_session()
 
 
 def _get(url: str, headers: dict = None, params: dict = None, timeout: int = 15) -> requests.Response | None:
     try:
         time.sleep(random.uniform(0.2, 0.6))
-        h = dict(_SESSION.headers)
+        sess = _session()
+        h = dict(sess.headers)
         if headers:
             h.update(headers)
-        r = _SESSION.get(url, headers=h, params=params, timeout=timeout)
+        r = sess.get(url, headers=h, params=params, timeout=timeout)
         r.raise_for_status()
         return r
     except Exception as e:
-        print(f"  [scraper] GET failed: {url[:70]}  —  {e}")
+        logger.warning("  [scraper] GET failed: %s  —  %s", url[:70], e)
         return None
 
 
@@ -227,7 +266,7 @@ def _load_apify_actor_config() -> dict[str, str]:
                 if isinstance(value, str) and key in actors:
                     actors[key] = value.strip()
     except Exception as e:
-        print(f"  [apify] Failed to load {APIFY_ACTOR_CONFIG_FILE.name}: {e}")
+        logger.warning("  [apify] Failed to load %s: %s", APIFY_ACTOR_CONFIG_FILE.name, e)
     return actors
 
 
@@ -264,7 +303,7 @@ def _discover_apify_actors(token: str) -> dict[str, str]:
             elif "job" in lower and ("scraper" in lower or "search" in lower):
                 discovered.setdefault("modular", full_id)
     except Exception as e:
-        print(f"  [apify] Actor discovery failed: {e}")
+        logger.warning("  [apify] Actor discovery failed: %s", e)
     return discovered
 
 
@@ -326,6 +365,23 @@ def _normalize_date(raw) -> str:
     if "day" in s_low:
         n = re.search(r"(\d+)", s)
         return f"{n.group()} day{'s' if n and n.group() != '1' else ''} ago" if n else "Today"
+    # Numeric epoch (seconds or milliseconds) — Arbeitnow returns this in `created_at`
+    if s.isdigit() and len(s) in (10, 13):
+        try:
+            ts = int(s) / (1000 if len(s) == 13 else 1)
+            dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            delta = datetime.now(timezone.utc) - dt
+            d = delta.days
+            hrs = delta.seconds // 3600
+            if d == 0:
+                return f"{hrs} hr ago" if hrs > 0 else "Just now"
+            if d == 1:
+                return "1 day ago"
+            if d < 7:
+                return f"{d} days ago"
+            return dt.date().isoformat()
+        except Exception:
+            return "Today"
     # ISO datetime
     try:
         dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
@@ -600,10 +656,10 @@ def search_apify_linkedin(title: str, location: str, max_results: int = 100, dat
     token = os.environ.get("APIFY_API_TOKEN", "")
     actor_id = APIFY_ACTORS.get("linkedin", "").strip()
     if not token:
-        print("  [apify] APIFY_API_TOKEN not set — skipping (sign up at apify.com)")
+        logger.info("  [apify] APIFY_API_TOKEN not set — skipping (sign up at apify.com)")
         return []
     if not actor_id:
-        print("  [apify] LinkedIn actor id not configured — skipping")
+        logger.info("  [apify] LinkedIn actor id not configured — skipping")
         return []
 
     aliases = _expand_aliases(title)
@@ -635,9 +691,9 @@ def search_apify_linkedin(title: str, location: str, max_results: int = 100, dat
                 "type":        (j.get("employmentType") or "").replace("_", " ").title(),
             })
     except Exception as e:
-        print(f"  [apify] Error: {e}")
+        logger.warning("  [apify] Error: %s", e)
 
-    print(f"  [apify] {len(jobs)} raw jobs fetched for '{title}'")
+    logger.info("  [apify] %d raw jobs fetched for '%s'", len(jobs), title)
     return jobs
 
 
@@ -654,7 +710,7 @@ def search_apify_indeed(title: str, location: str, max_results: int = 100, date_
     if not token:
         return []
     if not actor_id:
-        print("  [apify] Indeed actor id not configured — skipping")
+        logger.info("  [apify] Indeed actor id not configured — skipping")
         return []
 
     aliases = _expand_aliases(title)
@@ -687,9 +743,9 @@ def search_apify_indeed(title: str, location: str, max_results: int = 100, date_
                 "type":        (j.get("jobType") or j.get("employmentType") or "").replace("_", " ").title(),
             })
     except Exception as e:
-        print(f"  [apify-indeed] Error: {e}")
+        logger.warning("  [apify-indeed] Error: %s", e)
 
-    print(f"  [apify-indeed] {len(jobs)} raw jobs fetched for '{title}'")
+    logger.info("  [apify-indeed] %d raw jobs fetched for '%s'", len(jobs), title)
     return jobs
 
 
@@ -706,7 +762,7 @@ def search_apify_glassdoor(title: str, location: str, max_results: int = 100, da
     if not token:
         return []
     if not actor_id:
-        print("  [apify] Glassdoor actor id not configured — skipping")
+        logger.info("  [apify] Glassdoor actor id not configured — skipping")
         return []
 
     aliases = _expand_aliases(title)
@@ -741,9 +797,9 @@ def search_apify_glassdoor(title: str, location: str, max_results: int = 100, da
                 "type":        (j.get("jobType") or j.get("employmentType") or "").replace("_", " ").title(),
             })
     except Exception as e:
-        print(f"  [apify-glassdoor] Error: {e}")
+        logger.warning("  [apify-glassdoor] Error: %s", e)
 
-    print(f"  [apify-glassdoor] {len(jobs)} raw jobs fetched for '{title}'")
+    logger.info("  [apify-glassdoor] %d raw jobs fetched for '%s'", len(jobs), title)
     return jobs
 
 
@@ -760,7 +816,7 @@ def search_apify_ziprecruiter(title: str, location: str, max_results: int = 100,
     if not token:
         return []
     if not actor_id:
-        print("  [apify] ZipRecruiter actor id not configured — skipping")
+        logger.info("  [apify] ZipRecruiter actor id not configured — skipping")
         return []
 
     aliases = _expand_aliases(title)
@@ -792,9 +848,9 @@ def search_apify_ziprecruiter(title: str, location: str, max_results: int = 100,
                 "type":        (j.get("job_type") or j.get("employmentType") or "").replace("_", " ").title(),
             })
     except Exception as e:
-        print(f"  [apify-ziprecruiter] Error: {e}")
+        logger.warning("  [apify-ziprecruiter] Error: %s", e)
 
-    print(f"  [apify-ziprecruiter] {len(jobs)} raw jobs fetched for '{title}'")
+    logger.info("  [apify-ziprecruiter] %d raw jobs fetched for '%s'", len(jobs), title)
     return jobs
 
 
@@ -841,9 +897,9 @@ def search_apify_modular(title: str, location: str, max_results: int = 100, date
                 "type":        (j.get("employmentType") or j.get("jobType") or "").replace("_", " ").title(),
             })
     except Exception as e:
-        print(f"  [apify-modular] Error: {e}")
+        logger.warning("  [apify-modular] Error: %s", e)
 
-    print(f"  [apify-modular] {len(jobs)} raw jobs fetched for '{title}'")
+    logger.info("  [apify-modular] %d raw jobs fetched for '%s'", len(jobs), title)
     return jobs
 
 
@@ -858,7 +914,7 @@ def search_jsearch(title: str, location: str, max_results: int = 100, date_poste
     """
     api_key = os.environ.get("RAPIDAPI_KEY", "")
     if not api_key:
-        print("  [jsearch] RAPIDAPI_KEY not set — skipping")
+        logger.info("  [jsearch] RAPIDAPI_KEY not set — skipping")
         return []
 
     date_map = {"past24Hours": "today", "pastWeek": "week", "pastMonth": "month"}
@@ -910,13 +966,13 @@ def search_jsearch(title: str, location: str, max_results: int = 100, date_poste
                     "type":        (j.get("job_employment_type") or "").replace("_", " ").title(),
                 })
         except Exception as e:
-            print(f"  [jsearch] Parse error page {page}: {e}")
+            logger.warning("  [jsearch] Parse error page %d: %s", page, e)
             break
 
         if len(jobs) >= max_results:
             break
 
-    print(f"  [jsearch] {len(jobs)} raw jobs fetched for '{title}'")
+    logger.info("  [jsearch] %d raw jobs fetched for '%s'", len(jobs), title)
     return jobs
 
 
@@ -933,7 +989,7 @@ def search_adzuna(title: str, location: str, pages: int = 4, date_posted: str = 
     app_id  = os.environ.get("ADZUNA_APP_ID", "")
     app_key = os.environ.get("ADZUNA_APP_KEY", "")
     if not app_id or not app_key:
-        print("  [adzuna] ADZUNA_APP_ID/KEY not set — skipping (sign up free at developer.adzuna.com)")
+        logger.info("  [adzuna] ADZUNA_APP_ID/KEY not set — skipping (sign up free at developer.adzuna.com)")
         return []
 
     jobs = []
@@ -975,10 +1031,10 @@ def search_adzuna(title: str, location: str, pages: int = 4, date_posted: str = 
                     "type":        j.get("contract_time", "").replace("_", " ").title(),
                 })
         except Exception as e:
-            print(f"  [adzuna] Parse error page {page}: {e}")
+            logger.warning("  [adzuna] Parse error page %d: %s", page, e)
             break
 
-    print(f"  [adzuna] {len(jobs)} raw jobs fetched for '{title}'")
+    logger.info("  [adzuna] %d raw jobs fetched for '%s'", len(jobs), title)
     return jobs
 
 
@@ -1041,10 +1097,10 @@ def search_themuse(title: str, location: str, pages: int = 4) -> list[dict]:
                     "type":        j.get("type", "").replace("_", " ").title(),
                 })
         except Exception as e:
-            print(f"  [themuse] Parse error: {e}")
+            logger.warning("  [themuse] Parse error: %s", e)
             break
 
-    print(f"  [themuse] {len(jobs)} raw jobs fetched for '{title}'")
+    logger.info("  [themuse] %d raw jobs fetched for '%s'", len(jobs), title)
     return jobs
 
 
@@ -1082,9 +1138,9 @@ def search_remotive(title: str) -> list[dict]:
                 "type":        "Remote",
             })
     except Exception as e:
-        print(f"  [remotive] Parse error: {e}")
+        logger.warning("  [remotive] Parse error: %s", e)
 
-    print(f"  [remotive] {len(jobs)} raw jobs fetched for '{title}'")
+    logger.info("  [remotive] %d raw jobs fetched for '%s'", len(jobs), title)
     return jobs
 
 
@@ -1143,9 +1199,9 @@ def search_usajobs(title: str, location: str) -> list[dict]:
                 "type":        (d.get("PositionSchedule") or [{}])[0].get("Name", ""),
             })
     except Exception as e:
-        print(f"  [usajobs] Parse error: {e}")
+        logger.warning("  [usajobs] Parse error: %s", e)
 
-    print(f"  [usajobs] {len(jobs)} raw jobs fetched for '{title}'")
+    logger.info("  [usajobs] %d raw jobs fetched for '%s'", len(jobs), title)
     return jobs
 
 
@@ -1190,18 +1246,58 @@ def search_arbeitnow(title: str) -> list[dict]:
                     "type":        "Remote" if is_remote else "",
                 })
         except Exception as e:
-            print(f"  [arbeitnow] Parse error page {page}: {e}")
+            logger.warning("  [arbeitnow] Parse error page %d: %s", page, e)
             break
 
-    print(f"  [arbeitnow] {len(jobs)} raw jobs fetched for '{title}'")
+    logger.info("  [arbeitnow] %d raw jobs fetched for '%s'", len(jobs), title)
     return jobs
 
 
 # ── Fetch full job description from URL ───────────────────────────────────────
 
+def _is_safe_external_url(url: str) -> bool:
+    """SSRF guard (Issue #63): only allow http(s) URLs that resolve to public
+    routable IPs. Rejects loopback, private (RFC1918), link-local, multicast,
+    CGNAT (100.64/10), and unspecified addresses. We resolve once with
+    `getaddrinfo` and inspect every returned address."""
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse
+
+    try:
+        u = urlparse(url)
+    except Exception:
+        return False
+    if u.scheme not in ("http", "https"):
+        return False
+    host = (u.hostname or "").strip()
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return False
+    for info in infos:
+        addr = info[4][0]
+        try:
+            ip = ipaddress.ip_address(addr.split("%", 1)[0])
+        except ValueError:
+            return False
+        if (ip.is_private or ip.is_loopback or ip.is_link_local
+                or ip.is_multicast or ip.is_reserved or ip.is_unspecified):
+            return False
+        # CGNAT 100.64.0.0/10
+        if isinstance(ip, ipaddress.IPv4Address) and ip in ipaddress.ip_network("100.64.0.0/10"):
+            return False
+    return True
+
+
 def fetch_job_description(url: str) -> str:
     """Fetch and extract job description text from any job posting URL."""
     from bs4 import BeautifulSoup
+    if not _is_safe_external_url(url):
+        logger.warning("  [jd] Refusing unsafe URL: %s", url[:80])
+        return ""
     try:
         time.sleep(random.uniform(0.4, 1.0))
         r = requests.get(url, headers={
@@ -1211,10 +1307,15 @@ def fetch_job_description(url: str) -> str:
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        }, timeout=14)
+        }, timeout=14, allow_redirects=False)
+        # Reject any redirect — a 30x to an internal host would otherwise
+        # bypass the pre-flight allow-list check above.
+        if r.is_redirect or r.is_permanent_redirect:
+            logger.warning("  [jd] Refusing redirect from %s", url[:80])
+            return ""
         r.raise_for_status()
     except Exception as e:
-        print(f"  [jd] Fetch failed: {e}")
+        logger.warning("  [jd] Fetch failed: %s", e)
         return ""
 
     soup = BeautifulSoup(r.text, "html.parser")
@@ -1267,10 +1368,10 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
     now = time.time()
     cached = _SEARCH_CACHE.get(cache_key)
     if cached and (now - cached[0]) < _SEARCH_CACHE_TTL_SEC:
-        print(f"[scraper] Cache hit for '{title}' in '{location}' (age {int(now - cached[0])}s)")
+        logger.info("[scraper] Cache hit for '%s' in '%s' (age %ds)", title, location, int(now - cached[0]))
         return cached[1]
 
-    print(f"\n[scraper] Searching: '{title}' in '{location}'")
+    logger.info("[scraper] Searching: '%s' in '%s'", title, location)
     all_jobs: list[dict] = []
 
     scrapers = [
@@ -1289,17 +1390,17 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
             try:
                 all_jobs.extend(future.result())
             except Exception as e:
-                print(f"  [scraper] Source error: {e}")
+                logger.warning("  [scraper] Source error: %s", e)
 
     total_raw = len(all_jobs)
 
     # ── Filter 1: US or Remote only ───────────────────────────────────────────
     all_jobs = [j for j in all_jobs if _is_us_or_remote(j.get("location", ""))]
-    print(f"[filter] After location filter : {len(all_jobs):>4} / {total_raw}")
+    logger.info("[filter] After location filter : %4d / %d", len(all_jobs), total_raw)
 
     # ── Filter 2: Must have a non-empty title ─────────────────────────────────
     all_jobs = [j for j in all_jobs if j.get("title", "").strip()]
-    print(f"[filter] After empty-title drop: {len(all_jobs):>4}")
+    logger.info("[filter] After empty-title drop: %4d", len(all_jobs))
 
     # ── Filter 3: Title must match the search query OR any of its aliases ────
     #    _title_matches() runs 4 layers per alias — job passes if ANY alias matches.
@@ -1311,15 +1412,16 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
         j for j in all_jobs
         if any(_title_matches(j.get("title", ""), alias) for alias in aliases)
     ]
-    print(f"[filter] After title filter    : {len(all_jobs):>4}  "
-          f"(removed {before_title_filter - len(all_jobs)} irrelevant titles)")
+    print_count = len(all_jobs)
+    logger.info("[filter] After title filter    : %4d  (removed %d irrelevant titles)",
+                print_count, before_title_filter - print_count)
 
     # ── Filter 4: Seniority filter ────────────────────────────────────────────
     if seniority and seniority != "any":
         before_seniority = len(all_jobs)
         all_jobs = [j for j in all_jobs if _seniority_matches(j.get("title", ""), seniority)]
-        print(f"[filter] After seniority filter  : {len(all_jobs):>4}  "
-              f"(removed {before_seniority - len(all_jobs)} wrong-level titles)")
+        logger.info("[filter] After seniority filter  : %4d  (removed %d wrong-level titles)",
+                    len(all_jobs), before_seniority - len(all_jobs))
 
     # ── Filter 5: Deduplicate by (title_lower, company_lower) ─────────────────
     seen:   set  = set()
@@ -1330,14 +1432,15 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
             seen.add(key)
             unique.append(j)
 
-    print(f"[filter] After deduplication   : {len(unique):>4}  "
-          f"(removed {len(all_jobs) - len(unique)} duplicates)")
+    logger.info("[filter] After deduplication   : %4d  (removed %d duplicates)",
+                len(unique), len(all_jobs) - len(unique))
 
     # Re-index
     for i, j in enumerate(unique):
         j["idx"] = i
 
-    print(f"\n[scraper] Final results: {len(unique)} unique jobs from {_source_count(unique)} sources")
+    logger.info("[scraper] Final results: %d unique jobs from %d sources",
+                len(unique), _source_count(unique))
     _SEARCH_CACHE[cache_key] = (now, unique)
     return unique
 

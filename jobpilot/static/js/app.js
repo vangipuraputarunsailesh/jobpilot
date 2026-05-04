@@ -16,8 +16,12 @@ const API = (typeof window !== 'undefined' && window.JOBPILOT_API_BASE) || "";
 const LAYOUT_STORAGE_KEY = "jobpilot-layout-widths";
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
-
-let _authTab = "login";
+//
+// All login / register / Google flows live on the landing page (templates/landing.html).
+// app.js only runs on /app, where users are already authenticated, so we
+// intentionally do NOT duplicate the auth form, `_authTab` state, or the
+// `switchAuthTab`/`submitAuth` handlers here (Issues #41, #42). Keep this
+// module focused on the in-app experience.
 
 function getToken() { return localStorage.getItem("jp_token"); }
 function getEmail()  { return localStorage.getItem("jp_email"); }
@@ -60,48 +64,14 @@ function revealTopbarUser() {
 }
 
 function switchAuthTab(tab) {
-  _authTab = tab;
-  const isLogin = tab === "login";
-  document.getElementById("auth-form-title").textContent  = isLogin ? "Welcome back"      : "Create your account";
-  document.getElementById("auth-form-sub").textContent    = isLogin ? "Log in to your JobPilot account" : "Start your AI-powered job search";
-  document.getElementById("auth-submit-btn").innerHTML    = (isLogin ? "Continue with Email" : "Create Account") +
-    `<svg viewBox="0 0 16 16" fill="none" width="14" height="14"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-  document.getElementById("auth-switch-hint").textContent = isLogin ? "New here?"       : "Already have an account?";
-  document.getElementById("auth-switch-btn").textContent  = isLogin ? "Create an account" : "Sign in";
-  document.getElementById("auth-error").style.display = "none";
+  // Dead code path — preserved as a no-op so any stale event handler in
+  // cached HTML doesn't throw. Real implementation lives in landing.html
+  // (Issue #42).
+  void tab;
 }
 
 async function submitAuth() {
-  const email    = document.getElementById("auth-email").value.trim();
-  const password = document.getElementById("auth-password").value;
-  const errEl    = document.getElementById("auth-error");
-  const btn      = document.getElementById("auth-submit-btn");
-
-  if (!email || !password) { showAuthError("Please enter email and password"); return; }
-
-  btn.disabled = true;
-  btn.textContent = _authTab === "login" ? "Signing in..." : "Creating account...";
-
-  try {
-    const endpoint = _authTab === "login" ? "/api/auth/login" : "/api/auth/register";
-    const r = await fetch(API + endpoint, {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({ email, password }),
-    });
-    const d = await r.json();
-    if (!r.ok) { showAuthError(d.detail || "Something went wrong"); return; }
-    localStorage.setItem("jp_token", d.token);
-    localStorage.setItem("jp_email", d.email);
-    sessionStorage.setItem("jp_session_active", "1");
-    hideAuthOverlay();
-    initApp();
-  } catch {
-    showAuthError("Connection error — is the server running?");
-  } finally {
-    btn.disabled = false;
-    btn.textContent = _authTab === "login" ? "Sign in" : "Create account";
-  }
+  // Dead code path — auth submission lives in landing.html (Issue #42).
 }
 
 function showAuthError(msg) {
@@ -274,7 +244,14 @@ function checkAuth() {
 }
 // ── End Auth ──────────────────────────────────────────────────────────────────
 const THEME_STORAGE_KEY = "jobpilot-theme";
-const DEFAULT_THEME = "light-pro";
+const DEFAULT_THEME = "light";
+// Issue #43: previously the JS used "light-pro"/"dark-pro" as theme keys but
+// CSS / base.html used "light"/"dark". We normalize to the short keys here
+// and migrate any persisted *-pro values from older sessions.
+function normalizeThemeKey(value) {
+  if (value === "dark" || value === "dark-pro") return "dark";
+  return "light";
+}
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let allJobs      = [];
@@ -501,7 +478,12 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function initThemeControls() {
-  const selectedTheme = localStorage.getItem(THEME_STORAGE_KEY) || DEFAULT_THEME;
+  const stored = localStorage.getItem(THEME_STORAGE_KEY);
+  const selectedTheme = normalizeThemeKey(stored || DEFAULT_THEME);
+  // Migrate any legacy *-pro value persisted by older builds.
+  if (stored && stored !== selectedTheme) {
+    localStorage.setItem(THEME_STORAGE_KEY, selectedTheme);
+  }
   applyTheme(selectedTheme, false);
 
   const select = document.getElementById("theme-select");
@@ -519,7 +501,7 @@ function onThemeSelectChange(theme) {
 }
 
 function applyTheme(theme, persist = true) {
-  const nextTheme = theme === "light-pro" ? "light-pro" : "dark-pro";
+  const nextTheme = normalizeThemeKey(theme);
   document.documentElement.setAttribute("data-theme", nextTheme);
   document.body.setAttribute("data-theme", nextTheme);
 
@@ -653,7 +635,7 @@ async function refreshUsage() {
   const grid = document.getElementById("usage-grid");
   if (!grid) return;
   try {
-    const r = await fetch(`${API}/api/usage`);
+    const r = await fetch(`${API}/api/usage`, { headers: authHeaders() });
     const d = await r.json();
     const u = d.usage;
     const l = d.limits;
@@ -1346,7 +1328,11 @@ async function handleResumeFile(input) {
   try {
     const form = new FormData();
     form.append("file", file);
-    const r = await fetch(`${API}/api/upload-resume`, { method: "POST", body: form });
+    const r = await fetch(`${API}/api/upload-resume`, {
+      method: "POST",
+      body: form,
+      headers: getToken() ? { "Authorization": `Bearer ${getToken()}` } : {},
+    });
     if (!r.ok) {
       const err = await r.json();
       throw new Error(err.detail || "Upload failed");

@@ -12,12 +12,15 @@ Functions:
 
 import anthropic
 import json
+import logging
 import re
 import os
 from core.resume_normalizer import (
     normalize_resume, get_canonical_section,
     NORMALIZATION_RULES, SECTION_SYNONYMS,
 )
+
+logger = logging.getLogger("jobpilot")
 
 # NOTE: do NOT call load_dotenv here. The single source of truth is app.py
 # (Issue #10). Importing this module never triggers env file loading.
@@ -269,7 +272,7 @@ JOB DESCRIPTION:
             result["truncation_warning"] = truncation_warning
         return result
     except Exception as e:
-        print(f"[ats] Score error: {e}")
+        logger.warning("[ats] Score error: %s", e)
         return {
             "score": 0, "verdict": "Error",
             "matched_keywords": [], "missing_keywords": [],
@@ -605,7 +608,7 @@ CERTIFICATIONS_PLACEHOLDER
             "audit":       audit,
         }
     except Exception as e:
-        print(f"[tailor] Error: {e}")
+        logger.warning("[tailor] Error: %s", e)
         return {
             "resume":      resume_text,
             "report":      f"Error: {e}",
@@ -861,7 +864,7 @@ ANSWER:
         return {"resume": resume_text, "explanation": raw, "resume_changed": False, "version": version}
 
     except Exception as e:
-        print(f"[chat_instruction] Error: {e}")
+        logger.warning("[chat_instruction] Error: %s", e)
         return {"resume": resume_text, "explanation": f"Error: {e}", "resume_changed": False, "version": version}
 
 
@@ -928,7 +931,7 @@ Return ONLY valid JSON. No markdown, no explanation outside the JSON."""
     try:
         return _call_json(prompt, 1000)
     except Exception as e:
-        print(f"[certs] Error: {e}")
+        logger.warning("[certs] Error: %s", e)
         return {
             "keep": [], "remove": [], "add": [],
             "updated_cert_section": "",
@@ -960,7 +963,7 @@ Return ONLY the improved bullet text. Nothing else."""
     try:
         return _call(prompt, 200)
     except Exception as e:
-        print(f"[improve_line] Error: {e}")
+        logger.warning("[improve_line] Error: %s", e)
         return line
 
 
@@ -1166,7 +1169,7 @@ USER INPUT:
     try:
         return _call(prompt, max_tokens=7000)
     except Exception as e:
-        print(f"[generate_resume] Error: {e}")
+        logger.warning("[generate_resume] Error: %s", e)
         return ""
 
 
@@ -1198,5 +1201,5 @@ Return ONLY the answer text. No preamble, no "Here is your answer:", just the an
     try:
         return _call(prompt, 400)
     except Exception as e:
-        print(f"[answer] Error: {e}")
+        logger.warning("[answer] Error: %s", e)
         return f"Error generating answer: {e}"

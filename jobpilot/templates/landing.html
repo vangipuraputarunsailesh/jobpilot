@@ -338,8 +338,8 @@
       </div>
       <p class="ln-footer-copy">© <span id="ln-footer-year">2026</span> JobPilot · AI-powered job search · Built with Claude AI &amp; Flask</p>
       <div class="ln-footer-links">
-        <a href="#" onclick="openAuth('login')">Sign in</a>
-        <a href="#" onclick="openAuth('register')">Get started</a>
+        <a href="#" onclick="event.preventDefault();openAuth('login')">Sign in</a>
+        <a href="#" onclick="event.preventDefault();openAuth('register')">Get started</a>
       </div>
     </div>
   </footer>
@@ -390,7 +390,7 @@
           <div class="auth-sp-avatar" style="background:linear-gradient(135deg,#a78bfa,#ec4899)">MK</div>
           <div class="auth-sp-avatar" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">PL</div>
         </div>
-        <div class="auth-sp-text">Joined by <strong>12,000+</strong> job seekers</div>
+        <div class="auth-sp-text">Trusted by job seekers everywhere</div>
       </div>
     </div>
 
@@ -442,7 +442,7 @@
         </svg>
       </button>
 
-      <div class="auth-divider"><span>or continue with</span></div>
+      <div class="auth-divider" id="auth-google-divider"><span>or continue with</span></div>
 
       <!-- Google Sign-In button rendered here -->
       <div id="google-signin-container" class="auth-google-container"></div>
@@ -555,6 +555,7 @@ async function submitAuth() {
     if (!r.ok) { showAuthError(d.detail || 'Something went wrong'); return; }
     localStorage.setItem('jp_token', d.token);
     localStorage.setItem('jp_email', d.email);
+    sessionStorage.setItem('jp_session_active', '1');
     window.location.href = '/app';
   } catch { showAuthError('Connection error — is the server running?'); }
   finally {
@@ -569,11 +570,13 @@ function initGoogleSignIn() {
   const clientId = clientIdEl && clientIdEl.dataset.client_id;
   const container = document.getElementById('google-signin-container');
   const fallbackBtn = document.getElementById('auth-google-fallback-btn');
+  const divider = document.getElementById('auth-google-divider');
 
   if (!clientId) {
     // No Google client ID configured — hide the Google section entirely
     if (container) container.style.display = 'none';
     if (fallbackBtn) fallbackBtn.style.display = 'none';
+    if (divider) divider.style.display = 'none';
     return;
   }
 
@@ -649,6 +652,7 @@ async function handleGoogleCredential(response) {
     if (!r.ok) { showAuthError(d.detail || 'Google sign-in failed'); return; }
     localStorage.setItem('jp_token', d.token);
     localStorage.setItem('jp_email', d.email);
+    sessionStorage.setItem('jp_session_active', '1');
     window.location.href = '/app';
   } catch { showAuthError('Google sign-in failed. Please try again.'); }
 }
@@ -664,6 +668,7 @@ async function enterDemoMode() {
     localStorage.setItem('jp_token', d.token);
     localStorage.setItem('jp_email', d.email);
     localStorage.setItem('jp_demo', '1');
+    sessionStorage.setItem('jp_session_active', '1');
     window.location.href = '/app';
   } catch { showAuthError('Demo unavailable. Please try again.'); }
   finally { btns.forEach(b => { b.disabled = false; }); }

@@ -4,8 +4,11 @@ resume_reader.py  —  reads .txt, .docx, and .pdf resume files
 
 import os
 import re
+import logging
 from pathlib import Path
 from core.resume_normalizer import get_canonical_section
+
+logger = logging.getLogger("jobpilot")
 
 
 RESUMES_DIR  = Path(__file__).parent.parent / "resumes"
@@ -43,6 +46,48 @@ def get_resume_list() -> list[dict]:
     return files
 
 
+def read_resume_bytes(content: bytes, ext: str) -> str:
+    """Issue #67 — shared parser used by both ``read_resume`` (disk) and
+    the ``/api/upload-resume`` route (uploaded bytes). Returns extracted text
+    or an empty string on failure. ``ext`` must be one of ``.txt``, ``.docx``
+    or ``.pdf`` (lower-case, leading dot).
+    """
+    import io as _io
+    ext = (ext or "").lower()
+
+    if ext == ".txt":
+        return content.decode("utf-8", errors="ignore")
+
+    if ext == ".docx":
+        try:
+            from docx import Document
+            doc = Document(_io.BytesIO(content))
+            return "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
+        except Exception as e:
+            logger.warning("[reader] docx bytes error: %s", e)
+            return ""
+
+    if ext == ".pdf":
+        text = ""
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(_io.BytesIO(content))
+            text = "\n".join(p.extract_text() or "" for p in reader.pages)
+        except Exception as e:
+            logger.warning("[reader] pypdf bytes failure (%s); trying pdfplumber", e)
+        if text.strip():
+            return text
+        try:
+            import pdfplumber
+            with pdfplumber.open(_io.BytesIO(content)) as pdf:
+                return "\n".join(p.extract_text() or "" for p in pdf.pages)
+        except Exception as e:
+            logger.warning("[reader] pdf bytes error: %s", e)
+            return ""
+
+    return ""
+
+
 def read_resume(filename: str) -> str:
     """Read and return resume text from file."""
     path = RESUMES_DIR / filename
@@ -66,7 +111,7 @@ def read_resume(filename: str) -> str:
                     lines.append(t)
             return "\n".join(lines)
         except Exception as e:
-            print(f"[reader] docx error: {e}")
+            logger.warning("[reader] docx error: %s", e)
             return ""
 
     if ext == ".pdf":
@@ -88,7 +133,7 @@ def read_resume(filename: str) -> str:
                         lines.append(t)
             return "\n".join(lines)
         except Exception as e:
-            print(f"[reader] pdf error: {e}")
+            logger.warning("[reader] pdf error: %s", e)
             return ""
 
     return ""
@@ -392,20 +437,31 @@ def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
             return len(PdfReader(buf).pages)
 
         if max_pages > 0:
-            for scale in [1.0, 0.95, 0.90, 0.85, 0.80, 0.75]:
-                trial_story = _build_story_with_scale(scale)
-                if _count_pages(trial_story) <= max_pages:
-                    story = trial_story
-                    break
+            # Issue #29: bisect over scale factor instead of linear scan.
+            # Find the largest scale in [0.75, 1.0] that fits within max_pages.
+            lo, hi = 0.75, 1.0
+            best_story = None
+            # First try full scale — common case for short resumes.
+            full = _build_story_with_scale(1.0)
+            if _count_pages(full) <= max_pages:
+                story = full
             else:
-                story = _build_story_with_scale(0.75)
+                # Binary search 6 iterations gives ~0.004 resolution on [0.75,1.0]
+                for _ in range(6):
+                    mid = (lo + hi) / 2.0
+                    trial = _build_story_with_scale(mid)
+                    if _count_pages(trial) <= max_pages:
+                        best_story = trial
+                        lo = mid
+                    else:
+                        hi = mid
+                story = best_story if best_story is not None else _build_story_with_scale(0.75)
 
         doc.build(story)
         return str(out_path)
 
     except Exception as e:
-        print(f"[pdf export] Error: {e}")
-        import traceback; traceback.print_exc()
+        logger.warning("[pdf export] Error: %s", e, exc_info=True)
         return save_tailored_resume(filename, content)
 
 
@@ -456,5 +512,5 @@ def save_tailored_docx(filename: str, content: str) -> str:
         doc.save(str(out_path))
         return str(out_path)
     except Exception as e:
-        print(f"[docx export] Error: {e}")
+        logger.warning("[docx export] Error: %s", e)
         return save_tailored_resume(filename, content)

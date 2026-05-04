@@ -18,6 +18,7 @@ from core.ai_engine import (
 from core.resume_reader import (
     get_resume_list, save_tailored_docx,
     save_tailored_resume, save_tailored_pdf,
+    read_resume_bytes,
 )
 
 resume_bp = Blueprint("resume", __name__)
@@ -46,34 +47,13 @@ def upload_resume():
         return jsonify({
             "detail": f"File too large. Max size is {MAX_RESUME_BYTES // (1024 * 1024)} MB."
         }), 413
-    text = ""
-    if ext == ".txt":
-        text = content.decode("utf-8", errors="ignore")
-    elif ext == ".docx":
-        try:
-            from docx import Document
-            doc = Document(io.BytesIO(content))
-            text = "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
-        except Exception as e:
-            logger.error(f"DOCX read error: {e}", exc_info=True)
-            return jsonify({"detail": "Could not read the .docx file."}), 500
-    elif ext == ".pdf":
-        try:
-            from pypdf import PdfReader
-            reader = PdfReader(io.BytesIO(content))
-            text = "\n".join(p.extract_text() or "" for p in reader.pages)
-        except Exception as e:
-            # Issue #19 — log the underlying error before silently falling
-            # back to pdfplumber so failures stay diagnosable.
-            logger.warning("pypdf extraction failed (%s); falling back to pdfplumber", e)
-        if not text.strip():
-            try:
-                import pdfplumber
-                with pdfplumber.open(io.BytesIO(content)) as pdf:
-                    text = "\n".join(p.extract_text() or "" for p in pdf.pages)
-            except Exception as e:
-                logger.error(f"PDF read error: {e}", exc_info=True)
-                return jsonify({"detail": "Could not read the .pdf file."}), 500
+    # Issue #67 — delegate to the shared parser so this route and
+    # ``core.resume_reader.read_resume`` cannot drift apart.
+    try:
+        text = read_resume_bytes(content, ext)
+    except Exception as e:
+        logger.error("Resume parse error (%s): %s", ext, e, exc_info=True)
+        return jsonify({"detail": f"Could not read the {ext} file."}), 500
     if not text.strip():
         return jsonify({"detail": "Could not extract text. Try a .txt or .docx version."}), 422
     return jsonify({"text": text.strip(), "filename": f.filename})
