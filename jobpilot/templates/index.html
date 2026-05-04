@@ -6,6 +6,12 @@
 {% endblock %}
 
 {% block body %}
+<!-- DEMO BANNER (shown only for demo/guest users) -->
+<div class="demo-banner" id="demo-banner" style="display:none">
+  <span>👋 You're in <strong>Demo Mode</strong> — exploring JobPilot as a guest.</span>
+  <a href="/" class="demo-banner-sign-up" onclick="localStorage.setItem('jp_demo_signup','1')">Create free account →</a>
+</div>
+
 <!-- TOP BAR -->
 <header class="topbar">
   <div class="brand">
