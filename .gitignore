@@ -1,11 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+
+# Environment
+.env
+*.env
+
+# Runtime data
+*.db
+*.log
 *.tar
+
+# IDE
+.vscode/
+.idea/
+
+# Railway / Docker artifacts
 jobpilot/blobs/
 jobpilot/index.json
 jobpilot/manifest.json
 jobpilot/oci-layout
-jobpilot/users.db
+
+# App runtime dirs
 jobpilot/generated/
 jobpilot/logs/
-jobpilot/.env
-jobpilot/__pycache__/
+jobpilot/resumes/
+
+# Claude Code
 .claude/
