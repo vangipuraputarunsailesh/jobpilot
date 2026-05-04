@@ -646,8 +646,8 @@ async function handleGoogleCredential(response) {
 
 /* ── Demo / Guest mode ──────────────────────────────────────── */
 async function enterDemoMode() {
-  const btn = document.querySelector('.ln-cta-demo, .auth-demo-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Loading demo…'; }
+  const btns = document.querySelectorAll('.ln-cta-demo, .auth-demo-btn');
+  btns.forEach(b => { b.disabled = true; b.textContent = 'Loading demo…'; });
   try {
     const r = await fetch('/api/auth/demo', { method: 'POST' });
     const d = await r.json();
@@ -657,7 +657,7 @@ async function enterDemoMode() {
     localStorage.setItem('jp_demo', '1');
     window.location.href = '/app';
   } catch { showAuthError('Demo unavailable. Please try again.'); }
-  finally { if (btn) { btn.disabled = false; } }
+  finally { btns.forEach(b => { b.disabled = false; }); }
 }
 
 // Try to initialize Google button after GSI library loads
