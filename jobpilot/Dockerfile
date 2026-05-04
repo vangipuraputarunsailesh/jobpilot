@@ -10,10 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY jobpilot/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY jobpilot/ .
 
 # Pre-create runtime directories so they exist from the first request
 RUN mkdir -p /app/logs /app/generated /app/resumes
