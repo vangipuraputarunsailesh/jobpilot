@@ -123,6 +123,7 @@ async function handleGoogleCredential(response) {
 function logout() {
   localStorage.removeItem("jp_token");
   localStorage.removeItem("jp_email");
+  localStorage.removeItem("jp_demo");
   window.location.href = "/";
 }
 
@@ -324,6 +325,12 @@ function setupAutocomplete(inputId, data, onSelect) {
 
 function initApp() {
   checkHealth();
+  // Show demo banner when user is in demo/guest mode
+  if (localStorage.getItem("jp_demo") === "1") {
+    const banner = document.getElementById("demo-banner");
+    if (banner) banner.style.display = "flex";
+    document.body.classList.add("demo-mode");
+  }
   // Pre-fill search from landing page hero search or trending chips
   const storedTitle    = sessionStorage.getItem("jp_search_title");
   const storedLocation = sessionStorage.getItem("jp_search_location");
