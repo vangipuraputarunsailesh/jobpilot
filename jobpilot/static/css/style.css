@@ -1665,12 +1665,53 @@ html[data-theme="dark"] {
 
 /* ── Landing root ─────────────────────────────────────────────── */
 .landing-root {
+  height: 100%;
   min-height: 100vh;
   background: linear-gradient(135deg, #0f172a 0%, #134e4a 50%, #0f172a 100%);
   color: #f1f5f9;
   font-family: 'Inter', sans-serif;
   overflow-y: auto;
 }
+
+/* ── Demo banner ──────────────────────────────────────────────── */
+.demo-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 20px;
+  background: linear-gradient(90deg, rgba(245,158,11,0.18), rgba(239,68,68,0.14));
+  border-bottom: 1px solid rgba(245,158,11,0.35);
+  font-size: 12.5px;
+  color: #fbbf24;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  height: 38px;
+  box-sizing: border-box;
+}
+.demo-banner strong { color: #fde68a; }
+.demo-banner-sign-up {
+  background: rgba(245,158,11,0.2);
+  border: 1px solid rgba(245,158,11,0.4);
+  color: #fbbf24;
+  padding: 3px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-decoration: none;
+}
+.demo-banner-sign-up:hover { background: rgba(245,158,11,0.35); }
+
+/* Shift topbar + layout down when demo banner is visible */
+body.demo-mode .topbar { top: 38px; }
+body.demo-mode .layout { margin-top: 94px; height: calc(100vh - 94px); }
 
 /* ── Nav ──────────────────────────────────────────────────────── */
 .ln-nav {
@@ -1799,6 +1840,22 @@ html[data-theme="dark"] {
   font-family: inherit;
 }
 .ln-cta-ghost:hover { color: #f1f5f9; }
+.ln-cta-demo {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fbbf24;
+  background: rgba(245,158,11,0.12);
+  border: 1px solid rgba(245,158,11,0.3);
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 10px 20px;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.ln-cta-demo:hover { background: rgba(245,158,11,0.22); border-color: rgba(245,158,11,0.55); }
 
 /* ── Feature cards ─────────────────────────────────────────────── */
 .ln-features {
@@ -2003,6 +2060,35 @@ html[data-theme="dark"] {
   margin-bottom: 20px;
 }
 .auth-google-btn:hover { background: #273449; border-color: #475569; }
+.auth-demo-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+  font-size: 11px;
+  color: #475569;
+}
+.auth-demo-divider::before,
+.auth-demo-divider::after { content: ''; flex: 1; height: 1px; background: #1e293b; }
+.auth-demo-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px;
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.25);
+  border-radius: 8px;
+  color: #fbbf24;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
+  margin-bottom: 16px;
+}
+.auth-demo-btn:hover { background: rgba(245,158,11,0.18); border-color: rgba(245,158,11,0.45); }
 .auth-terms { font-size: 11px; color: #475569; margin-top: auto; text-align: center; }
 .auth-terms a { color: #14b8a6; text-decoration: none; }
 .auth-terms a:hover { text-decoration: underline; }

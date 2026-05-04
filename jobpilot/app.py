@@ -26,7 +26,7 @@ _USAGE = {
 }
 
 _PUBLIC_PATHS = {"/", "/app", "/api/auth/login", "/api/auth/register",
-                 "/api/auth/google", "/api/health"}
+                 "/api/auth/google", "/api/auth/demo", "/api/health"}
 
 
 def create_app() -> Flask:

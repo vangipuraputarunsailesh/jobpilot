@@ -41,6 +41,12 @@
           </svg>
         </button>
         <button class="ln-cta-ghost" onclick="openAuth('login')">Sign in →</button>
+        <button class="ln-cta-demo" onclick="enterDemoMode()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>
+          </svg>
+          Try Demo
+        </button>
       </div>
       <p class="ln-hero-note">✓ Free forever &nbsp;·&nbsp; ✓ No credit card required &nbsp;·&nbsp; ✓ 2-minute setup</p>
     </div>
@@ -463,6 +469,15 @@
            data-auto_prompt="false"
            style="display:none"></div>
 
+      <div class="auth-demo-divider"><span>or</span></div>
+
+      <button class="auth-demo-btn" onclick="enterDemoMode()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>
+        </svg>
+        Try Demo — no sign-up required
+      </button>
+
       <p class="auth-terms">By continuing you agree to JobPilot's
         <a href="#">Terms</a> &amp; <a href="#">Privacy Policy</a>.</p>
     </div>
@@ -627,6 +642,22 @@ async function handleGoogleCredential(response) {
     localStorage.setItem('jp_email', d.email);
     window.location.href = '/app';
   } catch { showAuthError('Google sign-in failed. Please try again.'); }
+}
+
+/* ── Demo / Guest mode ──────────────────────────────────────── */
+async function enterDemoMode() {
+  const btns = document.querySelectorAll('.ln-cta-demo, .auth-demo-btn');
+  btns.forEach(b => { b.disabled = true; b.textContent = 'Loading demo…'; });
+  try {
+    const r = await fetch('/api/auth/demo', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) { showAuthError(d.detail || 'Demo unavailable'); return; }
+    localStorage.setItem('jp_token', d.token);
+    localStorage.setItem('jp_email', d.email);
+    localStorage.setItem('jp_demo', '1');
+    window.location.href = '/app';
+  } catch { showAuthError('Demo unavailable. Please try again.'); }
+  finally { btns.forEach(b => { b.disabled = false; }); }
 }
 
 // Try to initialize Google button after GSI library loads

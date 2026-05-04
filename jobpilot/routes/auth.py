@@ -1,6 +1,6 @@
 """
 routes/auth.py — Authentication Blueprint for JobPilot Flask app.
-Handles email/password login, registration, and Google OAuth.
+Handles email/password login, registration, Google OAuth, and demo access.
 """
 import os
 import logging
@@ -11,6 +11,9 @@ from core.auth_db import create_user, get_user, verify_password, create_token
 
 auth_bp = Blueprint("auth", __name__)
 logger = logging.getLogger("jobpilot")
+
+DEMO_EMAIL = "demo@jobpilot.app"
+DEMO_PASSWORD_PLACEHOLDER = "demo-account-no-login"
 
 
 @auth_bp.post("/api/auth/register")
@@ -67,3 +70,16 @@ def google_login():
     token = create_token(email)
     logger.info(f"GOOGLE LOGIN | {email}")
     return jsonify({"token": token, "email": email})
+
+
+@auth_bp.post("/api/auth/demo")
+def demo_login():
+    """Issue a JWT for the shared demo account (no password required)."""
+    try:
+        create_user(DEMO_EMAIL, os.urandom(32).hex())
+        logger.info("DEMO ACCOUNT CREATED")
+    except ValueError:
+        pass  # already exists
+    token = create_token(DEMO_EMAIL)
+    logger.info("DEMO LOGIN")
+    return jsonify({"token": token, "email": DEMO_EMAIL, "demo": True})
