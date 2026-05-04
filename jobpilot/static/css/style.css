@@ -1481,6 +1481,82 @@ body {
 }
 .logout-btn:hover { border-color: var(--red); color: var(--red); }
 
+/* Editor status bar — History + Sign out controls */
+.status-history-btn,
+.status-logout-btn {
+  font-size: 11px; font-weight: 500;
+  padding: 4px 10px;
+  border: 1px solid var(--border2); border-radius: 6px;
+  background: transparent; color: var(--text2); cursor: pointer;
+  transition: all 0.15s;
+  margin-left: 6px;
+}
+.status-history-btn:hover { border-color: var(--primary); color: var(--primary); }
+.status-logout-btn:hover  { border-color: var(--red);     color: var(--red); }
+
+/* Session history dropdown panel inside resume editor */
+.session-history-panel {
+  margin: 8px 14px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg2);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+  max-height: 260px;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.session-history-panel .sh-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg3);
+}
+.session-history-panel .sh-title {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  letter-spacing: 0.2px;
+}
+.session-history-panel .sh-actions { display: flex; gap: 6px; }
+.session-history-panel .sh-clear-btn,
+.session-history-panel .sh-close-btn {
+  font-size: 11px; padding: 3px 9px;
+  border: 1px solid var(--border2); border-radius: 5px;
+  background: transparent; color: var(--text3); cursor: pointer;
+}
+.session-history-panel .sh-clear-btn:hover { color: var(--red);     border-color: var(--red); }
+.session-history-panel .sh-close-btn:hover { color: var(--primary); border-color: var(--primary); }
+
+.session-history-panel .sh-body {
+  overflow-y: auto;
+  padding: 6px 4px;
+  font-family: 'Inter', sans-serif;
+}
+.session-history-panel .sh-empty {
+  padding: 16px; text-align: center;
+  font-size: 12px; color: var(--text3);
+}
+.session-history-panel .sh-item {
+  display: grid;
+  grid-template-columns: 70px 80px 1fr;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 12px;
+  font-size: 11.5px; line-height: 1.5;
+  border-bottom: 1px dashed var(--border);
+}
+.session-history-panel .sh-item:last-child { border-bottom: none; }
+.session-history-panel .sh-time { color: var(--text3); font-variant-numeric: tabular-nums; }
+.session-history-panel .sh-type {
+  text-transform: uppercase; font-size: 10px; font-weight: 600;
+  color: var(--primary); letter-spacing: 0.4px;
+}
+.session-history-panel .sh-text { color: var(--text2); word-break: break-word; }
+.session-history-panel .sh-upload   .sh-type { color: #6366f1; }
+.session-history-panel .sh-generate .sh-type { color: #8b5cf6; }
+.session-history-panel .sh-tailor   .sh-type { color: #0d9488; }
+.session-history-panel .sh-ats      .sh-type { color: #f59e0b; }
+.session-history-panel .sh-chat     .sh-type { color: #0ea5e9; }
+.session-history-panel .sh-download .sh-type { color: #22c55e; }
+
 /* ═══════════════════════════════════════════════════════════════
    LANDING PAGE — Modern Redesign
    ═══════════════════════════════════════════════════════════════ */

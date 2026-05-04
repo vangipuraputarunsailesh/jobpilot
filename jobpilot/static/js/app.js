@@ -121,9 +121,66 @@ async function handleGoogleCredential(response) {
 }
 
 function logout() {
+  if (!confirm("Sign out of JobPilot? Your in-session history will be cleared.")) return;
   localStorage.removeItem("jp_token");
   localStorage.removeItem("jp_email");
+  try { sessionHistory = []; } catch (_) {}
   window.location.href = "/";
+}
+
+// ── Session history (in-memory, resets on reload / logout) ───────────────────
+let sessionHistory = [];
+let _sessionHistoryOpen = false;
+
+function logSession(type, text, meta) {
+  try {
+    sessionHistory.push({
+      time: Date.now(),
+      type: type || "event",
+      text: text || "",
+      meta: meta || null,
+    });
+    if (sessionHistory.length > 200) sessionHistory.shift();
+    if (_sessionHistoryOpen) renderSessionHistoryPanel();
+  } catch (_) {}
+}
+
+function _fmtSessionTime(ts) {
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const ss = String(d.getSeconds()).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+
+function toggleSessionHistory() {
+  _sessionHistoryOpen = !_sessionHistoryOpen;
+  const panel = document.getElementById("session-history-panel");
+  if (!panel) return;
+  panel.style.display = _sessionHistoryOpen ? "" : "none";
+  if (_sessionHistoryOpen) renderSessionHistoryPanel();
+}
+
+function renderSessionHistoryPanel() {
+  const body = document.getElementById("session-history-body");
+  if (!body) return;
+  if (!sessionHistory.length) {
+    body.innerHTML = `<div class="sh-empty">No activity yet in this session.</div>`;
+    return;
+  }
+  const items = sessionHistory.slice().reverse().map(ev => {
+    return `<div class="sh-item sh-${escHtml(ev.type)}">
+      <span class="sh-time">${_fmtSessionTime(ev.time)}</span>
+      <span class="sh-type">${escHtml(ev.type)}</span>
+      <span class="sh-text">${escHtml(ev.text)}</span>
+    </div>`;
+  }).join("");
+  body.innerHTML = items;
+}
+
+function clearSessionHistory() {
+  sessionHistory = [];
+  renderSessionHistoryPanel();
 }
 
 function checkAuth() {
@@ -1077,7 +1134,21 @@ function buildTailorTab(j, st) {
             </div>
             ${previewMode ? `<button class="status-fs-btn" id="preview-fs-btn" onclick="togglePreviewFullscreen()">Full screen</button>` : ""}
             <button class="status-reset-btn" onclick="resetTailor()">Change</button>
+            <button class="status-history-btn" id="session-history-btn" onclick="toggleSessionHistory()" title="Show session history">History</button>
+            <button class="status-logout-btn" onclick="logout()" title="Sign out">Sign out</button>
           </div>
+        </div>
+
+        <!-- SESSION HISTORY PANEL -->
+        <div class="session-history-panel" id="session-history-panel" style="display:none">
+          <div class="sh-header">
+            <div class="sh-title">Session history</div>
+            <div class="sh-actions">
+              <button class="sh-clear-btn" onclick="clearSessionHistory()">Clear</button>
+              <button class="sh-close-btn" onclick="toggleSessionHistory()">Close</button>
+            </div>
+          </div>
+          <div class="sh-body" id="session-history-body"></div>
         </div>
 
         <!-- EDITOR / PREVIEW AREA -->
@@ -1194,6 +1265,7 @@ async function handleResumeFile(input) {
     const d = await r.json();
     st.resumeText = d.text;
     st.resumeName = d.filename;
+    logSession("upload", `Uploaded resume: ${d.filename}`);
     showToast(`Resume uploaded: ${d.filename}`, "success");
     await startTailor();
   } catch (e) {
@@ -1235,6 +1307,7 @@ async function generateResume() {
     if (d.error) throw new Error(d.error);
     st.resumeText = d.resume;
     st.resumeName = "AI Generated Resume";
+    logSession("generate", `Generated AI resume for ${j.title || "role"}`);
     showToast("Resume generated!", "success");
     await startTailor();
   } catch (e) {
@@ -1285,6 +1358,7 @@ async function startTailor() {
     st.auditFindings   = d.audit       || "";
     st.state           = "tailored";
     st.chatHistory     = [];
+    logSession("tailor", `Tailored resume for ${j.company} — ${j.title}`);
     showToast("Resume tailored successfully!", "success");
     scheduleAutoAtsScore(250, "tailor");
   } catch (e) {
@@ -1458,6 +1532,7 @@ async function applyInstruction() {
   // Add user message to history
   st.chatHistory = st.chatHistory || [];
   st.chatHistory.push({ role: "user", text: instruction });
+  logSession("chat", `Chat: ${instruction.slice(0, 80)}${instruction.length > 80 ? "…" : ""}`);
 
   btn.disabled       = true;
   status.textContent = "Applying...";
@@ -1551,6 +1626,9 @@ async function checkATSScore(opts = {}) {
     st.scoreData = d;
     st.score     = d.score;
     st.state     = "scored";
+    if (!auto) {
+      logSession("ats", `ATS score: ${d.score}/100 for ${selectedJob?.company || ""} — ${selectedJob?.title || ""}`);
+    }
     const normalized = _normalizeForScore(st.tailoredText);
     st.atsLastScoredAt = Date.now();
     st.atsLastScoredLen = normalized.length;
@@ -1823,6 +1901,7 @@ async function downloadResume(fmt = "pdf", fitPages = 0) {
     a.download = `${(selectedJob.company || "resume").replace(/\s+/g,"_")}_${(selectedJob.title||"").replace(/\s+/g,"_")}_tailored.${fmt}`;
     a.click();
     URL.revokeObjectURL(url);
+    logSession("download", `Downloaded ${fmt.toUpperCase()}${fitPages ? ` (${fitPages}-page)` : ""} — ${selectedJob.company || ""}`);
     showToast("Resume downloaded!", "success");
   } catch (e) {
     showToast("Download failed: " + e.message, "error");
