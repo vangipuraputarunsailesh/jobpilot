@@ -128,7 +128,7 @@ def parse_resume_markdown(text: str) -> dict:
         ]
     }
     """
-    from resume_normalizer import get_canonical_section
+    from core.resume_normalizer import get_canonical_section
 
     lines  = text.split("\n")
     result = {"name": "", "contact": "", "sections": []}

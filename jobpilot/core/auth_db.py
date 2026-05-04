@@ -16,7 +16,7 @@ SECRET_KEY  = os.environ.get("JWT_SECRET", "jobpilot-secret-change-in-production
 ALGORITHM   = "HS256"
 TOKEN_HOURS = 24 * 7   # token valid for 7 days
 
-DB_PATH  = Path(__file__).parent / "users.db"
+DB_PATH  = Path(__file__).parent.parent / "users.db"
 pwd_ctx  = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # ── DB setup ──────────────────────────────────────────────────────────────────

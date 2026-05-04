@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}JobPilot — AI-Powered Job Search{% endblock %}
+
+{% block body %}
+<!-- ── Landing page ─────────────────────────────────────────────────── -->
+<div class="landing-root" id="landing-root">
+
+  <!-- NAV -->
+  <nav class="ln-nav">
+    <div class="ln-brand">
+      <div class="ln-logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" width="18" height="18">
+          <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+        </svg>
+      </div>
+      <span class="ln-logo-text">JobPilot</span>
+    </div>
+    <div class="ln-nav-actions">
+      <button class="ln-btn-ghost" onclick="openAuth('login')">Log in</button>
+      <button class="ln-btn-primary" onclick="openAuth('register')">Get started free</button>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="ln-hero">
+    <div class="ln-hero-content">
+      <div class="ln-badge">✦ AI-Powered · Real-time Jobs</div>
+      <h1 class="ln-headline">
+        Find your next job<br>
+        <span class="ln-headline-accent">faster with AI</span>
+      </h1>
+      <p class="ln-subheadline">
+        Search across thousands of US companies, tailor your resume with Claude AI,
+        score for ATS systems, and apply — all in one place.
+      </p>
+      <div class="ln-hero-cta">
+        <button class="ln-cta-primary" onclick="openAuth('register')">
+          Start for free
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+            <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/>
+          </svg>
+        </button>
+        <button class="ln-cta-ghost" onclick="openAuth('login')">Sign in →</button>
+      </div>
+    </div>
+
+    <!-- Feature cards -->
+    <div class="ln-features">
+      <div class="ln-feat-card">
+        <div class="ln-feat-icon ln-feat-icon--blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+        </div>
+        <div class="ln-feat-title">Smart Job Search</div>
+        <div class="ln-feat-desc">Searches JSearch, Adzuna, The Muse, Remotive, Arbeitnow, and USAJobs simultaneously.</div>
+      </div>
+      <div class="ln-feat-card">
+        <div class="ln-feat-icon ln-feat-icon--teal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+        </div>
+        <div class="ln-feat-title">AI Resume Tailoring</div>
+        <div class="ln-feat-desc">Claude AI rewrites your resume for each specific job description you apply to.</div>
+      </div>
+      <div class="ln-feat-card">
+        <div class="ln-feat-icon ln-feat-icon--purple">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+        </div>
+        <div class="ln-feat-title">ATS Score Checker</div>
+        <div class="ln-feat-desc">See how your resume scores against ATS systems before you submit your application.</div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- ── Auth overlay ─────────────────────────────────────────────────── -->
+<div class="auth-overlay" id="auth-overlay" style="display:none">
+  <div class="auth-modal">
+
+    <!-- Left panel -->
+    <div class="auth-left">
+      <div class="auth-left-brand">
+        <div class="ln-logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" width="18" height="18">
+            <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+          </svg>
+        </div>
+        <span class="ln-logo-text">JobPilot</span>
+      </div>
+      <h2 class="auth-left-headline">Your AI<br><span>career co-pilot</span></h2>
+      <ul class="auth-left-perks">
+        <li>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          Search millions of US jobs
+        </li>
+        <li>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          AI-tailored resumes
+        </li>
+        <li>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          ATS score analysis
+        </li>
+        <li>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          Export as PDF or DOCX
+        </li>
+      </ul>
+    </div>
+
+    <!-- Right panel: form -->
+    <div class="auth-right">
+      <button class="auth-close" onclick="closeAuth()" aria-label="Close">&times;</button>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login" onclick="switchTab('login')">Sign in</button>
+        <button class="auth-tab" id="tab-register" onclick="switchTab('register')">Create account</button>
+      </div>
+
+      <div id="auth-error" class="auth-error" style="display:none"></div>
+
+      <div class="auth-field">
+        <label class="auth-label">Email address</label>
+        <input type="email" id="auth-email" class="auth-input" placeholder="you@example.com" autocomplete="email"/>
+      </div>
+
+      <div class="auth-field">
+        <label class="auth-label">Password</label>
+        <input type="password" id="auth-password" class="auth-input" placeholder="Min. 6 characters"
+               onkeydown="if(event.key==='Enter') submitAuth()"/>
+      </div>
+
+      <button class="auth-submit-btn" id="auth-submit-btn" onclick="submitAuth()">Continue with email</button>
+
+      <div class="auth-divider"><span>or</span></div>
+
+      <button class="auth-google-btn" onclick="googleSignIn()">
+        <svg viewBox="0 0 48 48" width="18" height="18">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Continue with Google
+      </button>
+
+      <div id="g_id_onload"
+           data-client_id="{{ google_client_id }}"
+           data-callback="handleGoogleCredential"
+           data-auto_prompt="false"
+           style="display:none"></div>
+
+      <p class="auth-terms">By continuing you agree to JobPilot's
+        <a href="#">Terms</a> &amp; <a href="#">Privacy Policy</a>.</p>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+// Redirect if already logged in
+if (localStorage.getItem('jp_token')) {
+  window.location.replace('/app');
+}
+
+let _authTab = 'login';
+
+function openAuth(tab) {
+  switchTab(tab || 'login');
+  document.getElementById('auth-overlay').style.display = 'flex';
+}
+function closeAuth() {
+  document.getElementById('auth-overlay').style.display = 'none';
+}
+function switchTab(tab) {
+  _authTab = tab;
+  document.getElementById('tab-login').classList.toggle('active', tab === 'login');
+  document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+  const btn = document.getElementById('auth-submit-btn');
+  btn.textContent = tab === 'login' ? 'Continue with email' : 'Create account';
+  document.getElementById('auth-error').style.display = 'none';
+}
+function showAuthError(msg) {
+  const el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+async function submitAuth() {
+  const email    = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const btn      = document.getElementById('auth-submit-btn');
+  if (!email || !password) { showAuthError('Please enter email and password'); return; }
+  btn.disabled = true;
+  btn.textContent = _authTab === 'login' ? 'Signing in…' : 'Creating account…';
+  try {
+    const endpoint = _authTab === 'login' ? '/api/auth/login' : '/api/auth/register';
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email, password}),
+    });
+    const d = await r.json();
+    if (!r.ok) { showAuthError(d.detail || 'Something went wrong'); return; }
+    localStorage.setItem('jp_token', d.token);
+    localStorage.setItem('jp_email', d.email);
+    window.location.href = '/app';
+  } catch { showAuthError('Connection error — is the server running?'); }
+  finally {
+    btn.disabled = false;
+    switchTab(_authTab);
+  }
+}
+
+function googleSignIn() {
+  const el = document.getElementById('g_id_onload');
+  if (!el || !el.dataset.client_id) {
+    showAuthError('Google login is not configured. Please use email/password.');
+    return;
+  }
+  google.accounts.id.initialize({client_id: el.dataset.client_id, callback: handleGoogleCredential});
+  google.accounts.id.prompt();
+}
+
+async function handleGoogleCredential(response) {
+  try {
+    const r = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({credential: response.credential}),
+    });
+    const d = await r.json();
+    if (!r.ok) { showAuthError(d.detail || 'Google sign-in failed'); return; }
+    localStorage.setItem('jp_token', d.token);
+    localStorage.setItem('jp_email', d.email);
+    window.location.href = '/app';
+  } catch { showAuthError('Google sign-in failed'); }
+}
+</script>
+{% endblock %}

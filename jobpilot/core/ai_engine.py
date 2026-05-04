@@ -15,7 +15,7 @@ import json
 import re
 import os
 from dotenv import load_dotenv
-from resume_normalizer import (
+from core.resume_normalizer import (
     normalize_resume, get_canonical_section,
     NORMALIZATION_RULES, SECTION_SYNONYMS,
 )

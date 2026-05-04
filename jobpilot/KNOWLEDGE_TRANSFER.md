@@ -12,7 +12,7 @@
 4. [System Architecture](#4-system-architecture)
 5. [Application Workflow](#5-application-workflow)
 6. [Module Breakdown](#6-module-breakdown)
-   - [app.py — FastAPI Backend](#61-apppy--fastapi-backend)
+    - [app.py — Flask Backend](#61-apppy--flask-backend)
    - [job_scraper.py — Multi-Source Job Search](#62-job_scraperpy--multi-source-job-search)
    - [ai_engine.py — Claude AI Logic](#63-ai_enginepy--claude-ai-logic)
    - [resume_reader.py — Resume I/O](#64-resume_readerpy--resume-io)
@@ -53,8 +53,8 @@
 
 | Layer | Technology | Version | Purpose |
 |---|---|---|---|
-| **Web Framework** | FastAPI | 0.111.0 | REST API, async request handling, OpenAPI docs |
-| **ASGI Server** | Uvicorn | 0.30.1 | Production-grade async server |
+| **Web Framework** | Flask | 3.1.3 | REST API, routing, template rendering |
+| **CORS** | flask-cors | 6.0.2 | Cross-origin API access for frontend |
 | **AI / LLM** | Anthropic Claude (claude-sonnet) | ≥0.40.0 | ATS scoring, tailoring, chat, generation |
 | **Web Scraping** | BeautifulSoup4 | 4.12.3 | HTML parsing for job description scraping |
 | **HTTP Client** | Requests | 2.32.3 | Calling job board APIs |
@@ -63,7 +63,7 @@
 | **PDF Writing** | ReportLab | ≥4.0.0 | Generate PDF resumes from text |
 | **Environment** | python-dotenv | 1.0.1 | `.env` file loading for secrets |
 | **XML/HTML** | lxml | 5.3.0 | Fast HTML parsing support for BeautifulSoup |
-| **File Upload** | python-multipart | 0.0.9 | FastAPI file upload support |
+| **Authentication** | PyJWT + passlib | ≥2.8.0 / ≥1.7.4 | JWT sessions and password hashing |
 
 ### Frontend
 
@@ -92,20 +92,30 @@
 
 ```
 jobpilot/
-├── app.py              ← FastAPI backend entry point (uvicorn target)
-├── job_scraper.py      ← Multi-source job aggregation engine
-├── ai_engine.py        ← All Claude AI logic (scoring, tailoring, chat, generation)
-├── resume_reader.py    ← Resume file I/O: read .docx/.pdf/.txt, write .docx/.pdf
+├── app.py              ← Flask backend entry point
+├── core/
+│   ├── ai_engine.py    ← Claude AI logic (scoring, tailoring, chat, generation)
+│   ├── auth_db.py      ← SQLite auth store + JWT helpers
+│   ├── job_scraper.py  ← Multi-source job aggregation engine
+│   ├── resume_reader.py← Resume file I/O (.docx/.pdf/.txt)
+│   └── resume_templates.py
+├── routes/
+│   ├── auth.py         ← /api/auth/* endpoints
+│   ├── jobs.py         ← /api/jobs and /api/jd
+│   └── resume.py       ← Resume/AI/download endpoints
 ├── requirements.txt    ← Python package dependencies
-├── .env                ← API keys and secrets (never committed to git)
+├── .env.example        ← Tracked env key template (safe placeholders only)
 ├── .gitignore          ← Excludes venv, .env, generated files, logs
-├── README.md           ← Quick-start guide
 ├── KNOWLEDGE_TRANSFER.md ← This document
-├── resumes/            ← User's resume files (.docx, .pdf, .txt)
 ├── generated/          ← AI-tailored resumes saved here after download
 ├── logs/               ← Error logs
+├── templates/
+│   ├── landing.html
+│   ├── index.html
+│   └── base.html
 └── static/
-    ├── index.html      ← Single-page application shell
+    ├── landing.html
+    ├── index.html
     ├── css/
     │   └── style.css   ← All UI styles
     └── js/
@@ -124,10 +134,10 @@ graph TB
         UI --> JS
     end
 
-    subgraph Server["🖥️ FastAPI Server (app.py)  :5000"]
+    subgraph Server["🖥️ Flask Server (app.py) :5000"]
         API["REST API Layer\n/api/*"]
-        MW["CORS Middleware"]
-        STATIC["Static File Serving\n/static/*"]
+        MW["CORS + JWT Guard"]
+        STATIC["Template + Static Serving\n/, /app, /static/*"]
         API --> MW
     end
 
@@ -180,7 +190,7 @@ graph TB
 sequenceDiagram
     actor User
     participant Browser as Browser (app.js)
-    participant API as FastAPI (app.py)
+    participant API as Flask (app.py)
     participant Scraper as job_scraper.py
     participant AIEngine as ai_engine.py
     participant Claude as Anthropic Claude
@@ -257,16 +267,17 @@ sequenceDiagram
 
 ## 6. Module Breakdown
 
-### 6.1 `app.py` — FastAPI Backend
+### 6.1 `app.py` — Flask Backend
 
-The main entry point and API layer. Handles all HTTP routing, request validation, and orchestrates calls to the core modules.
+The main entry point and API layer. Handles routing, auth guard checks, logging, and orchestrates calls to the route blueprints.
 
 **Key responsibilities:**
-- FastAPI application setup with CORS middleware
-- Static file serving (`/static/*`)
-- In-memory API usage counters (resets on restart)
-- Route handlers for all 13 API endpoints
-- Pydantic request/response models for type safety
+- Flask app setup with CORS middleware
+- Request timing and rotating log file setup
+- JWT auth guard for protected `/api/*` routes
+- Blueprint registration: auth, jobs, resume
+- Render routes for `/` (landing) and `/app` (main dashboard)
+- Health and usage endpoints
 
 **In-memory state:**
 ```python
@@ -281,44 +292,9 @@ _usage = {
 }
 ```
 
-**Pydantic models:**
+**Request contracts:**
 
-```mermaid
-classDiagram
-    class JobSearchRequest {
-        +str title
-        +str location
-    }
-    class TailorRequest {
-        +str resume_text
-        +str description
-        +str job_title
-        +str company
-    }
-    class ScoreRequest {
-        +str resume_text
-        +str description
-    }
-    class ChatInstructionRequest {
-        +str instruction
-        +str resume_text
-        +str description
-        +str job_title
-        +str company
-        +list chat_history
-    }
-    class DownloadRequest {
-        +str content
-        +str filename
-        +str format
-        +int fit_pages
-    }
-    class GenerateResumeRequest {
-        +str description
-        +str job_title
-        +str job_description
-    }
-```
+Payload validation is handled in route functions using Flask request parsing and explicit field checks (for example, required `title`, `resume_text`, `description`, and file extension checks).
 
 ---
 
@@ -485,11 +461,15 @@ stateDiagram-v2
 
 ## 7. API Endpoint Reference
 
-All endpoints are served at `http://localhost:5000`. Full interactive docs available at `/docs` (Swagger UI).
+All endpoints are served at `http://localhost:5000`.
 
 | Method | Path | Request Body | Response | Description |
 |--------|------|-------------|----------|-------------|
-| `GET` | `/` | — | HTML | Serves `index.html` |
+| `GET` | `/` | — | HTML | Serves landing page |
+| `GET` | `/app` | — | HTML | Serves main application page |
+| `POST` | `/api/auth/register` | `{email, password}` | `{token, email}` | Email/password registration |
+| `POST` | `/api/auth/login` | `{email, password}` | `{token, email}` | Email/password login |
+| `POST` | `/api/auth/google` | `{credential}` | `{token, email}` | Google OAuth login |
 | `GET` | `/api/health` | — | `{status, api_key_set, resume_count, sources}` | Health check |
 | `GET` | `/api/usage` | — | `{usage, limits}` | API usage counters |
 | `POST` | `/api/jobs` | `{title, location}` | `{jobs[], count, sources[]}` | Search all job platforms |
@@ -640,11 +620,19 @@ sequenceDiagram
 
 ## 11. Environment & Configuration
 
-### Required `.env` Variables
+### Environment File Workflow
+
+- Keep secrets in local `.env` (not committed)
+- Keep key names and placeholders in tracked `.env.example`
+
+### Required Variables
 
 ```env
 # Required for all AI features
 ANTHROPIC_API_KEY=sk-ant-...
+JWT_SECRET=change-me
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
 
 # Optional — for JSearch (RapidAPI) coverage (free: 200 req/month)
 RAPIDAPI_KEY=...
@@ -708,32 +696,27 @@ flowchart TD
     B --> C[python -m venv venv]
     C --> D[source venv/bin/activate]
     D --> E[pip install -r requirements.txt]
-    E --> F[Copy .env and add ANTHROPIC_API_KEY]
-    F --> G[Add resume files to resumes/ folder]
-    G --> H[python app.py]
-    H --> I[Open http://localhost:5000]
+    E --> F[cp .env.example .env and fill values]
+    F --> G[python app.py]
+    G --> H[Open http://localhost:5000]
 ```
 
 ### Running the Server
 
 ```bash
-# Development (with auto-reload)
+# Development
 python app.py
 
-# Or directly with uvicorn
-uvicorn app:app --reload --port 5000
-
-# Production (no reload, multiple workers)
-uvicorn app:app --host 0.0.0.0 --port 5000 --workers 4
+# Production example (WSGI)
+gunicorn -w 4 -b 0.0.0.0:5000 app:app
 ```
 
 ### Key URLs
 
 | URL | Purpose |
 |-----|---------|
-| `http://localhost:5000` | Main application UI |
-| `http://localhost:5000/docs` | Swagger / OpenAPI interactive docs |
-| `http://localhost:5000/redoc` | ReDoc API documentation |
+| `http://localhost:5000` | Landing page |
+| `http://localhost:5000/app` | Main application UI |
 | `http://localhost:5000/api/health` | Health check endpoint |
 | `http://localhost:5000/api/usage` | API usage counters |
 
@@ -753,10 +736,10 @@ graph TD
     READER --> pdfplumber
     READER --> pypdf
     READER --> reportlab
-    APP --> fastapi
-    APP --> uvicorn
-    APP --> pydantic
-    APP --> multipart[python-multipart]
+    APP --> flask
+    APP --> cors[flask-cors]
+    APP --> jwt[PyJWT]
+    APP --> passlib
 ```
 
 ---
@@ -767,11 +750,11 @@ graph TD
 
 | Problem | Likely Cause | Solution |
 |---|---|---|
-| `ANTHROPIC_API_KEY not set` | Missing env var | Add key to `.env` file |
+| `ANTHROPIC_API_KEY not set` | Missing env var | Copy `.env.example` to `.env` and add key |
 | `No resumes found` | Empty `resumes/` folder | Copy `.docx` or `.txt` files there |
 | Jobs not loading | API key missing or platform blocking | Check `.env` for `RAPIDAPI_KEY` / `ADZUNA_APP_ID`; retry without VPN |
 | Download fails | `python-docx` or `reportlab` not installed | `pip install -r requirements.txt` |
-| Port 5000 in use | Another process on the port | Change port: `uvicorn app:app --port 5001` |
+| Port 5000 in use | Another process on the port | Run with `PORT=5001 python app.py` |
 | PDF text extraction empty | Scanned/image PDF | Convert to `.txt` first — Claude reads text only |
 | ATS score always low | Resume format issues | Use `.txt` or `.docx`; avoid heavy formatting |
 | JSearch quota exceeded | 200 req/month limit hit | Adzuna + free sources still work; or upgrade plan |
@@ -793,4 +776,4 @@ Some job platforms (LinkedIn, Indeed) detect and block datacenter IP addresses. 
 
 ---
 
-*Document generated: 2026-04-08 | JobPilot Enterprise v3.0*
+*Document updated: 2026-05-02 | JobPilot Flask v4.0*

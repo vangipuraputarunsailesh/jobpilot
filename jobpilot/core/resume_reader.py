@@ -3,11 +3,29 @@ resume_reader.py  —  reads .txt, .docx, and .pdf resume files
 """
 
 import os
+import re
 from pathlib import Path
-from resume_normalizer import get_canonical_section
+from core.resume_normalizer import get_canonical_section
 
 
-RESUMES_DIR = Path(__file__).parent / "resumes"
+RESUMES_DIR  = Path(__file__).parent.parent / "resumes"
+GENERATED_DIR = Path(__file__).parent.parent / "generated"
+
+
+def _safe_stem(filename: str) -> str:
+    """Return a filesystem-safe stem from a user-provided filename."""
+    base = os.path.basename(filename)
+    stem = Path(base).stem
+    return re.sub(r"[^A-Za-z0-9_\-]", "_", stem) or "resume"
+
+
+def _safe_out_path(stem: str, suffix: str) -> Path:
+    """Return a path inside GENERATED_DIR, raising ValueError on traversal."""
+    GENERATED_DIR.mkdir(exist_ok=True)
+    out = (GENERATED_DIR / f"{stem}{suffix}").resolve()
+    if not str(out).startswith(str(GENERATED_DIR.resolve())):
+        raise ValueError("Invalid filename")
+    return out
 
 
 def get_resume_list() -> list[dict]:
@@ -78,10 +96,7 @@ def read_resume(filename: str) -> str:
 
 def save_tailored_resume(filename: str, content: str) -> str:
     """Save tailored resume as .txt in generated/ folder."""
-    out_dir = Path(__file__).parent / "generated"
-    out_dir.mkdir(exist_ok=True)
-    base = Path(filename).stem
-    out_path = out_dir / f"{base}_tailored.txt"
+    out_path = _safe_out_path(_safe_stem(filename), "_tailored.txt")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(content)
     return str(out_path)
@@ -94,13 +109,10 @@ def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
     Template 2 (teal)   = 2-page style  (auto-selected for long content)
     max_pages=0 → auto-detect; 1 or 2 → force that template + fit.
     """
-    out_dir = Path(__file__).parent / "generated"
-    out_dir.mkdir(exist_ok=True)
-    base     = Path(filename).stem
-    out_path = out_dir / f"{base}_tailored.pdf"
+    out_path = _safe_out_path(_safe_stem(filename), "_tailored.pdf")
 
     try:
-        from resume_templates import render_to_pdf
+        from core.resume_templates import render_to_pdf
         pdf_bytes = render_to_pdf(content, max_pages=max_pages)
         out_path.write_bytes(pdf_bytes)
         return str(out_path)
@@ -120,10 +132,10 @@ def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
         )
         from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 
-        out_dir = Path(__file__).parent / "generated"
+        out_dir = GENERATED_DIR
         out_dir.mkdir(exist_ok=True)
-        base = Path(filename).stem
-        out_path = out_dir / f"{base}_tailored.pdf"
+        base = _safe_stem(filename)
+        out_path = _safe_out_path(base, "_tailored.pdf")
 
         # ── Exact measurements from original PDF ──────────────────────────────
         L_MARGIN   = 28.8   # pt
@@ -399,10 +411,10 @@ def save_tailored_docx(filename: str, content: str) -> str:
         from docx.shared import Pt, RGBColor
         from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-        out_dir = Path(__file__).parent / "generated"
+        out_dir = GENERATED_DIR
         out_dir.mkdir(exist_ok=True)
-        base = Path(filename).stem
-        out_path = out_dir / f"{base}_tailored.docx"
+        base = _safe_stem(filename)
+        out_path = _safe_out_path(base, "_tailored.docx")
 
         doc = Document()
         # Set margins
