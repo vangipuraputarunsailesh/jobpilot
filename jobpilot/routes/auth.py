@@ -3,6 +3,7 @@ routes/auth.py — Authentication Blueprint for JobPilot Flask app.
 Handles email/password login, registration, Google OAuth, and demo access.
 """
 import os
+import re
 import logging
 
 from flask import Blueprint, request, jsonify
@@ -11,6 +12,15 @@ from core.auth_db import create_user, get_user, verify_password, create_token
 
 auth_bp = Blueprint("auth", __name__)
 logger = logging.getLogger("jobpilot")
+
+# Issue #51 — pragmatic email syntax check (RFC-5322-lite). The full RFC is
+# rarely useful in practice; this rejects the obvious garbage before we
+# write a row to the user table.
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+
+
+def _is_valid_email(email: str) -> bool:
+    return bool(_EMAIL_RE.match(email)) and len(email) <= 254
 
 DEMO_EMAIL = "demo@jobpilot.app"
 DEMO_PASSWORD_PLACEHOLDER = "demo-account-no-login"
@@ -21,7 +31,7 @@ def register():
     data = request.get_json(silent=True) or {}
     email = data.get("email", "").strip()
     password = data.get("password", "")
-    if not email or "@" not in email:
+    if not _is_valid_email(email):
         return jsonify({"detail": "Valid email required"}), 400
     if len(password) < 6:
         return jsonify({"detail": "Password must be at least 6 characters"}), 400

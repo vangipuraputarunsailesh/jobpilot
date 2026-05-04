@@ -14,12 +14,13 @@ import anthropic
 import json
 import re
 import os
-from dotenv import load_dotenv
 from core.resume_normalizer import (
     normalize_resume, get_canonical_section,
     NORMALIZATION_RULES, SECTION_SYNONYMS,
 )
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=True)
+
+# NOTE: do NOT call load_dotenv here. The single source of truth is app.py
+# (Issue #10). Importing this module never triggers env file loading.
 
 
 CHAT_HISTORY_MAX_MESSAGES = 8
@@ -52,17 +53,29 @@ def _clean_resume(text: str) -> str:
     return '\n'.join(cleaned)
 
 
+# Module-level Anthropic client (Issue #11) — created lazily on first use
+# and reused across calls so the underlying HTTP connection pool survives.
+_CLIENT: anthropic.Anthropic | None = None
+
+
 def _client() -> anthropic.Anthropic:
-    key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not key:
-        raise ValueError("ANTHROPIC_API_KEY not set in .env file")
-    return anthropic.Anthropic(api_key=key)
+    global _CLIENT
+    if _CLIENT is None:
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not key:
+            raise ValueError("ANTHROPIC_API_KEY not set in .env file")
+        _CLIENT = anthropic.Anthropic(api_key=key)
+    return _CLIENT
+
+
+# Default Claude model. Override with env var CLAUDE_MODEL for easy upgrades.
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
 
 
 def _call(prompt: str, max_tokens: int = 2000) -> str:
     """Single Claude call, returns text."""
     msg = _client().messages.create(
-        model="claude-sonnet-4-6",
+        model=CLAUDE_MODEL,
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}]
     )
@@ -201,9 +214,22 @@ def score_ats(resume_text: str, job_description: str, compact_mode: bool = False
     """
     Score a resume against a job description.
     Returns: score, verdict, categories, matched/missing keywords, tip
+    Includes a `truncation_warning` field when inputs were clipped.
     """
-    compact_resume = resume_text[:6000]
-    compact_jd = job_description[:3000]
+    MAX_RESUME_CHARS = 6000
+    MAX_JD_CHARS     = 3000
+    truncated_parts = []
+    if len(resume_text) > MAX_RESUME_CHARS:
+        truncated_parts.append(f"resume ({len(resume_text):,} \u2192 {MAX_RESUME_CHARS:,} chars)")
+    if len(job_description) > MAX_JD_CHARS:
+        truncated_parts.append(f"job description ({len(job_description):,} \u2192 {MAX_JD_CHARS:,} chars)")
+    truncation_warning = (
+        "Input was truncated for scoring: " + ", ".join(truncated_parts) + "."
+        if truncated_parts else ""
+    )
+
+    compact_resume = resume_text[:MAX_RESUME_CHARS]
+    compact_jd = job_description[:MAX_JD_CHARS]
     if compact_mode:
         compact_resume, compact_jd = _compact_scoring_payload(resume_text, job_description)
 
@@ -238,7 +264,10 @@ JOB DESCRIPTION:
 {compact_jd}"""
 
     try:
-        return _call_json(prompt, 700 if compact_mode else 900)
+        result = _call_json(prompt, 700 if compact_mode else 900)
+        if truncation_warning:
+            result["truncation_warning"] = truncation_warning
+        return result
     except Exception as e:
         print(f"[ats] Score error: {e}")
         return {
@@ -248,7 +277,8 @@ JOB DESCRIPTION:
                 "core_skills": 0, "experience_match": 0,
                 "tools_technologies": 0, "domain_knowledge": 0, "soft_skills": 0
             },
-            "tip": f"Scoring failed: {e}"
+            "tip": f"Scoring failed: {e}",
+            "truncation_warning": truncation_warning,
         }
 
 
@@ -772,7 +802,7 @@ ANSWER:
     try:
         client = _client()
         msg = client.messages.create(
-            model="claude-sonnet-4-6",
+            model=CLAUDE_MODEL,
             max_tokens=4000,
             system=system_prompt,
             messages=messages,

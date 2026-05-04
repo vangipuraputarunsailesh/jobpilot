@@ -1,33 +1,58 @@
 # JobPilot — AI-Powered Job Application Co-Pilot
 
-> Search real jobs posted across every major US company, tailor your resume with AI, check your ATS score, and apply — all in one place.
+> Search real jobs across every major US company, tailor your resume with AI, check your ATS score, and apply — all in one place.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/)
+<p align="center">
+  <a href="https://jobpilot-production-1eb8.up.railway.app/app">
+    <img alt="Live Demo" src="https://img.shields.io/badge/Live%20Demo-Open%20App-14b8a6?style=for-the-badge&logo=railway&logoColor=white"/>
+  </a>
+  &nbsp;
+  <a href="#" title="Custom domain launching soon">
+    <img alt="Coming Soon" src="https://img.shields.io/badge/Coming%20soon-jobspilot.site-fbbf24?style=for-the-badge&logo=googlechrome&logoColor=white"/>
+  </a>
+</p>
+
+<p align="center">
+  <strong>🚀 Try it live:</strong>
+  <a href="https://jobpilot-production-1eb8.up.railway.app/app">jobpilot-production-1eb8.up.railway.app/app</a>
+  <br/>
+  <strong>🌐 Coming soon:</strong>
+  <code>jobspilot.site</code>
+</p>
 
 ---
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Live Links](#live-links)
 - [Key Features](#key-features)
 - [Application Interface](#application-interface)
-  - [Landing Page](#landing-page)
-  - [Job Search Dashboard](#job-search-dashboard)
-  - [Job Detail Panel](#job-detail-panel)
-  - [Resume Tailoring & ATS Scoring](#resume-tailoring--ats-scoring)
 - [Workflow — Step by Step](#workflow--step-by-step)
 - [Setup (Local Development)](#setup-local-development)
 - [Deploying on Railway](#deploying-on-railway)
 - [Environment Variables](#environment-variables)
 - [Project Structure](#project-structure)
 - [API Reference](#api-reference)
+- [Branding & Favicon](#branding--favicon)
 - [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Overview
 
-JobPilot is a full-stack AI job application assistant built on **FastAPI** (Python) with a clean single-page frontend. It aggregates job listings from multiple platforms in real time, uses **Claude AI (Anthropic)** to tailor your resume to any job description, scores your resume against ATS (Applicant Tracking System) criteria, and lets you apply directly from within the app.
+JobPilot is a full-stack AI job application assistant built on **Flask** (Python) with a clean server-rendered single-page frontend (Jinja templates + vanilla JS). It aggregates job listings from multiple platforms in real time, uses **Claude AI (Anthropic)** to tailor your resume to any job description, scores your resume against ATS (Applicant Tracking System) criteria, and lets you apply directly from within the app.
+
+---
+
+## Live Links
+
+| Environment | URL | Status |
+|---|---|---|
+| **Production (Railway)** | <https://jobpilot-production-1eb8.up.railway.app/app> | ✅ Live |
+| **Custom domain** | `https://jobspilot.site` | 🟡 Coming soon |
+| **Landing page** | <https://jobpilot-production-1eb8.up.railway.app/> | ✅ Live |
+| **API docs** | <https://jobpilot-production-1eb8.up.railway.app/docs> | ✅ Live |
 
 ---
 
@@ -43,6 +68,7 @@ JobPilot is a full-stack AI job application assistant built on **FastAPI** (Pyth
 | **Chat-style instructions** | Natural language commands to refine your resume ("make the summary more concise", "add Python to skills") |
 | **PDF & DOCX download** | Export tailored resumes in multiple formats |
 | **Auth system** | Email/password and Google OAuth sign-in; JWT-protected API |
+| **Demo mode** | One-click "Try Demo" button — no sign-up required to explore the app |
 | **Usage monitor** | Live API quota tracker for all paid integrations |
 
 ---
@@ -51,204 +77,53 @@ JobPilot is a full-stack AI job application assistant built on **FastAPI** (Pyth
 
 ### Landing Page
 
-The app opens on a dark-themed marketing landing page (`/`) with a teal/green color palette.
+The app opens on a dark-themed marketing landing page (`/`) with a teal/green color palette. The hero section now includes three primary CTAs plus quick access to the live deployment:
+
+- **Start for free** — opens the sign-up modal
+- **Sign in →** — opens the login modal
+- **Try Demo** — enter the app instantly with a demo account
+- **Live Demo** — opens the production app at `jobpilot-production-1eb8.up.railway.app/app`
+- **Coming soon: jobspilot.site** — placeholder pill for the upcoming custom domain
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  🧭 JobPilot       Features  How It Works  Pricing      Sign In │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│        Your AI Co-Pilot for                                      │
-│        Career Success                                            │
-│                                                                  │
-│   ┌─────────────────────────────────┐                           │
-│   │  Job title, skills, or company  │   [Find Jobs Now →]       │
-│   └─────────────────────────────────┘                           │
-│                                                                  │
-│   Popular: Software Engineer  Data Engineer  Product Manager    │
-│                                                                  │
-│   Trusted sources: LinkedIn · Indeed · Glassdoor · ZipRecruiter │
-│                    Adzuna · The Muse · Remotive · Arbeitnow      │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│  🟦 JP  JobPilot                                  Log in   Get started   │
+├──────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│        Find your next job                                                │
+│        faster with AI                                                    │
+│                                                                          │
+│   [ Start for free → ]   Sign in →   [ ▶ Try Demo ]                      │
+│   [ 🌐 Live Demo ]   ● Coming soon: jobspilot.site                       │
+│                                                                          │
+│   ✓ Free forever  ·  ✓ No credit card required  ·  ✓ 2-minute setup     │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
-
-Clicking **Find Jobs Now** or any role chip passes the search query to the main app (`/app`) via `sessionStorage` so the search auto-triggers after sign-in.
-
----
 
 ### Job Search Dashboard
 
-After authentication, users land on the main application dashboard (`/app`).
-
-```
-┌─ Top Bar ─────────────────────────────────────────────────────────────────────┐
-│  🧭 JobPilot  Enterprise AI · Real jobs from every US company                 │
-│                               Theme ▼   ● Live · Last 24h   ● user@email.com │
-└───────────────────────────────────────────────────────────────────────────────┘
-
-┌─ Left Sidebar (Search Controls) ──┐  ┌─ Job Cards List ──────────────────────┐
-│                                   │  │                                        │
-│  Job Title                        │  │  ┌─ Job Card ─────────────────────┐   │
-│  ┌─────────────────────────────┐  │  │  │ Software Engineer              │   │
-│  │ Software Engineer         ▼ │  │  │  │ Google · Mountain View, CA     │   │
-│  └─────────────────────────────┘  │  │  │ ● JSearch  · $150k–$200k      │   │
-│                                   │  │  │ Posted: 3 hours ago            │   │
-│  Location                         │  │  └────────────────────────────────┘   │
-│  ┌─────────────────────────────┐  │  │                                        │
-│  │ United States             ▼ │  │  │  ┌─ Job Card ─────────────────────┐   │
-│  └─────────────────────────────┘  │  │  │ Senior Data Engineer            │   │
-│                                   │  │  │ Amazon · Seattle, WA            │   │
-│  Seniority:  [Any ▼]              │  │  │ ● Adzuna  · $130k–$170k        │   │
-│  Posted:     [Past Week ▼]        │  │  │ Posted: 1 day ago               │   │
-│                                   │  │  └────────────────────────────────┘   │
-│  Platforms                        │  │                                        │
-│  ☑ JSearch    ☑ Adzuna            │  │  ... more cards ...                   │
-│  ☑ The Muse   ☑ Remotive          │  │                                        │
-│  ☑ Arbeitnow  ☑ USAJobs           │  └────────────────────────────────────────┘
-│                                   │
-│  [ Find Jobs Now ]                │  ┌─ Right Detail Panel ──────────────────┐
-│                                   │  │  (opens when a job card is clicked)   │
-│  ── Resume ──────────────────     │  │  [ Job Description ] [ Tailor ] [ATS] │
-│  Upload or select a resume file   │  └────────────────────────────────────────┘
-└───────────────────────────────────┘
-```
-
----
-
-### Job Detail Panel
-
-Clicking any job card opens the right-side detail panel with three tabs:
-
-**Tab 1 — Job Description**
-```
-┌─ Right Panel ──────────────────────────────────────────────────────────────┐
-│  Senior Software Engineer @ Google                                          │
-│  Mountain View, CA · Full-time · $150,000 – $200,000                       │
-│  ─────────────────────────────────────────────────────────────────────     │
-│  [Job Description]  [Tailor & Edit]  [ATS Score]                           │
-│  ─────────────────────────────────────────────────────────────────────     │
-│  About the role:                                                            │
-│  We are looking for a Senior Software Engineer to join our team...          │
-│                                                                             │
-│  Requirements:                                                              │
-│  • 5+ years of experience with Python, Go, or Java                         │
-│  • Experience with distributed systems...                                   │
-│                                                                             │
-│                              [Apply Now →]   (opens job page in new tab)   │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Tab 2 — Tailor & Edit**
-```
-┌─ Right Panel ──────────────────────────────────────────────────────────────┐
-│  [Job Description]  [Tailor & Edit ●]  [ATS Score]                         │
-│  ─────────────────────────────────────────────────────────────────────     │
-│  Resume:  [ my_resume.pdf ▼ ]   or  [ Upload Resume ]                      │
-│                                                                             │
-│  [ ✨ Tailor with AI ]                                                      │
-│                                                                             │
-│  ── Tailored Resume (editable) ─────────────────────────────────────────   │
-│  JOHN DOE                                                                   │
-│  Senior Software Engineer | john@email.com | github.com/johndoe             │
-│                                                                             │
-│  SUMMARY                                                                    │
-│  Results-driven engineer with 6 years of Python and distributed systems... │
-│  [✏ improve this line]                                                     │
-│                                                                             │
-│  ── AI Chat ────────────────────────────────────────────────────────────   │
-│  💬  "make the summary shorter"                        [ Send ]            │
-│                                                                             │
-│  [ Download PDF ]   [ Download DOCX ]                                      │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Tab 3 — ATS Score**
-```
-┌─ Right Panel ──────────────────────────────────────────────────────────────┐
-│  [Job Description]  [Tailor & Edit]  [ATS Score ●]                         │
-│  ─────────────────────────────────────────────────────────────────────     │
-│                  ATS Score: 87 / 100  ✅ Strong Match                       │
-│                                                                             │
-│  ✅ Matched Keywords:                                                        │
-│     Python, distributed systems, microservices, CI/CD, AWS, Kubernetes     │
-│                                                                             │
-│  ⚠️  Missing Keywords:                                                       │
-│     Go, gRPC, Spanner                                                       │
-│                                                                             │
-│  📋 Recommendations:                                                         │
-│     • Mention your experience with gRPC-style APIs                         │
-│     • Add a line about database experience (Spanner or similar)            │
-│                                                                             │
-│  [ Apply Now → ]                                                            │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
----
+After authentication, users land on the main application dashboard at `/app` — a 3-column layout with search controls on the left, the live job results in the center, and a contextual detail panel on the right (Job Description / Tailor & Edit / ATS Score tabs).
 
 ### Resume Tailoring & ATS Scoring
 
 The AI pipeline (powered by Claude Sonnet) performs:
 
-1. **JD Analysis** — Extracts required skills, experience, seniority signals, and company culture keywords from the job description
-2. **Resume Rewrite** — Rewrites each section of your resume to use exact keywords from the JD while keeping your real experience intact
-3. **ATS Audit** — Scores the tailored resume against the JD, listing matched/missing keywords and a numeric fit score
-4. **Certification Suggestions** — Recommends certifications that would strengthen your profile for this specific role
+1. **JD Analysis** — Extracts required skills, experience, seniority signals, and culture keywords
+2. **Resume Rewrite** — Rewrites each section using exact keywords from the JD while keeping your real experience intact
+3. **ATS Audit** — Scores the tailored resume, listing matched/missing keywords and a numeric fit score
+4. **Certification Suggestions** — Recommends certifications that would strengthen your profile
 
 ---
 
 ## Workflow — Step by Step
 
-### 1. Sign Up or Log In
-
-- Visit the app URL and click **Sign In** or **Get Started**
-- Register with email/password, or use **Continue with Google**
-- On successful auth, you're redirected to the job search dashboard
-
-### 2. Search for Jobs
-
-1. Type a job title in the **Job Title** field (e.g., `Data Engineer`, `Product Manager`)
-2. Optionally set your **Location** (defaults to `United States`)
-3. Select **Seniority** (Any / Entry / Mid / Senior / Lead)
-4. Select **Date Posted** (Past 24 Hours / Past Week / Past Month)
-5. Toggle individual **Platforms** on/off to narrow results
-6. Click **Find Jobs Now**
-7. Results appear as cards in the center panel, showing title, company, location, salary, source, and posting date
-
-### 3. Review a Job
-
-- Click any **job card** to open the right panel
-- The **Job Description** tab shows the full JD fetched live from the source
-- Click **Apply Now** to open the original job page in a new tab (no tailoring needed)
-
-### 4. Tailor Your Resume
-
-1. Switch to the **Tailor & Edit** tab
-2. Select or upload your resume from the sidebar
-3. Click **✨ Tailor with AI**
-4. Wait ~10–15 seconds while Claude analyzes the JD and rewrites your resume
-5. The tailored resume appears in an inline editor
-6. Hover over any bullet point and click **✏ improve this line** for AI-assisted micro-edits
-7. Use the **AI Chat** box for natural language instructions: `"add a bullet about Docker to my experience"`, `"make the summary more concise"`, `"revert to original"`
-
-### 5. Check ATS Score
-
-1. Switch to the **ATS Score** tab
-2. The score is calculated automatically after tailoring
-3. Review **Matched Keywords**, **Missing Keywords**, and **Recommendations**
-4. Return to Tailor & Edit to address missing keywords if needed
-5. Re-score to see improvement
-
-### 6. Download & Apply
-
-1. Click **Download PDF** or **Download DOCX** to save your tailored resume
-2. Click **Apply Now** to open the job application page
-3. Upload your downloaded resume and submit your application
-
-### 7. Generate a Resume from Scratch (Optional)
-
-- No resume on hand? Click **Generate Resume** in the sidebar
-- Describe your background in plain language: `"I'm a data engineer with 4 years of experience at a fintech startup, skilled in Spark, Kafka, Python, and AWS"`
-- Claude builds a complete, formatted professional resume in seconds
+1. **Sign up / log in** (or click **Try Demo** for an instant tour).
+2. **Search jobs** — pick a title, location, seniority and date range, then toggle which job boards to query.
+3. **Review a job** — click any card to open the right panel with the full description.
+4. **Tailor your resume** — upload a resume, then click **✨ Tailor with AI**. Refine inline or via the AI chat box.
+5. **Check ATS score** — see matched/missing keywords and recommendations.
+6. **Download & apply** — export as PDF or DOCX, then click **Apply Now**.
+7. **Generate from scratch** *(optional)* — describe your background and let Claude build a fresh resume.
 
 ---
 
@@ -263,35 +138,34 @@ The AI pipeline (powered by Claude Sonnet) performs:
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/vangipuraputarunsailesh/jobpilot.git
+git clone https://github.com/<your-fork>/jobpilot.git
 cd jobpilot/jobpilot
 
 # 2. Create and activate a virtual environment
 python -m venv venv
-source venv/bin/activate       # Mac/Linux
+source venv/bin/activate       # macOS/Linux
 # venv\Scripts\activate        # Windows
 
 # 3. Install Python dependencies
 pip install -r requirements.txt
 
 # 4. Configure environment variables
-#    Copy .env and fill in your API keys (see Environment Variables section)
-#    The file already has placeholders — replace them with your real keys.
+#    Create a .env in the jobpilot/ folder (see Environment Variables below).
 
 # 5. Run the app
 python app.py
 
 # 6. Open in browser
-#    Landing page: http://localhost:5000
+#    Landing page: http://localhost:5000/
 #    App:          http://localhost:5000/app
-#    API docs:     http://localhost:5000/docs
 ```
 
 ### Docker (local)
 
 ```bash
-# From the repo root:
-docker compose up --build
+# From the jobpilot/ folder:
+docker build -t jobpilot .
+docker run --rm -p 5000:5000 --env-file .env jobpilot
 # App available at http://localhost:5000
 ```
 
@@ -303,21 +177,20 @@ Railway is the recommended cloud platform for JobPilot. The `railway.toml` at th
 
 ### Steps
 
-1. **Fork / push** this repository to your GitHub account
-2. Go to [railway.com](https://railway.com) → **New Project** → **Deploy from GitHub repo**
-3. Select this repository
-4. Railway auto-detects `railway.toml` and uses `jobpilot/Dockerfile` for builds
-5. In the **Variables** tab, add the environment variables listed below
-6. Click **Deploy** — Railway builds the Docker image and starts the service
-7. Railway provides a public HTTPS URL automatically (e.g., `https://jobpilot-production.up.railway.app`)
+1. **Fork / push** this repository to your GitHub account.
+2. Go to [railway.com](https://railway.com) → **New Project** → **Deploy from GitHub repo**.
+3. Select this repository — Railway auto-detects `railway.toml` and uses `jobpilot/Dockerfile`.
+4. In the **Variables** tab add the environment variables listed below.
+5. Click **Deploy** — Railway builds the image and starts the service.
+6. Railway provides a public HTTPS URL automatically (the production deployment for this project lives at <https://jobpilot-production-1eb8.up.railway.app/app>).
 
 ### Known Railway Issues (Already Fixed)
 
 | Issue | Fix Applied |
 |---|---|
-| `VOLUME` directive banned by Railway | Removed from `jobpilot/Dockerfile` in PR #6 |
-| Port binding — app must listen on `$PORT` | `app.py` reads `PORT` from env (fallback: 5000) |
-| Runtime directories missing on first start | `app.py` and `resume_reader.py` create directories on demand |
+| `VOLUME` directive banned by Railway | Removed from `jobpilot/Dockerfile` |
+| Port binding — app must listen on `$PORT` | `app.py` reads `PORT` from env (fallback 5000) |
+| Runtime directories missing on first start | App creates `logs/`, `resumes/`, and `generated/` on demand |
 
 ---
 
@@ -327,19 +200,20 @@ Configure these in your `.env` file (local) or Railway **Variables** panel (prod
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | ✅ Required | Claude AI key — get one at [console.anthropic.com](https://console.anthropic.com) |
-| `JWT_SECRET` | ✅ Required | Secret string for signing JWTs — use a long random value in production |
-| `RAPIDAPI_KEY` | Recommended | JSearch key (aggregates LinkedIn, Indeed, Glassdoor) — [rapidapi.com](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch) |
+| `ANTHROPIC_API_KEY` | ✅ | Claude AI key — get one at [console.anthropic.com](https://console.anthropic.com) |
+| `JWT_SECRET` | ✅ | Secret string for signing JWTs — use a long random value in production |
+| `FLASK_SECRET` | Recommended | Flask session secret |
+| `RAPIDAPI_KEY` | Recommended | JSearch key (LinkedIn, Indeed, Glassdoor) — [rapidapi.com](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch) |
 | `ADZUNA_APP_ID` | Recommended | Adzuna App ID — [developer.adzuna.com](https://developer.adzuna.com) |
 | `ADZUNA_APP_KEY` | Recommended | Adzuna App Key |
 | `GOOGLE_CLIENT_ID` | Optional | Google OAuth client ID for "Sign in with Google" |
 | `GOOGLE_CLIENT_SECRET` | Optional | Google OAuth client secret |
-| `APIFY_API_TOKEN` | Optional | Apify token for LinkedIn scraper |
+| `APIFY_API_TOKEN` | Optional | Apify token for the LinkedIn scraper |
 | `USAJOBS_API_KEY` | Optional | US Federal jobs API key — [developer.usajobs.gov](https://developer.usajobs.gov) |
-| `USAJOBS_EMAIL` | Optional | Email associated with USAJobs API key |
-| `PORT` | Auto-set | Railway injects this automatically — do not set manually |
+| `USAJOBS_EMAIL` | Optional | Email associated with the USAJobs API key |
+| `PORT` | Auto-set | Railway injects this automatically — do not set manually in production |
 
-**Free sources that require no API keys:** The Muse, Remotive, Arbeitnow — these are always active.
+**Free sources that require no API keys:** The Muse, Remotive, Arbeitnow.
 
 ---
 
@@ -348,46 +222,46 @@ Configure these in your `.env` file (local) or Railway **Variables** panel (prod
 ```
 <repo root>/
 ├── jobpilot/                        ← Application root (build context for Docker)
-│   ├── app.py                       ← FastAPI backend — all routes and startup logic
-│   ├── ai_engine.py                 ← Claude AI: ATS scoring, resume tailoring, chat, generation
-│   ├── job_scraper.py               ← Multi-platform job search aggregator
-│   ├── resume_reader.py             ← Resume file reader and export (.docx, .pdf, .txt)
-│   ├── resume_normalizer.py         ← Normalizes resume section headings
-│   ├── resume_templates.py          ← DOCX and PDF resume template builder
-│   ├── auth.py                      ← JWT auth, bcrypt password hashing, SQLite user store
+│   ├── app.py                       ← Flask app factory, logging, JWT guard, server bootstrap
+│   ├── Dockerfile                   ← Production container image
 │   ├── requirements.txt             ← Python dependencies
-│   ├── Dockerfile                   ← Docker build definition
-│   ├── .dockerignore                ← Files excluded from Docker build context
-│   ├── .env                         ← Local secrets (never commit with real values)
-│   ├── resumes/                     ← Place resume files here for local development
-│   ├── generated/                   ← Tailored resumes saved here after download
-│   ├── logs/                        ← Rotating application logs
+│   ├── core/                        ← Business logic
+│   │   ├── ai_engine.py             ← Claude AI: ATS scoring, tailoring, chat, generation
+│   │   ├── auth_db.py               ← JWT, bcrypt, SQLite user store
+│   │   ├── job_scraper.py           ← Multi-platform job search aggregator
+│   │   ├── resume_reader.py         ← Resume file reader and export (.docx/.pdf/.txt)
+│   │   ├── resume_normalizer.py     ← Normalises resume section headings
+│   │   └── resume_templates.py      ← DOCX and PDF resume template builder
+│   ├── routes/                      ← Flask blueprints
+│   │   ├── auth.py                  ← /api/auth/* (register, login, Google OAuth, demo)
+│   │   ├── jobs.py                  ← /api/jobs, /api/jd, /api/score, /api/usage, ...
+│   │   └── resume.py                ← /api/upload-resume, /api/tailor, /api/download, ...
+│   ├── templates/                   ← Jinja2 templates
+│   │   ├── base.html                ← Shared <head>, fonts, favicon, scripts
+│   │   ├── landing.html             ← Marketing landing page  (route: /)
+│   │   └── index.html               ← Main application UI     (route: /app)
 │   └── static/
-│       ├── landing.html             ← Marketing landing page (served at /)
-│       ├── index.html               ← Main application UI (served at /app)
-│       ├── css/
-│       │   └── style.css            ← All application styles + theme tokens
-│       └── js/
-│           └── app.js               ← All frontend logic (vanilla JS)
-├── src/
-│   └── README.md                    ← This file
+│       ├── favicon.svg              ← JP-monogram favicon (teal gradient)
+│       ├── css/style.css            ← All application styles + theme tokens
+│       └── js/app.js                ← All frontend logic (vanilla JS)
 ├── railway.toml                     ← Railway deployment configuration
-└── docker-compose.yml               ← Local Docker Compose setup
+└── README.md                        ← This file
 ```
 
 ---
 
 ## API Reference
 
-The full interactive API documentation is available at `/docs` (Swagger UI) when the app is running.
+The full interactive API documentation is available at `/docs` when the app is running.
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/api/auth/register` | Register with email/password |
 | `POST` | `/api/auth/login` | Log in with email/password |
 | `POST` | `/api/auth/google` | Sign in with Google OAuth credential |
-| `GET` | `/api/health` | Health check — shows API key status and resume count |
-| `GET` | `/api/usage` | API quota usage counters |
+| `POST` | `/api/auth/demo` | Issue a demo-mode JWT (no sign-up) |
+| `GET`  | `/api/health` | Health check — shows API key status and resume count |
+| `GET`  | `/api/usage` | API quota usage counters |
 | `POST` | `/api/jobs` | Search jobs across all platforms |
 | `POST` | `/api/jd` | Fetch job description from URL or pass raw text |
 | `POST` | `/api/upload-resume` | Upload a resume file (.pdf, .docx, .txt) and extract text |
@@ -400,7 +274,25 @@ The full interactive API documentation is available at `/docs` (Swagger UI) when
 | `POST` | `/api/answer` | Answer a screening question using resume + JD context |
 | `POST` | `/api/download` | Download the resume as PDF, DOCX, or plain text |
 
-All `/api/*` endpoints (except `/api/auth/*` and `/api/health`) require a `Authorization: Bearer <token>` header.
+All `/api/*` endpoints (except `/api/auth/*` and `/api/health`) require an `Authorization: Bearer <token>` header.
+
+---
+
+## Branding & Favicon
+
+JobPilot ships with a built-in **JP monogram favicon** rendered as scalable SVG so it stays crisp at any DPI.
+
+- File: [jobpilot/static/favicon.svg](jobpilot/static/favicon.svg)
+- Style: white **JP** wordmark on a teal gradient (`#14b8a6 → #0d9488`) with a 14px rounded square
+- Wired up in [jobpilot/templates/base.html](jobpilot/templates/base.html) via:
+
+```html
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg"/>
+<link rel="apple-touch-icon" href="/static/favicon.svg"/>
+<meta name="theme-color" content="#0d9488"/>
+```
+
+To customise the brand mark, edit the `<text>` element inside `favicon.svg` (or swap the gradient `<stop>` colors to match a new theme).
 
 ---
 
@@ -415,5 +307,6 @@ All `/api/*` endpoints (except `/api/auth/*` and `/api/health`) require a `Autho
 | DOCX download fails | Ensure `python-docx` is installed: `pip install python-docx` |
 | Port 5000 in use locally | Set `PORT=5001` in your `.env` before running `python app.py` |
 | Google Sign-In not working | Verify `GOOGLE_CLIENT_ID` is set and the OAuth consent screen is configured at [console.cloud.google.com](https://console.cloud.google.com) |
-| Railway deploy fails | Check the Railway build logs in the Railway dashboard; ensure all required env vars are set in the Variables tab |
+| Railway deploy fails | Check the Railway build logs; ensure all required env vars are set in the Variables tab |
 | Jobs show datacenter block | Some platforms (LinkedIn) block datacenter IPs — use Apify (`APIFY_API_TOKEN`) for better LinkedIn coverage |
+| Favicon not updating | Hard-refresh the browser (`Ctrl+Shift+R` / `Cmd+Shift+R`) — browsers cache favicons aggressively |

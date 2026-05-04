@@ -21,10 +21,16 @@ def search_jobs():
     seniority = data.get("seniority", "any") or "any"
     date_posted = data.get("date_posted", "pastWeek") or "pastWeek"
 
+    # Issue #46 — only count quota against APIs that are actually configured.
+    # Prevents the usage dashboard from inflating numbers when an integration
+    # is disabled by missing env vars.
+    import os as _os
     _usage = current_app.config["USAGE"]
-    _usage["total_searches"]   += 1
-    _usage["jsearch_requests"] += 5
-    _usage["adzuna_requests"]  += 4
+    _usage["total_searches"] += 1
+    if _os.environ.get("RAPIDAPI_KEY"):
+        _usage["jsearch_requests"] += 5
+    if _os.environ.get("ADZUNA_APP_ID") and _os.environ.get("ADZUNA_APP_KEY"):
+        _usage["adzuna_requests"] += 4
 
     logger.info(f"SEARCH | title='{title}' location='{location}' seniority='{seniority}'")
     try:

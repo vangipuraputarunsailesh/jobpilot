@@ -2,7 +2,22 @@
 {% block title %}JobPilot — AI Job Search{% endblock %}
 
 {% block head %}
-<script>if (!localStorage.getItem('jp_token')) { window.location.replace('/'); }</script>
+<script>
+  // Per-browser-session auto-logout: if there's a token but no live session
+  // marker (sessionStorage is cleared when the browser/tab closes), wipe the
+  // token and bounce to the landing page so the user sees the latest updates.
+  (function () {
+    var token = localStorage.getItem('jp_token');
+    if (!token) { window.location.replace('/'); return; }
+    if (sessionStorage.getItem('jp_session_active') !== '1') {
+      localStorage.removeItem('jp_token');
+      localStorage.removeItem('jp_email');
+      localStorage.removeItem('jp_demo');
+      window.location.replace('/');
+      return;
+    }
+  })();
+</script>
 {% endblock %}
 
 {% block body %}

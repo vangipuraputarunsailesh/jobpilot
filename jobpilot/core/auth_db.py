@@ -1,6 +1,6 @@
 """
-auth.py — Email + password authentication for JobPilot
-Uses SQLite for user storage, bcrypt for passwords, JWT for sessions.
+auth_db.py — Email + password authentication for JobPilot
+Uses SQLite for user storage, pbkdf2_sha256 for passwords, JWT for sessions.
 """
 
 import os

@@ -47,6 +47,16 @@
           </svg>
           Try Demo
         </button>
+        <a class="ln-cta-live" href="https://jobpilot-production-1eb8.up.railway.app/app" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+            <circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>
+          </svg>
+          Live Demo
+        </a>
+        <a class="ln-cta-soon" href="#" aria-disabled="true" onclick="event.preventDefault();" title="Custom domain launching soon">
+          <span class="ln-cta-soon-dot"></span>
+          Coming soon: jobspilot.site
+        </a>
       </div>
       <p class="ln-hero-note">✓ Free forever &nbsp;·&nbsp; ✓ No credit card required &nbsp;·&nbsp; ✓ 2-minute setup</p>
     </div>
@@ -88,23 +98,8 @@
   <section class="ln-stats-section">
     <div class="ln-stats-inner">
       <div class="ln-stat-item">
-        <div class="ln-stat-number">2.4M+</div>
-        <div class="ln-stat-label">Jobs indexed</div>
-      </div>
-      <div class="ln-stat-divider"></div>
-      <div class="ln-stat-item">
         <div class="ln-stat-number">6</div>
         <div class="ln-stat-label">Job boards searched</div>
-      </div>
-      <div class="ln-stat-divider"></div>
-      <div class="ln-stat-item">
-        <div class="ln-stat-number">98%</div>
-        <div class="ln-stat-label">ATS pass rate</div>
-      </div>
-      <div class="ln-stat-divider"></div>
-      <div class="ln-stat-item">
-        <div class="ln-stat-number">12K+</div>
-        <div class="ln-stat-label">Resumes tailored</div>
       </div>
       <div class="ln-stat-divider"></div>
       <div class="ln-stat-item">
@@ -341,7 +336,7 @@
         </div>
         <span class="ln-logo-text" style="font-size:15px">JobPilot</span>
       </div>
-      <p class="ln-footer-copy">© 2025 JobPilot · AI-powered job search · Built with Claude AI &amp; Flask</p>
+      <p class="ln-footer-copy">© <span id="ln-footer-year">2026</span> JobPilot · AI-powered job search · Built with Claude AI &amp; Flask</p>
       <div class="ln-footer-links">
         <a href="#" onclick="openAuth('login')">Sign in</a>
         <a href="#" onclick="openAuth('register')">Get started</a>
@@ -370,7 +365,7 @@
       <ul class="auth-left-perks">
         <li>
           <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
-          Search 2.4M+ US jobs live
+          Search live US jobs
         </li>
         <li>
           <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
@@ -479,7 +474,7 @@
       </button>
 
       <p class="auth-terms">By continuing you agree to JobPilot's
-        <a href="#">Terms</a> &amp; <a href="#">Privacy Policy</a>.</p>
+        <a href="/terms">Terms</a> &amp; <a href="/privacy">Privacy Policy</a>.</p>
     </div>
   </div>
 </div>
@@ -490,6 +485,20 @@
 {% block scripts %}
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
+// Render the current year dynamically into the footer copyright
+(function () {
+  var y = document.getElementById('ln-footer-year');
+  if (y) y.textContent = new Date().getFullYear();
+  // Mark every decorative SVG inside the landing page as aria-hidden so
+  // screen readers skip them (icons inside buttons already convey meaning).
+  document.querySelectorAll('.landing-root svg').forEach(function (s) {
+    if (!s.hasAttribute('aria-label') && !s.hasAttribute('role')) {
+      s.setAttribute('aria-hidden', 'true');
+      s.setAttribute('focusable', 'false');
+    }
+  });
+})();
+
 // Redirect if already logged in
 if (localStorage.getItem('jp_token')) {
   window.location.replace('/app');

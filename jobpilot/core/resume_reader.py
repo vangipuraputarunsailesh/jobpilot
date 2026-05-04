@@ -117,10 +117,16 @@ def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
         out_path.write_bytes(pdf_bytes)
         return str(out_path)
     except Exception as e:
-        print(f"[pdf template] WeasyPrint failed ({e}), falling back to ReportLab")
+        # Issue #21 — surface render failures via the configured logger so they
+        # land in the rotating log file instead of stdout-only print().
+        import logging as _logging
+        _logging.getLogger("jobpilot").warning(
+            "[pdf template] WeasyPrint failed (%s); falling back to ReportLab", e
+        )
 
     # ── ReportLab fallback ────────────────────────────────────────────────────
-    import re
+    # NOTE: `re` is already imported at module scope (Issue #18); only `io` is
+    # required locally for the in-memory buffer used by the ReportLab path.
     import io
 
     try:
@@ -328,7 +334,6 @@ def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
 
         def _build_story_with_scale(scale):
             """Rebuild story with scaled font sizes for fit-to-page."""
-            def sp(base): return ParagraphStyle
             scaled_name    = ParagraphStyle("name_s",    fontName="Times-Bold",   fontSize=20*scale,   leading=24*scale,  alignment=TA_CENTER, spaceAfter=1,        textColor=BLACK)
             scaled_contact = ParagraphStyle("contact_s", fontName="Times-Roman",  fontSize=10*scale,   leading=13*scale,  alignment=TA_CENTER, spaceAfter=5*scale,  textColor=BLACK)
             scaled_section = ParagraphStyle("section_s", fontName="Times-Bold",   fontSize=12*scale,   leading=14*scale,  alignment=TA_LEFT,   spaceBefore=7*scale, spaceAfter=3*scale, textColor=BLACK)

@@ -27,7 +27,6 @@ SECTION_SYNONYMS = {
     "experience"                 : "experience",
     "relevant experience"        : "experience",
     "job history"                : "experience",
-    "professional experience"    : "experience",
 
     # Skills
     "technical skills"           : "skills",
@@ -412,6 +411,15 @@ def normalize_resume(text: str) -> dict:
         "sections": sections,
     }
 
+
+# ─────────────────────────────────────────
+# PUBLIC NORMALIZATION HELPERS
+#
+# These helpers are exposed for callers (frontend integrations, future
+# matchers, ATS analytics) that need to reduce surface variants to a
+# canonical form. They intentionally remain in the module surface even if
+# the current Flask routes don't yet consume them.
+# ─────────────────────────────────────────
 
 def normalize_company(name: str) -> str:
     """Normalize company name by stripping legal suffixes and applying synonyms."""

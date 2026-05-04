@@ -286,7 +286,27 @@ def _get_apify_actor_ids() -> dict[str, str]:
     return actors
 
 
-APIFY_ACTORS = _get_apify_actor_ids()
+# Lazy-resolved on first use to avoid an HTTP call to Apify at import time
+# (which would slow startup and fail noisily during Apify outages).
+_APIFY_ACTORS_CACHE: dict[str, str] | None = None
+
+def get_apify_actors() -> dict[str, str]:
+    global _APIFY_ACTORS_CACHE
+    if _APIFY_ACTORS_CACHE is None:
+        _APIFY_ACTORS_CACHE = _get_apify_actor_ids()
+    return _APIFY_ACTORS_CACHE
+
+# Backwards-compatible accessor: code that reads APIFY_ACTORS[...] keeps working.
+class _LazyApifyActors:
+    def __getitem__(self, key):       return get_apify_actors()[key]
+    def get(self, key, default=None): return get_apify_actors().get(key, default)
+    def __contains__(self, key):      return key in get_apify_actors()
+    def __iter__(self):               return iter(get_apify_actors())
+    def items(self):                  return get_apify_actors().items()
+    def keys(self):                   return get_apify_actors().keys()
+    def values(self):                 return get_apify_actors().values()
+
+APIFY_ACTORS = _LazyApifyActors()
 
 
 # ── Date normalizer ───────────────────────────────────────────────────────────
@@ -1226,6 +1246,12 @@ def fetch_job_description(url: str) -> str:
 
 # ── Master search ─────────────────────────────────────────────────────────────
 
+# Short-TTL in-memory cache for search results. Keyed on the full query tuple.
+# 90 seconds is short enough to surface fresh postings but long enough to absorb
+# repeat clicks from the same user (back/forward, accidental re-search, etc.).
+_SEARCH_CACHE_TTL_SEC = 90
+_SEARCH_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
+
 def search_all_platforms(title: str, location: str = "United States", seniority: str = "any", date_posted: str = "pastWeek") -> list[dict]:
     """
     Search all real job APIs and return deduplicated US + remote results.
@@ -1237,6 +1263,13 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
       3. _title_matches() filter        — drop irrelevant titles (4-layer check)
       4. Deduplication                  — drop exact (title, company) duplicates
     """
+    cache_key = (title.strip().lower(), location.strip().lower(), seniority, date_posted)
+    now = time.time()
+    cached = _SEARCH_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _SEARCH_CACHE_TTL_SEC:
+        print(f"[scraper] Cache hit for '{title}' in '{location}' (age {int(now - cached[0])}s)")
+        return cached[1]
+
     print(f"\n[scraper] Searching: '{title}' in '{location}'")
     all_jobs: list[dict] = []
 
@@ -1305,6 +1338,7 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
         j["idx"] = i
 
     print(f"\n[scraper] Final results: {len(unique)} unique jobs from {_source_count(unique)} sources")
+    _SEARCH_CACHE[cache_key] = (now, unique)
     return unique
 
 

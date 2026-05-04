@@ -4,9 +4,24 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>{% block title %}JobPilot — AI Job Applicator{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}JobPilot — AI-powered job search across 6 major job boards with one-click resume tailoring and ATS scoring.{% endblock %}"/>
+  <!-- Open Graph -->
+  <meta property="og:type" content="website"/>
+  <meta property="og:title" content="{% block og_title %}JobPilot — AI Job Applicator{% endblock %}"/>
+  <meta property="og:description" content="{% block og_description %}AI-powered job search across 6 major job boards with one-click resume tailoring and ATS scoring.{% endblock %}"/>
+  <meta property="og:site_name" content="JobPilot"/>
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image"/>
+  <meta name="twitter:title" content="{% block twitter_title %}JobPilot — AI Job Applicator{% endblock %}"/>
+  <meta name="twitter:description" content="{% block twitter_description %}AI-powered job search across 6 major job boards with one-click resume tailoring and ATS scoring.{% endblock %}"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
+  <!-- Inter is the only web font; PDF generation falls back to Times/system fonts. -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css"/>
+  <!-- Favicon (JP monogram) -->
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg"/>
+  <link rel="apple-touch-icon" href="/static/favicon.svg"/>
+  <meta name="theme-color" content="#0d9488"/>
   {% block head %}{% endblock %}
 </head>
 <body>

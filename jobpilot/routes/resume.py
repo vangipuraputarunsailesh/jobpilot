@@ -24,6 +24,15 @@ resume_bp = Blueprint("resume", __name__)
 logger = logging.getLogger("jobpilot")
 
 
+# Issue #52 — hard cap on uploaded resume size to prevent memory exhaustion
+# from oversized PDFs/DOCX. Tunable via env var RESUME_MAX_BYTES.
+MAX_RESUME_BYTES = int(os.environ.get("RESUME_MAX_BYTES", str(5 * 1024 * 1024)))  # 5 MB
+
+# Issue #53 — bound the free-text resume description sent to Claude so a
+# single request can't drive arbitrary token cost.
+MAX_DESCRIPTION_CHARS = int(os.environ.get("RESUME_DESCRIPTION_MAX_CHARS", "8000"))
+
+
 @resume_bp.post("/api/upload-resume")
 def upload_resume():
     f = request.files.get("file")
@@ -33,6 +42,10 @@ def upload_resume():
     if ext not in (".pdf", ".docx", ".txt"):
         return jsonify({"detail": "Supported formats: .pdf, .docx, .txt"}), 400
     content = f.read()
+    if len(content) > MAX_RESUME_BYTES:
+        return jsonify({
+            "detail": f"File too large. Max size is {MAX_RESUME_BYTES // (1024 * 1024)} MB."
+        }), 413
     text = ""
     if ext == ".txt":
         text = content.decode("utf-8", errors="ignore")
@@ -49,8 +62,10 @@ def upload_resume():
             from pypdf import PdfReader
             reader = PdfReader(io.BytesIO(content))
             text = "\n".join(p.extract_text() or "" for p in reader.pages)
-        except Exception:
-            pass
+        except Exception as e:
+            # Issue #19 — log the underlying error before silently falling
+            # back to pdfplumber so failures stay diagnosable.
+            logger.warning("pypdf extraction failed (%s); falling back to pdfplumber", e)
         if not text.strip():
             try:
                 import pdfplumber
@@ -72,6 +87,11 @@ def generate_resume_endpoint():
     description = data.get("description", "").strip()
     if not description:
         return jsonify({"detail": "Description is required"}), 400
+    # Issue #53 — bound the description length to control Claude cost/latency.
+    if len(description) > MAX_DESCRIPTION_CHARS:
+        return jsonify({
+            "detail": f"Description too long. Max {MAX_DESCRIPTION_CHARS} characters."
+        }), 413
     result = generate_resume(
         user_description=description,
         job_title=data.get("job_title", ""),
@@ -135,10 +155,12 @@ def tailor():
 
 @resume_bp.post("/api/improve-line")
 def improve():
+    _usage = current_app.config["USAGE"]
     data = request.get_json(silent=True) or {}
     line = data.get("line", "")
     if not line:
         return jsonify({"detail": "No line provided"}), 400
+    _usage["claude_calls"] += 1
     return jsonify({"improved": improve_line(line, data.get("description", ""), data.get("job_title", ""))})
 
 
@@ -175,7 +197,9 @@ def chat_instruction():
 
 @resume_bp.post("/api/suggest-certs")
 def suggest_certs():
+    _usage = current_app.config["USAGE"]
     data = request.get_json(silent=True) or {}
+    _usage["claude_calls"] += 1
     return jsonify(suggest_certifications(
         resume_text=data.get("resume_text", ""),
         description=data.get("description", ""),
@@ -186,7 +210,9 @@ def suggest_certs():
 
 @resume_bp.post("/api/answer")
 def answer():
+    _usage = current_app.config["USAGE"]
     data = request.get_json(silent=True) or {}
+    _usage["claude_calls"] += 1
     return jsonify({"answer": answer_screening_question(
         data.get("question", ""),
         data.get("resume_text", ""),

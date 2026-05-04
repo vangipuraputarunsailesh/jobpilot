@@ -9,7 +9,10 @@
  *  - Platform pills removed — source shown on each job card after results arrive
  */
 
-const API = "";  // same origin
+// API base. Defaults to same-origin. Override for local dev pointing at a
+// remote backend by setting `window.JOBPILOT_API_BASE` in an inline <script>
+// before app.js loads, e.g. <script>window.JOBPILOT_API_BASE='http://localhost:5000'</script>.
+const API = (typeof window !== 'undefined' && window.JOBPILOT_API_BASE) || "";
 const LAYOUT_STORAGE_KEY = "jobpilot-layout-widths";
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -31,15 +34,29 @@ function showAuthOverlay() {
 }
 
 function hideAuthOverlay() {
-  document.getElementById("auth-overlay").style.display = "none";
-  document.getElementById("app-layout").style.display   = "";
+  // The jobs page (index.html) doesn't render an auth overlay — it redirects to /
+  // via an inline script when no token is present. Guard every lookup so the
+  // function works on both the landing page and the jobs page.
+  const overlay = document.getElementById("auth-overlay");
+  if (overlay) overlay.style.display = "none";
+  const layout  = document.getElementById("app-layout");
+  if (layout)  layout.style.display = "";
   document.body.style.overflow = "";
+  revealTopbarUser();
+}
+
+// Show the signed-in email + Sign out button in the topbar. Safe to call on
+// any page; silently no-ops on pages that don't have the topbar.
+function revealTopbarUser() {
   const email = getEmail();
-  if (email) {
-    document.getElementById("topbar-user").textContent = email;
-    document.getElementById("topbar-user").style.display = "";
-    document.getElementById("logout-btn").style.display  = "";
+  if (!email) return;
+  const userEl = document.getElementById("topbar-user");
+  const btnEl  = document.getElementById("logout-btn");
+  if (userEl) {
+    userEl.textContent  = email;
+    userEl.style.display = "";
   }
+  if (btnEl) btnEl.style.display = "";
 }
 
 function switchAuthTab(tab) {
@@ -76,6 +93,7 @@ async function submitAuth() {
     if (!r.ok) { showAuthError(d.detail || "Something went wrong"); return; }
     localStorage.setItem("jp_token", d.token);
     localStorage.setItem("jp_email", d.email);
+    sessionStorage.setItem("jp_session_active", "1");
     hideAuthOverlay();
     initApp();
   } catch {
@@ -113,6 +131,7 @@ async function handleGoogleCredential(response) {
     if (!r.ok) { showAuthError(d.detail || "Google sign-in failed"); return; }
     localStorage.setItem("jp_token", d.token);
     localStorage.setItem("jp_email", d.email);
+    sessionStorage.setItem("jp_session_active", "1");
     hideAuthOverlay();
     initApp();
   } catch {
@@ -120,16 +139,73 @@ async function handleGoogleCredential(response) {
   }
 }
 
-function logout() {
-  if (!confirm("Sign out of JobPilot? Your in-session history will be cleared.")) return;
-  localStorage.removeItem("jp_token");
-  localStorage.removeItem("jp_email");
-<<<<<<< HEAD
-  try { sessionHistory = []; } catch (_) {}
-=======
-  localStorage.removeItem("jp_demo");
->>>>>>> 3ddcd2f07307b37e00703637f1674b844a965f90
-  window.location.href = "/";
+function logout(opts) {
+  const silent = opts && opts.silent === true;
+  const proceed = () => {
+    localStorage.removeItem("jp_token");
+    localStorage.removeItem("jp_email");
+    localStorage.removeItem("jp_demo");
+    sessionStorage.removeItem("jp_session_active");
+    sessionStorage.removeItem("jp_session_history");
+    try { sessionHistory = []; } catch (_) {}
+    window.location.href = "/";
+  };
+  if (silent) { proceed(); return; }
+  appConfirm("Sign out of JobPilot? Your in-session history will be cleared.", "Sign out")
+    .then(ok => { if (ok) proceed(); });
+}
+
+// Lightweight in-app confirm dialog (replaces blocking native confirm()).
+// Returns a Promise<boolean>. The dialog is created lazily on first use.
+function appConfirm(message, confirmLabel) {
+  return new Promise(resolve => {
+    let backdrop = document.getElementById("app-confirm-backdrop");
+    if (!backdrop) {
+      backdrop = document.createElement("div");
+      backdrop.id = "app-confirm-backdrop";
+      backdrop.className = "app-confirm-backdrop";
+      backdrop.innerHTML =
+        '<div class="app-confirm-card" role="dialog" aria-modal="true" aria-labelledby="app-confirm-msg">' +
+          '<div class="app-confirm-msg" id="app-confirm-msg"></div>' +
+          '<div class="app-confirm-actions">' +
+            '<button type="button" class="app-confirm-cancel">Cancel</button>' +
+            '<button type="button" class="app-confirm-ok">OK</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(backdrop);
+    }
+    backdrop.querySelector(".app-confirm-msg").textContent = message;
+    backdrop.querySelector(".app-confirm-ok").textContent  = confirmLabel || "OK";
+    backdrop.style.display = "flex";
+    const close = (val) => {
+      backdrop.style.display = "none";
+      backdrop.querySelector(".app-confirm-ok").onclick     = null;
+      backdrop.querySelector(".app-confirm-cancel").onclick = null;
+      backdrop.onclick = null;
+      resolve(val);
+    };
+    backdrop.querySelector(".app-confirm-ok").onclick     = () => close(true);
+    backdrop.querySelector(".app-confirm-cancel").onclick = () => close(false);
+    backdrop.onclick = (e) => { if (e.target === backdrop) close(false); };
+  });
+}
+
+// Per-browser-session auto-logout.
+// We mark the browser session as "active" in sessionStorage. sessionStorage is
+// cleared automatically when the user closes the tab/browser, so on the next
+// visit the marker is gone and we wipe the persisted token — sending the user
+// back to the landing page so they see the latest changelog/updates.
+function enforceSessionLifecycle() {
+  const SESSION_KEY = "jp_session_active";
+  const hasToken    = !!getToken();
+  const sessionLive = sessionStorage.getItem(SESSION_KEY) === "1";
+  if (hasToken && !sessionLive) {
+    // Token survived from a previous browser session — force re-entry via landing.
+    logout({ silent: true });
+    return false;
+  }
+  if (hasToken) sessionStorage.setItem(SESSION_KEY, "1");
+  return true;
 }
 
 // ── Session history (in-memory, resets on reload / logout) ───────────────────
@@ -184,13 +260,16 @@ function renderSessionHistoryPanel() {
 
 function clearSessionHistory() {
   sessionHistory = [];
+  _persistSessionHistory();
   renderSessionHistoryPanel();
 }
 
 function checkAuth() {
   const token = getToken();
   if (!token) { showAuthOverlay(); return false; }
+  if (!enforceSessionLifecycle()) return false;
   hideAuthOverlay();
+  revealTopbarUser();
   return true;
 }
 // ── End Auth ──────────────────────────────────────────────────────────────────
@@ -748,11 +827,12 @@ async function searchJobs() {
 }
 
 function showSearching(title, _location) {
+  // Issue #65 — escape user-supplied title before injecting into innerHTML.
   document.getElementById("job-list").innerHTML = `
     <div class="searching-state">
       <div class="search-spinner"></div>
       <div class="search-progress">
-        <b>Searching across all US companies for "${title}"...</b>
+        <b>Searching across all US companies for "${escHtml(title)}"...</b>
         Scanning thousands of job listings from FAANG to solo founders...
       </div>
     </div>`;
@@ -1145,7 +1225,6 @@ function buildTailorTab(j, st) {
             ${previewMode ? `<button class="status-fs-btn" id="preview-fs-btn" onclick="togglePreviewFullscreen()">Full screen</button>` : ""}
             <button class="status-reset-btn" onclick="resetTailor()">Change</button>
             <button class="status-history-btn" id="session-history-btn" onclick="toggleSessionHistory()" title="Show session history">History</button>
-            <button class="status-logout-btn" onclick="logout()" title="Sign out">Sign out</button>
           </div>
         </div>
 

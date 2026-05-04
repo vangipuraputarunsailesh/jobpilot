@@ -8,11 +8,20 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+import jwt as pyjwt
 from flask import Flask, render_template, jsonify, request, g
 from flask_cors import CORS
 from dotenv import load_dotenv
 
+# NOTE: load_dotenv is the single, authoritative env loader for the app.
+# Submodules (e.g. core/ai_engine.py) MUST NOT call load_dotenv themselves
+# (Issue #10). This call is intentionally first so all subsequent imports
+# can rely on os.environ being populated.
 load_dotenv(override=True)
+
+# Imported at module scope (Issue #5) — was previously imported per-request
+# inside the auth guard.
+from core.auth_db import decode_token  # noqa: E402
 
 # ── In-memory usage counters (reset on restart) ────────────────────────────────
 _USAGE = {
@@ -73,8 +82,6 @@ def create_app() -> Flask:
         if path in _PUBLIC_PATHS or path.startswith("/static"):
             return None
         if path.startswith("/api/"):
-            import jwt as pyjwt
-            from core.auth_db import decode_token
             auth_header = request.headers.get("Authorization", "")
             token = auth_header.removeprefix("Bearer ").strip()
             if not token:
@@ -104,6 +111,27 @@ def create_app() -> Flask:
     @app.get("/app")
     def index():
         return render_template("index.html")
+
+    @app.get("/terms")
+    def terms_page():
+        # Minimal placeholder so footer/auth links resolve. Replace body
+        # with the real legal copy before public launch.
+        return ("<!doctype html><meta charset='utf-8'><title>Terms \u2014 JobPilot</title>"
+                "<body style='font-family:Inter,system-ui;max-width:680px;margin:48px auto;padding:0 20px;color:#222'>"
+                "<h1>Terms of Service</h1>"
+                "<p>JobPilot is currently in private beta. Final Terms of Service will be published prior to general availability. "
+                "By using JobPilot you agree to use it for lawful job-search purposes only.</p>"
+                "<p><a href='/'>\u2190 Back to JobPilot</a></p></body>")
+
+    @app.get("/privacy")
+    def privacy_page():
+        return ("<!doctype html><meta charset='utf-8'><title>Privacy Policy \u2014 JobPilot</title>"
+                "<body style='font-family:Inter,system-ui;max-width:680px;margin:48px auto;padding:0 20px;color:#222'>"
+                "<h1>Privacy Policy</h1>"
+                "<p>JobPilot stores only the email address you sign in with and the resumes you upload. "
+                "Resumes are processed by Anthropic Claude for tailoring/scoring; no resume content is sold "
+                "or shared with third parties. The full privacy notice will be published prior to general availability.</p>"
+                "<p><a href='/'>\u2190 Back to JobPilot</a></p></body>")
 
     @app.get("/api/health")
     def health():
