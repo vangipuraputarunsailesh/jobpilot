@@ -633,15 +633,16 @@ async function handleGoogleCredential(response) {
 window.addEventListener('load', function() {
   // Pre-render the Google button once the GSI script finishes loading
   if (document.getElementById('g_id_onload').dataset.client_id) {
-    // Poll briefly until GSI is ready, then init
+    const MAX_GSI_POLL_ATTEMPTS = 30;  // ~6 seconds total
+    const GSI_POLL_INTERVAL_MS  = 200;
     let attempts = 0;
     const poller = setInterval(function() {
       if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
         clearInterval(poller);
         initGoogleSignIn();
       }
-      if (++attempts > 30) clearInterval(poller);
-    }, 200);
+      if (++attempts > MAX_GSI_POLL_ATTEMPTS) clearInterval(poller);
+    }, GSI_POLL_INTERVAL_MS);
   }
 });
 </script>
