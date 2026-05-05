@@ -499,9 +499,42 @@
   });
 })();
 
-// Redirect if already logged in
-if (localStorage.getItem('jp_token')) {
+// ── Sliding-TTL login session helpers ───────────────────────────────────
+// localStorage-only so the session survives tab close / browser restart.
+// `jp_session_expiry` (ms-since-epoch) drives auto-logout; cleared by
+// browser "Clear site data" or explicit sign-out. Real accounts get 7
+// days; demo accounts 24 hours. Mirrored in static/js/app.js and
+// templates/index.html — keep all three in sync.
+const SESSION_TTL_MS      = 7 * 24 * 60 * 60 * 1000;
+const DEMO_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+function _sessionTtl() {
+  return localStorage.getItem('jp_demo') === '1' ? DEMO_SESSION_TTL_MS : SESSION_TTL_MS;
+}
+function setLoginSession(token, email, opts) {
+  localStorage.setItem('jp_token', token);
+  localStorage.setItem('jp_email', email);
+  if (opts && opts.demo) localStorage.setItem('jp_demo', '1');
+  localStorage.setItem('jp_session_expiry', String(Date.now() + _sessionTtl()));
+  // Purge legacy sessionStorage marker from prior design.
+  sessionStorage.removeItem('jp_session_active');
+}
+function isLoginSessionValid() {
+  if (!localStorage.getItem('jp_token')) return false;
+  const expiry = parseInt(localStorage.getItem('jp_session_expiry') || '0', 10);
+  return !!expiry && Date.now() < expiry;
+}
+
+// Redirect if already logged in (with a still-valid TTL).
+if (isLoginSessionValid()) {
   window.location.replace('/app');
+} else if (localStorage.getItem('jp_token')) {
+  // Stale token from an expired session — purge so the landing page
+  // doesn't keep the user in a half-authenticated state.
+  localStorage.removeItem('jp_token');
+  localStorage.removeItem('jp_email');
+  localStorage.removeItem('jp_demo');
+  localStorage.removeItem('jp_session_expiry');
+  sessionStorage.removeItem('jp_session_active');
 }
 
 let _authTab = 'login';
@@ -553,9 +586,7 @@ async function submitAuth() {
     });
     const d = await r.json();
     if (!r.ok) { showAuthError(d.detail || 'Something went wrong'); return; }
-    localStorage.setItem('jp_token', d.token);
-    localStorage.setItem('jp_email', d.email);
-    sessionStorage.setItem('jp_session_active', '1');
+    setLoginSession(d.token, d.email);
     window.location.href = '/app';
   } catch { showAuthError('Connection error — is the server running?'); }
   finally {
@@ -573,10 +604,22 @@ function initGoogleSignIn() {
   const divider = document.getElementById('auth-google-divider');
 
   if (!clientId) {
-    // No Google client ID configured — hide the Google section entirely
-    if (container) container.style.display = 'none';
-    if (fallbackBtn) fallbackBtn.style.display = 'none';
-    if (divider) divider.style.display = 'none';
+    // No Google client ID configured — hide the Google section entirely.
+    // Admins debugging the deploy can append ?debug=1 to surface a
+    // visible hint instead of a silent hide.
+    const isDebug = /[?&]debug=1\b/.test(window.location.search);
+    if (isDebug) {
+      if (divider) divider.style.display = '';
+      if (container) {
+        container.style.display = 'block';
+        container.innerHTML = '<div style="font-size:12px;color:#888;text-align:center;padding:8px;border:1px dashed #ccc;border-radius:6px">Google Sign-In not configured — set <code>GOOGLE_CLIENT_ID</code></div>';
+      }
+      if (fallbackBtn) fallbackBtn.style.display = 'none';
+    } else {
+      if (container) container.style.display = 'none';
+      if (fallbackBtn) fallbackBtn.style.display = 'none';
+      if (divider) divider.style.display = 'none';
+    }
     return;
   }
 
@@ -650,9 +693,7 @@ async function handleGoogleCredential(response) {
     });
     const d = await r.json();
     if (!r.ok) { showAuthError(d.detail || 'Google sign-in failed'); return; }
-    localStorage.setItem('jp_token', d.token);
-    localStorage.setItem('jp_email', d.email);
-    sessionStorage.setItem('jp_session_active', '1');
+    setLoginSession(d.token, d.email);
     window.location.href = '/app';
   } catch { showAuthError('Google sign-in failed. Please try again.'); }
 }
@@ -665,10 +706,7 @@ async function enterDemoMode() {
     const r = await fetch('/api/auth/demo', { method: 'POST' });
     const d = await r.json();
     if (!r.ok) { showAuthError(d.detail || 'Demo unavailable'); return; }
-    localStorage.setItem('jp_token', d.token);
-    localStorage.setItem('jp_email', d.email);
-    localStorage.setItem('jp_demo', '1');
-    sessionStorage.setItem('jp_session_active', '1');
+    setLoginSession(d.token, d.email, { demo: true });
     window.location.href = '/app';
   } catch { showAuthError('Demo unavailable. Please try again.'); }
   finally { btns.forEach(b => { b.disabled = false; }); }

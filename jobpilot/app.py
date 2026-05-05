@@ -103,6 +103,13 @@ def create_app() -> Flask:
     from core.auth_db import init_db
     init_db()
 
+    # Surface common misconfigurations once at startup (Issue #80).
+    if not os.environ.get("GOOGLE_CLIENT_ID"):
+        logging.getLogger("jobpilot").warning(
+            "GOOGLE_CLIENT_ID is not set; Google Sign-In is disabled. "
+            "Set it in .env / Railway env to enable the button."
+        )
+
     @app.get("/")
     def landing():
         return render_template("landing.html",

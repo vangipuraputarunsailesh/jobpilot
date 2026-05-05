@@ -14,10 +14,10 @@
 
 **Document type:** Code & Architecture Review
 **Scope:** `jobpilot/` application (Flask backend + static frontend)
-**Total findings:** 79 (Critical: 4 · High: 4 · Medium: 43 · Low: 28)
-**Open:** 16 · **In Progress:** 1 (#30) · **Resolved:** 52 (26 Low + 25 Medium + 1 Critical) · **Won't Fix:** 11 (with documented Requirements)
-**Estimated remediation effort:** ~97 engineering hours (~70 hr completed)
-**Last re-check:** 2026-05-04 (Phase 3 Medium-remediation sprint)
+**Total findings:** 82 (Critical: 4 · High: 4 · Medium: 45 · Low: 29)
+**Open:** 17 · **In Progress:** 1 (#30) · **Resolved:** 54 (27 Low + 27 Medium + 0 High + 0 Critical fixes credited; net 1 Critical Fixed = #73) · **Won't Fix:** 11 (with documented Requirements)
+**Estimated remediation effort:** ~99 engineering hours (~72 hr completed)
+**Last re-check:** 2026-05-04 (TTL session + Google visibility sprint)
 **Source of truth:** This document supersedes the previous `repo_issues.csv` (now removed).
 
 ---
@@ -68,6 +68,7 @@
 | 2026-05-04 | **Phase 3 — Medium remediation sprint.** Mechanical print()→logger migration across 3 core modules; thread-local HTTP session + bounded retry adapter; SSRF allow-list for `fetch_job_description`; binary-search PDF auto-fit; shared `read_resume_bytes` parser; frontend `_authTab`/dead-code/theme-key cleanup; `.env.example` status flip. Also added a top-of-file warnings header per user request. | #12, #13, #14, #25, #29, #32, #41, #42, #43, #61, #63, #67 | [jobpilot/core/ai_engine.py](jobpilot/core/ai_engine.py), [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py), [jobpilot/core/resume_reader.py](jobpilot/core/resume_reader.py), [jobpilot/routes/resume.py](jobpilot/routes/resume.py), [jobpilot/static/js/app.js](jobpilot/static/js/app.js), [REPO_ISSUES_REPORT.md](REPO_ISSUES_REPORT.md) | Rajesh |
 | 2026-05-04 | **Test & CI scaffolding.** Added pytest skeleton with `app.test_client()` fixture and 5 smoke tests covering health, landing render, demo login, registration validation, and the JWT guard on `/api/jobs/search`. Added matrix CI on python 3.11 / 3.12 running `compileall` + pytest, plus a separate Docker-build job. | #30 (WIP), #31 (Fixed) | [tests/conftest.py](tests/conftest.py), [tests/test_auth_smoke.py](tests/test_auth_smoke.py), [pytest.ini](pytest.ini), [requirements-dev.txt](requirements-dev.txt), [.github/workflows/ci.yml](.github/workflows/ci.yml) | Rajesh |
 | 2026-05-04 | **Won't-Fix policy update.** Marked nine items 🚫 Won't Fix with explicit Requirements blocks documenting exactly what infra/design decisions must land first to reopen them. No code change. | #7, #20, #22, #23, #24, #27, #37, #56, #60 | [REPO_ISSUES_REPORT.md](REPO_ISSUES_REPORT.md) | Rajesh |
+| 2026-05-04 | **TTL session + Google visibility sprint.** Replaced the tab-scoped `sessionStorage.jp_session_active` marker with a sliding `localStorage.jp_session_expiry` (7 d for real accounts, 24 h for demo) so logged-in users survive tab close + browser restart and only get logged out by sign-out, expiry, or browser "Clear site data". Added a `?debug=1`-gated "GOOGLE_CLIENT_ID not configured" hint inside the auth modal, a startup `logger.warning` when the env var is unset, and an **Enable Google Sign-In** section in [README.md](README.md). | #80, #81, #82 (new) | [jobpilot/templates/index.html](jobpilot/templates/index.html), [jobpilot/templates/landing.html](jobpilot/templates/landing.html), [jobpilot/static/js/app.js](jobpilot/static/js/app.js), [jobpilot/app.py](jobpilot/app.py), [README.md](README.md) | Rajesh |
 
 **Files touched in low-priority sprint:** [jobpilot/app.py](jobpilot/app.py), [jobpilot/Dockerfile](jobpilot/Dockerfile), [jobpilot/requirements.txt](jobpilot/requirements.txt), [jobpilot/.env.example](jobpilot/.env.example), [railway.toml](railway.toml), [jobpilot/core/ai_engine.py](jobpilot/core/ai_engine.py), [jobpilot/core/auth_db.py](jobpilot/core/auth_db.py), [jobpilot/core/job_scraper.py](jobpilot/core/job_scraper.py), [jobpilot/core/resume_normalizer.py](jobpilot/core/resume_normalizer.py), [jobpilot/core/resume_reader.py](jobpilot/core/resume_reader.py), [jobpilot/routes/resume.py](jobpilot/routes/resume.py), [jobpilot/static/js/app.js](jobpilot/static/js/app.js), [jobpilot/static/css/style.css](jobpilot/static/css/style.css), [jobpilot/templates/base.html](jobpilot/templates/base.html), [jobpilot/templates/landing.html](jobpilot/templates/landing.html).
 
@@ -232,7 +233,6 @@ The codebase is functional but carries notable **production readiness** and **se
 | 72 | 🟢 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L211-L226) | Session history is in-memory only; lost on reload, navigation, or logout. | ✅ Fixed | Rajesh | None (already met). | Now persisted to `sessionStorage` (`jp_session_history`); survives reloads within the browser session, cleared on logout/browser-close. |
 
 ## 14b. New — Live Playwright UI Sprint (added 2026-05-04)
-
 *Findings discovered during a live Playwright sweep of the running app: every auth path, search, and supporting fetch was exercised end-to-end. All seven issues were reproduced, fixed, and re-verified against the running server.*
 
 | # | Pri | File | Finding | Status | Owner | Requirements | Analyst Note |
@@ -245,6 +245,17 @@ The codebase is functional but carries notable **production readiness** and **se
 | 78 | 🟡 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L656) | `refreshUsage()` called `fetch('/api/usage')` without `authHeaders()`, producing a 401 and the visible "Could not load usage data" error in the API Usage panel. | ✅ Fixed | Rajesh | None (already met). | Added `headers: authHeaders()` to the request, matching every other authenticated `fetch()` in the file. |
 | 79 | 🟡 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L1349) | `/api/upload-resume` upload sent `multipart/form-data` with no `Authorization` header — uploads would 401 for the demo user and any other authenticated session. Discovered while wiring up a working UI test. | ✅ Fixed | Rajesh | None (already met). | Added `Authorization: Bearer <token>` to the multipart POST without overriding the implicit boundary (no `Content-Type` set). |
 
+## 14c. New — TTL Session + Google Visibility Sprint (added 2026-05-04)
+
+*Findings raised by the user ("still facing login issue" + "don't see sign in/up with Google button anywhere") and one latent ReferenceError spotted while reading the auth code. The session model was redesigned end-to-end so users no longer get auto-logged-out every time they close a tab; the Google button now ships with admin-debuggable diagnostics.*
+
+| # | Pri | File | Finding | Status | Owner | Requirements | Analyst Note |
+|---|-----|------|---------|--------|-------|--------------|--------------|
+| 80 | 🟡 | [jobpilot/templates/index.html](jobpilot/templates/index.html#L4-L28), [jobpilot/templates/landing.html](jobpilot/templates/landing.html#L502-L535), [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L25-L60) | Auth used `sessionStorage.jp_session_active` as the liveness marker, so any tab/browser close auto-logged-out the user ("still facing login issue"). UX too aggressive: users had to re-auth on every reload-after-close. | ✅ Fixed | Rajesh | None (already met). Tunable via the `SESSION_TTL_MS` / `DEMO_SESSION_TTL_MS` JS constants in landing.html + app.js. | Replaced the `sessionStorage` marker with a sliding `localStorage.jp_session_expiry` (ms-since-epoch). 7 days for real accounts, 24 h for demo accounts. Refreshed on every page load that has a valid token (sliding session). Survives tab close + browser restart; cleared by explicit sign-out, browser **Clear site data**, or the expiry elapsing. Three mirrored helpers (`setLoginSession`, `clearLoginSession`, `isLoginSessionValid`) live in landing.html (auth handlers), app.js (in-app), and the IIFE in index.html — all three keep the same contract. Legacy `jp_session_active` is purged on every write so old sessions don't linger. |
+| 81 | 🟡 | [jobpilot/templates/landing.html](jobpilot/templates/landing.html#L568-L606), [jobpilot/app.py](jobpilot/app.py#L106-L113), [README.md](README.md) | Google Sign-In button silently vanished when `GOOGLE_CLIENT_ID` was unset, with no startup warning or in-product hint. Admins debugging deploys had no signal that the env var was the cause. | ✅ Fixed | Rajesh | None (already met). Toggle via `?debug=1` query string on the landing URL. | (a) Startup `logger.warning("GOOGLE_CLIENT_ID is not set; Google Sign-In is disabled.")` in `create_app()`. (b) `initGoogleSignIn()` now branches: production users still see nothing (preserves clean UI), but `?debug=1` renders an inline dashed-border hint reading "Google Sign-In not configured — set `GOOGLE_CLIENT_ID`". (c) New **Enable Google Sign-In** section in `README.md` with Cloud Console steps, redirect URI guidance, and the `?debug=1` recipe. The actual rendering code was already correct (#75) — this issue closes the missing diagnostic loop. |
+| 82 | 🟢 | [jobpilot/static/js/app.js](jobpilot/static/js/app.js#L233) | `clearSessionHistory()` calls `_persistSessionHistory()`, but that function is never defined anywhere in `app.js` — clicking **Clear** in the in-session history panel throws `ReferenceError`. Likely fallout from the #72 "persist to sessionStorage" change where the helper was inlined and a stale call site remained. | ⏳ Open | — | Decide whether session history should actually persist to `sessionStorage` (per the #72 analyst note) or stay in-memory only. Then either (a) implement `_persistSessionHistory()` (read/write `jp_session_history`) and matching restore-on-load, or (b) drop the call. Either path needs a single regression test exercising **Clear**. | Pre-existing latent bug; not user-visible until the **Clear** button is clicked, but should be cleaned up alongside the next history-panel touch. |
+
+
 ---
 
 ## Severity Roll-up
@@ -253,26 +264,26 @@ The codebase is functional but carries notable **production readiness** and **se
 |-----|----------|------:|---------:|----------:|-----:|
 | 🔴 | Critical | 4 | 1 | 0 | 3 |
 | 🟠 | High | 4 | 0 | 0 | 4 (1 WIP — #30) |
-| 🟡 | Medium | 43 | 25 | 9 | 9 |
-| 🟢 | Low | 28 | 26 | 2 | 0 |
-|     | **Total** | **79** | **52** | **11** | **16** |
+| 🟡 | Medium | 45 | 27 | 9 | 9 |
+| 🟢 | Low | 29 | 26 | 2 | 1 |
+|     | **Total** | **82** | **54** | **11** | **17** |
 
 ## Status Roll-up
 
 | Status | Count |
 |--------|------:|
-| ⏳ Open | 16 |
+| ⏳ Open | 17 |
 | 🔧 WIP | 1 |
-| ✅ Fixed | 52 |
+| ✅ Fixed | 54 |
 | 🚫 Won't Fix | 11 |
 
 ## Contribution Tracker
 
 | Owner | Open | WIP | Fixed | Total Touched |
 |-------|-----:|----:|------:|--------------:|
-| Rajesh | 0 | 1 | 52 | 53 |
+| Rajesh | 0 | 1 | 54 | 55 |
 | Tarun | 0 | 0 | 0 | 0 |
-| — (unassigned) | 16 | 0 | 0 | 16 |
+| — (unassigned) | 17 | 0 | 0 | 17 |
 
 > Update these tables whenever an issue's `Status` or `Owner` changes.
 
@@ -287,4 +298,4 @@ The codebase is functional but carries notable **production readiness** and **se
 
 ---
 
-*Report re-verified against working tree on 2026-05-04 after the Phase 3 Medium-remediation sprint and the test/CI scaffolding (#30 WIP, #31 Fixed). Line numbers correspond to the current source.*
+*Report re-verified against working tree on 2026-05-04 after the TTL session + Google visibility sprint (issues #80–#82). Line numbers correspond to the current source.*

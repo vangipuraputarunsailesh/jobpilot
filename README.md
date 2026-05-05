@@ -215,6 +215,28 @@ Configure these in your `.env` file (local) or Railway **Variables** panel (prod
 
 **Free sources that require no API keys:** The Muse, Remotive, Arbeitnow.
 
+### Enable Google Sign-In
+
+The "Continue with Google" button on the landing page is hidden until
+`GOOGLE_CLIENT_ID` is set. To enable it:
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+2. Create an **OAuth 2.0 Client ID** of type *Web application*.
+3. Add **Authorized JavaScript origins** for every domain you serve from, e.g.
+   `https://jobpilot-production-1eb8.up.railway.app` and `http://localhost:5000`.
+4. Add **Authorized redirect URIs** matching the same origins (the GSI library
+   uses the same origin, so adding the bare origin is sufficient for the
+   one-tap flow JobPilot uses).
+5. Copy the generated **Client ID** into your environment:
+   - Local: `GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com` in `jobpilot/.env`.
+   - Railway: add `GOOGLE_CLIENT_ID` under the service's **Variables** tab.
+6. Restart the app. The Google button will render on the landing page's auth modal.
+
+If `GOOGLE_CLIENT_ID` is unset, the entire Google block (button + divider) is
+hidden so end users only see the email/password and Demo options. Append
+`?debug=1` to the landing URL to render an admin-visible "not configured"
+hint instead — useful when triaging a deploy.
+
 ---
 
 ## Project Structure

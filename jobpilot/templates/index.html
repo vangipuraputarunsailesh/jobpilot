@@ -3,19 +3,27 @@
 
 {% block head %}
 <script>
-  // Per-browser-session auto-logout: if there's a token but no live session
-  // marker (sessionStorage is cleared when the browser/tab closes), wipe the
-  // token and bounce to the landing page so the user sees the latest updates.
+  // Sliding-TTL login session (7 days for real accounts, 24h for demo).
+  // Stored entirely in localStorage so the session survives tab close /
+  // browser restart but is wiped by "Clear browsing data" or by the
+  // expiry timestamp (jp_session_expiry) elapsing. Mirrors the helpers
+  // defined in landing.html and static/js/app.js — keep all three in sync.
   (function () {
-    var token = localStorage.getItem('jp_token');
-    if (!token) { window.location.replace('/'); return; }
-    if (sessionStorage.getItem('jp_session_active') !== '1') {
+    var token  = localStorage.getItem('jp_token');
+    var expiry = parseInt(localStorage.getItem('jp_session_expiry') || '0', 10);
+    var isDemo = localStorage.getItem('jp_demo') === '1';
+    var TTL    = isDemo ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+    if (!token || !expiry || Date.now() >= expiry) {
       localStorage.removeItem('jp_token');
       localStorage.removeItem('jp_email');
       localStorage.removeItem('jp_demo');
+      localStorage.removeItem('jp_session_expiry');
+      sessionStorage.removeItem('jp_session_active'); // legacy key
       window.location.replace('/');
       return;
     }
+    // Sliding refresh — bump expiry forward on every authenticated page load.
+    localStorage.setItem('jp_session_expiry', String(Date.now() + TTL));
   })();
 </script>
 {% endblock %}

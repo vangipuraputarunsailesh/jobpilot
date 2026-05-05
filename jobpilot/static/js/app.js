@@ -26,6 +26,37 @@ const LAYOUT_STORAGE_KEY = "jobpilot-layout-widths";
 function getToken() { return localStorage.getItem("jp_token"); }
 function getEmail()  { return localStorage.getItem("jp_email"); }
 
+// ── Sliding-TTL login session helpers ───────────────────────────────────
+// localStorage-only so the session survives tab close / browser restart;
+// `jp_session_expiry` (ms-since-epoch) drives auto-logout. Real accounts
+// get 7 days, demo accounts 24 hours. Mirrored in templates/landing.html
+// and templates/index.html — keep all three in sync.
+const SESSION_TTL_MS      = 7 * 24 * 60 * 60 * 1000;
+const DEMO_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+function _sessionTtl() {
+  return localStorage.getItem("jp_demo") === "1" ? DEMO_SESSION_TTL_MS : SESSION_TTL_MS;
+}
+function setLoginSession(token, email, opts) {
+  localStorage.setItem("jp_token", token);
+  localStorage.setItem("jp_email", email);
+  if (opts && opts.demo) localStorage.setItem("jp_demo", "1");
+  localStorage.setItem("jp_session_expiry", String(Date.now() + _sessionTtl()));
+  sessionStorage.removeItem("jp_session_active"); // legacy key
+}
+function clearLoginSession() {
+  localStorage.removeItem("jp_token");
+  localStorage.removeItem("jp_email");
+  localStorage.removeItem("jp_demo");
+  localStorage.removeItem("jp_session_expiry");
+  sessionStorage.removeItem("jp_session_active");
+  sessionStorage.removeItem("jp_session_history");
+}
+function isLoginSessionValid() {
+  if (!getToken()) return false;
+  const expiry = parseInt(localStorage.getItem("jp_session_expiry") || "0", 10);
+  return !!expiry && Date.now() < expiry;
+}
+
 function authHeaders() {
   const t = getToken();
   return t ? { "Content-Type": "application/json", "Authorization": `Bearer ${t}` }
@@ -99,9 +130,7 @@ async function handleGoogleCredential(response) {
     });
     const d = await r.json();
     if (!r.ok) { showAuthError(d.detail || "Google sign-in failed"); return; }
-    localStorage.setItem("jp_token", d.token);
-    localStorage.setItem("jp_email", d.email);
-    sessionStorage.setItem("jp_session_active", "1");
+    setLoginSession(d.token, d.email);
     hideAuthOverlay();
     initApp();
   } catch {
@@ -112,11 +141,7 @@ async function handleGoogleCredential(response) {
 function logout(opts) {
   const silent = opts && opts.silent === true;
   const proceed = () => {
-    localStorage.removeItem("jp_token");
-    localStorage.removeItem("jp_email");
-    localStorage.removeItem("jp_demo");
-    sessionStorage.removeItem("jp_session_active");
-    sessionStorage.removeItem("jp_session_history");
+    clearLoginSession();
     try { sessionHistory = []; } catch (_) {}
     window.location.href = "/";
   };
@@ -160,21 +185,19 @@ function appConfirm(message, confirmLabel) {
   });
 }
 
-// Per-browser-session auto-logout.
-// We mark the browser session as "active" in sessionStorage. sessionStorage is
-// cleared automatically when the user closes the tab/browser, so on the next
-// visit the marker is gone and we wipe the persisted token — sending the user
-// back to the landing page so they see the latest changelog/updates.
+// Sliding-TTL session enforcement. If the persisted token has expired (or
+// the expiry timestamp is missing because the user landed here via a
+// stale link), wipe credentials and bounce back to the landing page.
+// Otherwise refresh the expiry forward by SESSION_TTL_MS so active users
+// stay signed in. Mirror of the IIFE in templates/index.html.
 function enforceSessionLifecycle() {
-  const SESSION_KEY = "jp_session_active";
-  const hasToken    = !!getToken();
-  const sessionLive = sessionStorage.getItem(SESSION_KEY) === "1";
-  if (hasToken && !sessionLive) {
-    // Token survived from a previous browser session — force re-entry via landing.
+  if (!getToken()) return false;
+  if (!isLoginSessionValid()) {
     logout({ silent: true });
     return false;
   }
-  if (hasToken) sessionStorage.setItem(SESSION_KEY, "1");
+  // Sliding refresh.
+  localStorage.setItem("jp_session_expiry", String(Date.now() + _sessionTtl()));
   return true;
 }
 
