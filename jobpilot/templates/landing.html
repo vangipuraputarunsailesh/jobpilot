@@ -590,8 +590,11 @@ async function submitAuth() {
     window.location.href = '/app';
   } catch { showAuthError('Connection error — is the server running?'); }
   finally {
+    // Re-enable the button + reset its label without touching the error
+    // banner — calling switchTab() here previously hid the freshly-shown
+    // error message so users only ever saw "nothing happened" (Issue #83).
     btn.disabled = false;
-    switchTab(_authTab);
+    if (span) span.textContent = _authTab === 'login' ? 'Continue with email' : 'Create account';
   }
 }
 
