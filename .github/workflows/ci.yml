@@ -38,6 +38,10 @@ jobs:
         env:
           FLASK_SECRET: ci-flask-secret-not-used-in-prod
           JWT_SECRET: ci-jwt-secret-not-used-in-prod
+          # Sourced from the repo-level GitHub Actions secret of the same name.
+          # Empty string in forks / PRs from forks where the secret isn't exposed
+          # is fine — current smoke tests don't actually call Anthropic.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           python -m pytest -q
 

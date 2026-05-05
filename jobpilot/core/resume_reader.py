@@ -89,8 +89,24 @@ def read_resume_bytes(content: bytes, ext: str) -> str:
 
 
 def read_resume(filename: str) -> str:
-    """Read and return resume text from file."""
-    path = RESUMES_DIR / filename
+    """Read and return resume text from file.
+
+    Issue #94 — defense-in-depth path-traversal guard. The route layer
+    already sanitizes inputs, but this helper is a footgun for any new
+    caller that forwards a user-controlled filename. Reject anything that
+    resolves outside ``RESUMES_DIR`` (or strays out via ``..``).
+    """
+    if not filename or any(sep in filename for sep in ("/", "\\")) or ".." in filename:
+        return ""
+    base = os.path.basename(filename)
+    if not base or base != filename:
+        return ""
+    try:
+        path = (RESUMES_DIR / base).resolve()
+        if not str(path).startswith(str(RESUMES_DIR.resolve())):
+            return ""
+    except (OSError, ValueError):
+        return ""
     if not path.exists():
         return ""
 

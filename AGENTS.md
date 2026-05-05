@@ -9,8 +9,8 @@
 
 - **App:** [jobpilot/](jobpilot/) — Flask backend + Jinja templates + vanilla JS frontend.
 - **Source of truth for outstanding work:** [REPO_ISSUES_REPORT.md](REPO_ISSUES_REPORT.md).
-- **Live deployment:** <https://jobpilot-production-1eb8.up.railway.app/app>.
-- **Coming soon:** `jobspilot.site` (custom domain).
+- **Live deployment:** <https://www.jobspilot.site>.
+- **Custom domain:** `www.jobspilot.site` is the canonical URL (CNAME-mapped to the Railway service).
 - **Container build context:** repo root, e.g. `docker build -f jobpilot/Dockerfile .`.
 - **Production process manager:** Railway runs the container’s `CMD` (no `startCommand` override).
 
@@ -82,7 +82,7 @@ When fixing items from `REPO_ISSUES_REPORT.md`, **prefer Trivial / Low-risk Medi
 
 ### 2.9 Documentation
 
-- The user-facing entry point is [README.md](README.md). Keep the **Live Demo** and **Coming soon: jobspilot.site** badges/links in sync with reality.
+- The user-facing entry point is [README.md](README.md). Keep the **Live Site** badge/link pointing at <https://www.jobspilot.site> in sync with reality.
 - Do **not** create new ad-hoc Markdown reports to document changes. Status updates belong in [REPO_ISSUES_REPORT.md](REPO_ISSUES_REPORT.md). Architectural notes belong in [README.md](README.md).
 
 ---

@@ -190,6 +190,67 @@
 
 <!-- Hidden file input -->
 <input type="file" id="resume-file-input" accept=".pdf,.docx,.txt" style="display:none" onchange="handleResumeFile(this)"/>
+<input type="file" id="welcome-resume-file-input" accept=".pdf,.docx,.txt" style="display:none" onchange="handleWelcomeResumeFile(this)"/>
+
+<!-- WELCOME / RESUME-FIRST MODAL -->
+<div class="welcome-overlay" id="welcome-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+  <div class="welcome-modal">
+    <div class="welcome-icon">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.6"/>
+        <polyline points="14,2 14,8 20,8" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M12 18v-6M9 15l3-3 3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h2 class="welcome-title" id="welcome-title">Welcome to JobPilot</h2>
+    <p class="welcome-sub">Upload your resume once and JobPilot will tailor it for every job you scrape.</p>
+    <button class="welcome-cta" id="welcome-upload-btn" onclick="document.getElementById('welcome-resume-file-input').click()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="margin-right:6px;vertical-align:-2px">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <polyline points="17,8 12,3 7,8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      Upload Resume
+    </button>
+    <div class="welcome-hint">PDF, DOCX, or TXT &nbsp;·&nbsp; max 10 MB</div>
+    <div class="welcome-status" id="welcome-status"></div>
+    <button class="welcome-skip" onclick="dismissWelcomeModal()">Skip for now</button>
+  </div>
+</div>
+
+<style>
+  .welcome-overlay{position:fixed;inset:0;background:rgba(8,15,28,.62);backdrop-filter:blur(4px);
+    display:flex;align-items:center;justify-content:center;z-index:9000;padding:20px;animation:wmFade .18s ease-out;}
+  @keyframes wmFade{from{opacity:0}to{opacity:1}}
+  .welcome-modal{background:var(--bg1,#fff);color:var(--text1,#0f172a);border:1px solid var(--border1,#e5e7eb);
+    border-radius:16px;padding:32px 28px;max-width:440px;width:100%;text-align:center;
+    box-shadow:0 20px 60px rgba(0,0,0,.25);animation:wmPop .22s cubic-bezier(.2,.9,.3,1.2);}
+  @keyframes wmPop{from{transform:translateY(8px) scale(.97);opacity:.5}to{transform:none;opacity:1}}
+  .welcome-icon{width:64px;height:64px;margin:0 auto 14px;border-radius:16px;
+    background:linear-gradient(135deg,#14b8a6,#0d9488);color:#fff;display:flex;align-items:center;justify-content:center;}
+  .welcome-title{font-size:22px;margin:0 0 6px;font-weight:700;letter-spacing:-0.01em;}
+  .welcome-sub{font-size:14px;color:var(--text2,#475569);margin:0 0 22px;line-height:1.5;}
+  .welcome-cta{background:linear-gradient(135deg,#14b8a6,#0d9488);color:#fff;border:0;
+    padding:12px 22px;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;
+    box-shadow:0 4px 14px rgba(20,184,166,.35);transition:transform .12s ease, box-shadow .12s ease;}
+  .welcome-cta:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(20,184,166,.45);}
+  .welcome-cta:disabled{opacity:.7;cursor:wait;}
+  .welcome-hint{font-size:12px;color:var(--text3,#94a3b8);margin-top:10px;}
+  .welcome-status{font-size:13px;margin-top:14px;min-height:18px;color:var(--text2,#475569);}
+  .welcome-status.error{color:#dc2626;}
+  .welcome-skip{background:none;border:0;color:var(--text3,#94a3b8);font-size:12px;
+    margin-top:18px;cursor:pointer;text-decoration:underline;}
+  .welcome-skip:hover{color:var(--text2,#475569);}
+
+  /* "Start Job Scraping" pulse on the search button when a resume has just been uploaded */
+  .search-btn.scrape-ready{animation:scrapePulse 1.4s ease-in-out 3;
+    box-shadow:0 0 0 0 rgba(20,184,166,.55);}
+  @keyframes scrapePulse{
+    0%{box-shadow:0 0 0 0 rgba(20,184,166,.55);}
+    70%{box-shadow:0 0 0 14px rgba(20,184,166,0);}
+    100%{box-shadow:0 0 0 0 rgba(20,184,166,0);}
+  }
+</style>
 {% endblock %}
 
 {% block scripts %}

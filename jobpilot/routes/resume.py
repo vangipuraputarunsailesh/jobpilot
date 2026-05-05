@@ -8,7 +8,7 @@ import re
 import logging
 from pathlib import Path
 
-from flask import Blueprint, request, jsonify, send_file, current_app
+from flask import Blueprint, request, jsonify, send_file, current_app, g
 
 from core.ai_engine import (
     score_ats, tailor_resume, improve_line,
@@ -20,6 +20,7 @@ from core.resume_reader import (
     save_tailored_resume, save_tailored_pdf,
     read_resume_bytes,
 )
+from core.auth_db import save_user_resume
 
 resume_bp = Blueprint("resume", __name__)
 logger = logging.getLogger("jobpilot")
@@ -56,7 +57,16 @@ def upload_resume():
         return jsonify({"detail": f"Could not read the {ext} file."}), 500
     if not text.strip():
         return jsonify({"detail": "Could not extract text. Try a .txt or .docx version."}), 422
-    return jsonify({"text": text.strip(), "filename": f.filename})
+    text_clean = text.strip()
+    # Persist server-side so the resume survives logout / device switch.
+    # Best-effort: failures here must not block the upload response.
+    email = getattr(g, "email", None)
+    if email:
+        try:
+            save_user_resume(email, text_clean, f.filename)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("RESUME PERSIST FAILED | %s | %s", email, e)
+    return jsonify({"text": text_clean, "filename": f.filename})
 
 
 @resume_bp.post("/api/generate-resume")

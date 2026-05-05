@@ -2587,3 +2587,59 @@ html[data-theme="light-pro"] {
 /* Divider */
 .auth-divider { color: #334155 !important; font-size: 11px !important; margin: 16px 0 !important; }
 .auth-divider::before, .auth-divider::after { background: rgba(255,255,255,0.07) !important; }
+
+/* ── Topbar resume chip ─────────────────────────────────────── */
+.topbar-resume-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 10px;
+  border-radius: 999px;
+  background: var(--card, rgba(20,184,166,0.10));
+  border: 1px solid rgba(20,184,166,0.35);
+  color: var(--text, #e6f1ff);
+  font-size: 12px;
+  font-weight: 500;
+  max-width: 280px;
+  white-space: nowrap;
+}
+.topbar-resume-chip .trc-icon { font-size: 14px; opacity: 0.9; }
+.topbar-resume-chip .trc-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+.topbar-resume-chip .trc-replace,
+.topbar-resume-chip .trc-clear {
+  background: transparent;
+  border: 1px solid rgba(20,184,166,0.4);
+  color: inherit;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background-color .15s ease;
+}
+.topbar-resume-chip .trc-clear { padding: 2px 7px; font-size: 13px; }
+.topbar-resume-chip .trc-replace:hover,
+.topbar-resume-chip .trc-clear:hover {
+  background: rgba(20,184,166,0.18);
+}
+
+/* ── Welcome modal: drag-and-drop affordance ────────────────── */
+.welcome-modal.drop-active {
+  outline: 2px dashed #14b8a6;
+  outline-offset: -8px;
+  background: rgba(20,184,166,0.06);
+}
+
+/* ── Search button: pulse when ready to scrape ──────────────── */
+@keyframes jp-scrape-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(20,184,166,0.0); }
+  50%      { box-shadow: 0 0 0 8px rgba(20,184,166,0.45); }
+}
+#search-btn.scrape-ready {
+  animation: jp-scrape-pulse 1.4s ease-in-out 2;
+}

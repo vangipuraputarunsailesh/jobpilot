@@ -72,7 +72,12 @@ def _client() -> anthropic.Anthropic:
 
 
 # Default Claude model. Override with env var CLAUDE_MODEL for easy upgrades.
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
+# NOTE: keep this in sync with .env.example. The previous default
+# `claude-sonnet-4-6` is NOT a real Anthropic SKU (Issue #84) and produced
+# 404s on every AI call (score_ats / tailor_resume / chat) when the env
+# var was unset. The current released family is `claude-sonnet-4-5-*`;
+# the stable alias `claude-sonnet-4-5` always points at the latest minor.
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5")
 
 
 def _call(prompt: str, max_tokens: int = 2000) -> str:
@@ -829,7 +834,8 @@ ANSWER:
             explanation = ""
             resume_raw  = after_label
             if "✅ Change Log:" in after_label:
-                parts = after_later = after_label.split("✅ Change Log:", 1)
+                # Issue #95 — drop dead `after_later =` chained assignment.
+                parts = after_label.split("✅ Change Log:", 1)
                 resume_raw  = parts[0].strip()
                 explanation = "✅ Change Log:" + parts[1].strip()
             elif "✅" in after_label:

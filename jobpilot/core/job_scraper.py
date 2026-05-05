@@ -230,9 +230,17 @@ def _session() -> requests.Session:
 _SESSION = _build_session()
 
 
+# Issue #96 — only the slow rate-limited providers (Adzuna, JSearch) get a
+# small randomised pre-request sleep. Free providers (Muse / Remotive /
+# USAJobs / Arbeitnow) used to pay an unconditional 0.2–0.6s tax × N
+# concurrent requests; that's pure wall-clock for no rate-limit benefit.
+_SLOW_HOSTS = ("adzuna.com", "jsearch.p.rapidapi.com")
+
+
 def _get(url: str, headers: dict = None, params: dict = None, timeout: int = 15) -> requests.Response | None:
     try:
-        time.sleep(random.uniform(0.2, 0.6))
+        if any(h in url for h in _SLOW_HOSTS):
+            time.sleep(random.uniform(0.05, 0.2))
         sess = _session()
         h = dict(sess.headers)
         if headers:
@@ -327,12 +335,29 @@ def _get_apify_actor_ids() -> dict[str, str]:
 
 # Lazy-resolved on first use to avoid an HTTP call to Apify at import time
 # (which would slow startup and fail noisily during Apify outages).
+# Issue #93 — also negatively cache so an Apify outage doesn't trigger a
+# 30-second discovery call on every subsequent search. Both success and
+# failure outcomes are TTL'd; on failure we serve the static defaults until
+# the TTL elapses.
 _APIFY_ACTORS_CACHE: dict[str, str] | None = None
+_APIFY_ACTORS_CACHE_AT: float = 0.0
+_APIFY_ACTORS_CACHE_TTL_SEC = 300  # 5 minutes
 
 def get_apify_actors() -> dict[str, str]:
-    global _APIFY_ACTORS_CACHE
-    if _APIFY_ACTORS_CACHE is None:
+    global _APIFY_ACTORS_CACHE, _APIFY_ACTORS_CACHE_AT
+    now = time.time()
+    if (
+        _APIFY_ACTORS_CACHE is not None
+        and (now - _APIFY_ACTORS_CACHE_AT) < _APIFY_ACTORS_CACHE_TTL_SEC
+    ):
+        return _APIFY_ACTORS_CACHE
+    try:
         _APIFY_ACTORS_CACHE = _get_apify_actor_ids()
+    except Exception as e:
+        # Fail-open: keep serving the static defaults until the TTL elapses.
+        logger.warning("  [apify] actor-id resolution failed (%s); using defaults", e)
+        _APIFY_ACTORS_CACHE = DEFAULT_APIFY_ACTORS.copy()
+    _APIFY_ACTORS_CACHE_AT = now
     return _APIFY_ACTORS_CACHE
 
 # Backwards-compatible accessor: code that reads APIFY_ACTORS[...] keeps working.
@@ -571,16 +596,28 @@ def _title_matches(job_title: str, search_query: str) -> bool:
     ORDER_FLEXIBLE   = False # if True, skip Layer D (word order check)
 
     # ── Layer A: build query words (preserving search order) ─────────────────
-    query_words = [
+    raw_tokens = [
         w.strip().lower() for w in re.split(r"[\s,/\-]+", search_query)
-        if w.strip()
-        and w.strip().lower() not in FILLER_WORDS
-        and len(w.strip()) > 1
+        if w.strip() and len(w.strip()) > 1
     ]
+    query_words = [w for w in raw_tokens if w not in FILLER_WORDS]
 
-    # Nothing meaningful to filter on → keep all
+    # Nothing meaningful to filter on. Previously this returned True, which
+    # meant any alias that filler-stripped down to nothing (e.g. "team lead",
+    # "the lead") acted as a wildcard and let every job in the source pass —
+    # because callers OR aliases together with `any()`. Reject instead so the
+    # filter is fail-closed for empty-meaning aliases.
     if not query_words:
-        return True
+        return False
+
+    # Over-stripped alias guard: if the original alias had 2+ meaningful tokens
+    # but only one survived filler-stripping, the surviving token is almost
+    # always too generic to gate a match (e.g. "tech lead" → ["tech"], which
+    # would otherwise let "Marketing Tech Specialist" pass when the user
+    # searched "Engineering Manager"). Require at least 2 surviving tokens
+    # whenever the alias started with 2+.
+    if len(raw_tokens) >= 2 and len(query_words) < 2:
+        return False
 
     title_lower = job_title.lower()
 
@@ -665,7 +702,7 @@ def search_apify_linkedin(title: str, location: str, max_results: int = 100, dat
     aliases = _expand_aliases(title)
     jobs = []
     try:
-        r = _SESSION.post(
+        r = _session().post(
             f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items",
             params={"token": token, "timeout": 120, "memory": 256},
             json={
@@ -716,7 +753,7 @@ def search_apify_indeed(title: str, location: str, max_results: int = 100, date_
     aliases = _expand_aliases(title)
     jobs = []
     try:
-        r = _SESSION.post(
+        r = _session().post(
             f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items",
             params={"token": token, "timeout": 120, "memory": 256},
             json={
@@ -768,7 +805,7 @@ def search_apify_glassdoor(title: str, location: str, max_results: int = 100, da
     aliases = _expand_aliases(title)
     jobs = []
     try:
-        r = _SESSION.post(
+        r = _session().post(
             f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items",
             params={"token": token, "timeout": 120, "memory": 256},
             json={
@@ -822,7 +859,7 @@ def search_apify_ziprecruiter(title: str, location: str, max_results: int = 100,
     aliases = _expand_aliases(title)
     jobs = []
     try:
-        r = _SESSION.post(
+        r = _session().post(
             f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items",
             params={"token": token, "timeout": 120, "memory": 256},
             json={
@@ -871,7 +908,7 @@ def search_apify_modular(title: str, location: str, max_results: int = 100, date
     aliases = _expand_aliases(title)
     jobs = []
     try:
-        r = _SESSION.post(
+        r = _session().post(
             f"https://api.apify.com/v2/acts/{actor_id}/run-sync-get-dataset-items",
             params={"token": token, "timeout": 180, "memory": 512},
             json={
@@ -1350,8 +1387,26 @@ def fetch_job_description(url: str) -> str:
 # Short-TTL in-memory cache for search results. Keyed on the full query tuple.
 # 90 seconds is short enough to surface fresh postings but long enough to absorb
 # repeat clicks from the same user (back/forward, accidental re-search, etc.).
+#
+# Issue #87 — bound the cache so it can't grow unbounded over the worker's
+# lifetime (each entry holds hundreds of multi-KB job dicts). When the cache
+# would exceed _SEARCH_CACHE_MAX entries we sweep expired keys first and
+# then drop the oldest remaining entries until we're back under the cap.
 _SEARCH_CACHE_TTL_SEC = 90
+_SEARCH_CACHE_MAX = 128
 _SEARCH_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
+
+
+def _search_cache_evict(now: float) -> None:
+    """Drop expired entries; if still over cap, drop oldest."""
+    expired = [k for k, (ts, _) in _SEARCH_CACHE.items() if (now - ts) >= _SEARCH_CACHE_TTL_SEC]
+    for k in expired:
+        _SEARCH_CACHE.pop(k, None)
+    if len(_SEARCH_CACHE) >= _SEARCH_CACHE_MAX:
+        # Drop the oldest entries (smallest timestamp) until under cap.
+        ordered = sorted(_SEARCH_CACHE.items(), key=lambda kv: kv[1][0])
+        for k, _ in ordered[: len(_SEARCH_CACHE) - _SEARCH_CACHE_MAX + 1]:
+            _SEARCH_CACHE.pop(k, None)
 
 def search_all_platforms(title: str, location: str = "United States", seniority: str = "any", date_posted: str = "pastWeek") -> list[dict]:
     """
@@ -1383,14 +1438,28 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
         lambda: search_arbeitnow(title),
     ]
 
-    # Run all scrapers in parallel — total time = slowest single source, not sum of all
+    # Run all scrapers in parallel — total time = slowest single source, not sum of all.
+    # Issue #89 — bound the overall wait. A single slow Apify actor used to
+    # stall /api/jobs/search for up to 130s; we now cap the fan-out at 60s
+    # and treat unfinished sources as failed (they're optional inputs).
+    _SEARCH_DEADLINE_SEC = 60
     with ThreadPoolExecutor(max_workers=len(scrapers)) as pool:
         futures = {pool.submit(fn): fn for fn in scrapers}
-        for future in as_completed(futures):
-            try:
-                all_jobs.extend(future.result())
-            except Exception as e:
-                logger.warning("  [scraper] Source error: %s", e)
+        try:
+            for future in as_completed(futures, timeout=_SEARCH_DEADLINE_SEC):
+                try:
+                    all_jobs.extend(future.result())
+                except Exception as e:
+                    logger.warning("  [scraper] Source error: %s", e)
+        except TimeoutError:
+            pending = sum(1 for f in futures if not f.done())
+            logger.warning(
+                "  [scraper] Search budget %ds exceeded; %d source(s) abandoned",
+                _SEARCH_DEADLINE_SEC, pending,
+            )
+            for f in list(futures):
+                if not f.done():
+                    f.cancel()
 
     total_raw = len(all_jobs)
 
@@ -1441,6 +1510,7 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
 
     logger.info("[scraper] Final results: %d unique jobs from %d sources",
                 len(unique), _source_count(unique))
+    _search_cache_evict(now)
     _SEARCH_CACHE[cache_key] = (now, unique)
     return unique
 

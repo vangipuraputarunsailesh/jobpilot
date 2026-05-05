@@ -138,10 +138,35 @@ async function handleGoogleCredential(response) {
   }
 }
 
+// ── Stored resume (per-browser, persists across job clicks) ───────────────────
+// Keys mirror the auth session keys (jp_*) so logout can wipe them in one pass.
+const RESUME_TEXT_KEY = "jp_resume_text";
+const RESUME_NAME_KEY = "jp_resume_name";
+function getStoredResume() {
+  try {
+    const text = localStorage.getItem(RESUME_TEXT_KEY) || "";
+    const name = localStorage.getItem(RESUME_NAME_KEY) || "";
+    return text ? { text, name: name || "resume" } : null;
+  } catch (_) { return null; }
+}
+function setStoredResume(text, name) {
+  try {
+    localStorage.setItem(RESUME_TEXT_KEY, text || "");
+    localStorage.setItem(RESUME_NAME_KEY, name || "resume");
+  } catch (_) {}
+}
+function clearStoredResume() {
+  try {
+    localStorage.removeItem(RESUME_TEXT_KEY);
+    localStorage.removeItem(RESUME_NAME_KEY);
+  } catch (_) {}
+}
+
 function logout(opts) {
   const silent = opts && opts.silent === true;
   const proceed = () => {
     clearLoginSession();
+    clearStoredResume();
     try { sessionHistory = []; } catch (_) {}
     window.location.href = "/";
   };
@@ -470,23 +495,239 @@ function initApp() {
     if (banner) banner.style.display = "flex";
     document.body.classList.add("demo-mode");
   }
-  // Pre-fill search from landing page hero search or trending chips
-  const storedTitle    = sessionStorage.getItem("jp_search_title");
-  const storedLocation = sessionStorage.getItem("jp_search_location");
-  if (storedTitle) {
-    sessionStorage.removeItem("jp_search_title");
-    const titleInp = document.getElementById("job-title-input");
-    if (titleInp) titleInp.value = storedTitle;
-    if (storedLocation) {
-      sessionStorage.removeItem("jp_search_location");
-      const locInp = document.getElementById("location-input");
-      if (locInp) locInp.value = storedLocation;
+
+  // ── Resume hydration & onboarding ───────────────────────────────────────
+  // 1. localStorage gives instant feedback on warm reloads.
+  // 2. /api/me/resume hydrates server-side state so a fresh device, cleared
+  //    cache, or new browser still recovers the user's saved resume.
+  // 3. Welcome modal only shows if no resume exists AND the user hasn't
+  //    already dismissed it this browser session.
+  hydrateStoredResumeFromServer().then(() => {
+    const hasResume = !!getStoredResume();
+    if (hasResume) {
+      relabelSearchAsScrape();
+      renderTopbarResumeChip();
+      maybeAutoSearchFromHero();
+    } else if (!sessionStorage.getItem("jp_welcome_seen")) {
+      showWelcomeModal();
+    } else {
+      maybeAutoSearchFromHero();
     }
-    searchJobs();
-    return;  // skip focus — search already initiated from landing page params
-  }
+  });
+
   const inp = document.getElementById("job-title-input");
   if (inp) inp.focus();
+}
+
+// Auto-search from landing-page hero search / trending chip. Pulled out of
+// initApp so the resume-hydration promise can call it after it resolves.
+let _heroAutoSearchFired = false;
+function maybeAutoSearchFromHero() {
+  if (_heroAutoSearchFired) return;
+  const storedTitle    = sessionStorage.getItem("jp_search_title");
+  const storedLocation = sessionStorage.getItem("jp_search_location");
+  if (!storedTitle) return;
+  _heroAutoSearchFired = true;
+  sessionStorage.removeItem("jp_search_title");
+  const titleInp = document.getElementById("job-title-input");
+  if (titleInp) titleInp.value = storedTitle;
+  if (storedLocation) {
+    sessionStorage.removeItem("jp_search_location");
+    const locInp = document.getElementById("location-input");
+    if (locInp) locInp.value = storedLocation;
+  }
+  searchJobs();
+}
+
+// Pull the user's saved resume from the server. Failures swallowed so the UI
+// degrades to localStorage-only.
+async function hydrateStoredResumeFromServer() {
+  try {
+    const tok = getToken();
+    if (!tok) return;
+    const r = await fetch(`${API}/api/me/resume`, {
+      headers: { "Authorization": `Bearer ${tok}` },
+    });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d && d.text) setStoredResume(d.text, d.name || "resume");
+  } catch (_) { /* offline / cold-start — ignore */ }
+}
+
+// ── Welcome modal: prompt the user to upload a resume after login ──────────
+function showWelcomeModal() {
+  const ov = document.getElementById("welcome-overlay");
+  if (!ov) return;
+  ov.style.display = "flex";
+  const status = document.getElementById("welcome-status");
+  if (status) { status.textContent = ""; status.classList.remove("error"); }
+  // Wire drag-and-drop on the modal card (idempotent).
+  const card = ov.querySelector(".welcome-modal");
+  if (card && !card._dndWired) {
+    card._dndWired = true;
+    const stop = e => { e.preventDefault(); e.stopPropagation(); };
+    ["dragenter", "dragover"].forEach(ev => card.addEventListener(ev, e => {
+      stop(e); card.classList.add("drop-active");
+    }));
+    ["dragleave", "drop"].forEach(ev => card.addEventListener(ev, e => {
+      stop(e); card.classList.remove("drop-active");
+    }));
+    card.addEventListener("drop", e => {
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (!f) return;
+      const inp = document.getElementById("welcome-resume-file-input");
+      if (!inp) return;
+      const dt = new DataTransfer();
+      dt.items.add(f);
+      inp.files = dt.files;
+      handleWelcomeResumeFile(inp);
+    });
+  }
+}
+function dismissWelcomeModal() {
+  const ov = document.getElementById("welcome-overlay");
+  if (ov) ov.style.display = "none";
+  // Sticky-skip for the rest of this browser session so we don't nag.
+  sessionStorage.setItem("jp_welcome_seen", "1");
+}
+async function handleWelcomeResumeFile(input) {
+  if (!input.files || !input.files.length) return;
+  const file = input.files[0];
+  const status = document.getElementById("welcome-status");
+  const btn    = document.getElementById("welcome-upload-btn");
+  if (status) { status.textContent = "Reading your resume…"; status.classList.remove("error"); }
+  if (btn) btn.disabled = true;
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const r = await fetch(`${API}/api/upload-resume`, {
+      method: "POST",
+      body: form,
+      headers: getToken() ? { "Authorization": `Bearer ${getToken()}` } : {},
+    });
+    if (!r.ok) {
+      let msg = "Upload failed";
+      try { const e = await r.json(); msg = e.detail || msg; } catch (_) {}
+      throw new Error(msg);
+    }
+    const d = await r.json();
+    if (!d || !d.text) throw new Error("Resume text could not be extracted");
+    setStoredResume(d.text, d.filename || file.name);
+    showToast(`Resume saved: ${d.filename || file.name}`, "success");
+    dismissWelcomeModal();
+    relabelSearchAsScrape({ pulse: true, focus: true });
+    renderTopbarResumeChip();
+    maybeAutoSearchFromHero();
+  } catch (e) {
+    if (status) { status.textContent = e.message || "Upload failed"; status.classList.add("error"); }
+    showToast(`Upload failed: ${e.message}`, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+    input.value = "";
+  }
+}
+// Reframe the existing sidebar search button as the "Start Job Scraping" CTA
+// once a resume is on file. Optionally pulse it to draw attention.
+function relabelSearchAsScrape(opts) {
+  const btn = document.getElementById("search-btn");
+  const txt = document.getElementById("search-btn-text");
+  if (txt) txt.textContent = "Start Job Scraping";
+  if (btn && opts && opts.pulse) {
+    btn.classList.add("scrape-ready");
+    setTimeout(() => btn.classList.remove("scrape-ready"), 4500);
+  }
+  if (btn && opts && opts.focus) {
+    try { btn.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_) {}
+    setTimeout(() => { try { btn.focus({ preventScroll: true }); } catch (_) {} }, 300);
+  }
+}
+
+// ── Topbar resume chip ──────────────────────────────────────────────────────
+// A persistent reminder of which resume is on file, with quick "Replace"
+// and "Remove" affordances. Rendered after hydration completes.
+function renderTopbarResumeChip() {
+  const stored = getStoredResume();
+  let chip = document.getElementById("topbar-resume-chip");
+  if (!stored) {
+    if (chip) chip.remove();
+    return;
+  }
+  if (!chip) {
+    chip = document.createElement("div");
+    chip.id = "topbar-resume-chip";
+    chip.className = "topbar-resume-chip";
+    chip.title = "Your resume on file — Replace to swap, × to remove";
+    const right = document.querySelector(".topbar-right");
+    if (right) right.insertBefore(chip, right.firstChild);
+    else document.body.appendChild(chip);
+  }
+  const rawName = stored.name || "resume";
+  const name = rawName.length > 28 ? rawName.slice(0, 25) + "\u2026" : rawName;
+  chip.innerHTML =
+    `<span class="trc-icon">\u{1F4C4}</span>` +
+    `<span class="trc-name">${escHtml(name)}</span>` +
+    `<button class="trc-replace" type="button" onclick="replaceStoredResume()" title="Replace resume">Replace</button>` +
+    `<button class="trc-clear" type="button" onclick="deleteStoredResume()" title="Remove resume">\u00d7</button>`;
+}
+
+function replaceStoredResume() {
+  // Reuse the welcome-modal file picker so upload + drag-drop wiring is
+  // identical between the two entry points.
+  const inp = document.getElementById("welcome-resume-file-input");
+  if (inp) inp.click();
+}
+
+async function deleteStoredResume() {
+  const ok = await appConfirm("Remove your saved resume from JobPilot?", "Remove resume");
+  if (!ok) return;
+  try {
+    const tok = getToken();
+    if (tok) {
+      await fetch(`${API}/api/me/resume`, {
+        method: "DELETE",
+        headers: { "Authorization": `Bearer ${tok}` },
+      });
+    }
+  } catch (_) {}
+  clearStoredResume();
+  renderTopbarResumeChip();
+  // Reset every job's local cache so the picker reappears in Tailor tab.
+  Object.values(jobStates || {}).forEach(st => {
+    if (st && st.state === "idle") {
+      st.resumeText = "";
+      st.resumeName = "";
+    }
+  });
+  if (selectedJob && jobStates[selectedJob.id]?.state === "idle") renderTabBody();
+  const txt = document.getElementById("search-btn-text");
+  if (txt) txt.textContent = "Find jobs now";
+  showToast("Resume removed", "success");
+}
+
+async function deleteMyAccount() {
+  const ok = await appConfirm(
+    "Permanently delete your JobPilot account and saved resume? This cannot be undone.",
+    "Delete account",
+  );
+  if (!ok) return;
+  try {
+    const tok = getToken();
+    const r = await fetch(`${API}/api/me`, {
+      method: "DELETE",
+      headers: tok ? { "Authorization": `Bearer ${tok}` } : {},
+    });
+    if (!r.ok) {
+      let msg = "Account deletion failed";
+      try { const e = await r.json(); msg = e.detail || msg; } catch (_) {}
+      throw new Error(msg);
+    }
+    showToast("Account deleted", "success");
+  } catch (e) {
+    showToast(e.message || "Could not delete account", "error");
+    return;
+  }
+  clearStoredResume();
+  logout({ silent: true });
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
@@ -904,10 +1145,13 @@ function _parseSalary(s) {
 function openJob(idx) {
   selectedJob = allJobs[idx];
   if (!jobStates[selectedJob.id]) {
+    // Pre-load the user's globally uploaded resume (if any) so the Tailor
+    // tab can skip the picker and go straight to tailoring.
+    const stored = getStoredResume();
     jobStates[selectedJob.id] = {
       state:           "idle",   // idle | uploading | generating | gen_form | tailoring | tailored | scored
-      resumeText:      "",
-      resumeName:      "",
+      resumeText:      stored ? stored.text : "",
+      resumeName:      stored ? stored.name : "",
       jdText:          "",
       tailoredText:    "",
       originalTailored: "",   // v1 snapshot — used for reset
@@ -1104,6 +1348,23 @@ function togglePasteBox() {
 
 // ── Tailor Tab ────────────────────────────────────────────────────────────────
 function buildTailorTab(j, st) {
+  // ── State: idle — resume already on file, offer one-click tailor ─────────
+  if (st.state === "idle" && st.resumeText) {
+    return `
+      <div class="resume-pick-header">
+        <div class="rph-title">Tailor your resume for <b>${escHtml(j.company)}</b></div>
+        <div class="rph-sub">Using your uploaded resume: <b>${escHtml(st.resumeName || "resume")}</b>. JobPilot will rewrite it for this role in seconds.</div>
+      </div>
+      <button class="btn-primary" id="tailor-stored-btn" onclick="startTailor()">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="margin-right:6px;vertical-align:-2px">
+          <path d="M2 8h4M8 2v4M14 8h-4M8 14v-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <circle cx="8" cy="8" r="2" fill="currentColor"/>
+        </svg>
+        Tailor Resume for this Job
+      </button>
+      <button class="btn-ghost" id="replace-resume-btn" style="margin-top:10px"
+        onclick="document.getElementById('resume-file-input').click()">Use a different resume</button>`;
+  }
   // ── State: idle — no resume yet, ask user to pick action ─────────────────
   if (st.state === "idle") {
     return `
@@ -1363,6 +1624,8 @@ async function handleResumeFile(input) {
     const d = await r.json();
     st.resumeText = d.text;
     st.resumeName = d.filename;
+    // Persist as the user's default resume so other jobs reuse it.
+    setStoredResume(d.text, d.filename);
     logSession("upload", `Uploaded resume: ${d.filename}`);
     showToast(`Resume uploaded: ${d.filename}`, "success");
     await startTailor();
@@ -1480,8 +1743,11 @@ function resetTailor() {
   const st = jobStates[selectedJob.id];
   if (st.atsTimer) clearTimeout(st.atsTimer);
   st.state        = "idle";
-  st.resumeText   = "";
-  st.resumeName   = "";
+  // Keep the user's globally stored resume populated so they can re-tailor
+  // with one click instead of being forced back through the picker.
+  const stored   = getStoredResume();
+  st.resumeText   = stored ? stored.text : "";
+  st.resumeName   = stored ? stored.name : "";
   st.tailoredText = "";
   st.chatHistory  = [];
   st.score        = null;

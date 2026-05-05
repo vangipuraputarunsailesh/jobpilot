@@ -3,21 +3,14 @@
 > Search real jobs across every major US company, tailor your resume with AI, check your ATS score, and apply — all in one place.
 
 <p align="center">
-  <a href="https://jobpilot-production-1eb8.up.railway.app/app">
-    <img alt="Live Demo" src="https://img.shields.io/badge/Live%20Demo-Open%20App-14b8a6?style=for-the-badge&logo=railway&logoColor=white"/>
-  </a>
-  &nbsp;
-  <a href="#" title="Custom domain launching soon">
-    <img alt="Coming Soon" src="https://img.shields.io/badge/Coming%20soon-jobspilot.site-fbbf24?style=for-the-badge&logo=googlechrome&logoColor=white"/>
+  <a href="https://www.jobspilot.site">
+    <img alt="Live Site" src="https://img.shields.io/badge/Live%20Site-www.jobspilot.site-14b8a6?style=for-the-badge&logo=googlechrome&logoColor=white"/>
   </a>
 </p>
 
 <p align="center">
-  <strong>🚀 Try it live:</strong>
-  <a href="https://jobpilot-production-1eb8.up.railway.app/app">jobpilot-production-1eb8.up.railway.app/app</a>
-  <br/>
-  <strong>🌐 Coming soon:</strong>
-  <code>jobspilot.site</code>
+  <strong>🌐 Visit the app:</strong>
+  <a href="https://www.jobspilot.site">www.jobspilot.site</a>
 </p>
 
 ---
@@ -49,10 +42,10 @@ JobPilot is a full-stack AI job application assistant built on **Flask** (Python
 
 | Environment | URL | Status |
 |---|---|---|
-| **Production (Railway)** | <https://jobpilot-production-1eb8.up.railway.app/app> | ✅ Live |
-| **Custom domain** | `https://jobspilot.site` | 🟡 Coming soon |
-| **Landing page** | <https://jobpilot-production-1eb8.up.railway.app/> | ✅ Live |
-| **API docs** | <https://jobpilot-production-1eb8.up.railway.app/docs> | ✅ Live |
+| **Production** | <https://www.jobspilot.site> | ✅ Live |
+| **Landing page** | <https://www.jobspilot.site/> | ✅ Live |
+| **Application** | <https://www.jobspilot.site/app> | ✅ Live |
+| **API docs** | <https://www.jobspilot.site/docs> | ✅ Live |
 
 ---
 
@@ -67,7 +60,7 @@ JobPilot is a full-stack AI job application assistant built on **Flask** (Python
 | **Inline editing** | Edit tailored resumes directly in the browser; AI assists line-by-line on demand |
 | **Chat-style instructions** | Natural language commands to refine your resume ("make the summary more concise", "add Python to skills") |
 | **PDF & DOCX download** | Export tailored resumes in multiple formats |
-| **Auth system** | Email/password and Google OAuth sign-in; JWT-protected API |
+| **Auth system** | Email/password, **Google**, and **GitHub** sign-in; JWT-protected API |
 | **Demo mode** | One-click "Try Demo" button — no sign-up required to explore the app |
 | **Usage monitor** | Live API quota tracker for all paid integrations |
 
@@ -77,13 +70,12 @@ JobPilot is a full-stack AI job application assistant built on **Flask** (Python
 
 ### Landing Page
 
-The app opens on a dark-themed marketing landing page (`/`) with a teal/green color palette. The hero section now includes three primary CTAs plus quick access to the live deployment:
+The app opens on a dark-themed marketing landing page (`/`) with a teal/green color palette. The hero section now includes three primary CTAs plus a direct link to the live site:
 
 - **Start for free** — opens the sign-up modal
 - **Sign in →** — opens the login modal
 - **Try Demo** — enter the app instantly with a demo account
-- **Live Demo** — opens the production app at `jobpilot-production-1eb8.up.railway.app/app`
-- **Coming soon: jobspilot.site** — placeholder pill for the upcoming custom domain
+- **Visit www.jobspilot.site** — the canonical production URL
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
@@ -94,7 +86,7 @@ The app opens on a dark-themed marketing landing page (`/`) with a teal/green co
 │        faster with AI                                                    │
 │                                                                          │
 │   [ Start for free → ]   Sign in →   [ ▶ Try Demo ]                      │
-│   [ 🌐 Live Demo ]   ● Coming soon: jobspilot.site                       │
+│   [ 🌐 Visit www.jobspilot.site ]                                         │
 │                                                                          │
 │   ✓ Free forever  ·  ✓ No credit card required  ·  ✓ 2-minute setup     │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -182,7 +174,7 @@ Railway is the recommended cloud platform for JobPilot. The `railway.toml` at th
 3. Select this repository — Railway auto-detects `railway.toml` and uses `jobpilot/Dockerfile`.
 4. In the **Variables** tab add the environment variables listed below.
 5. Click **Deploy** — Railway builds the image and starts the service.
-6. Railway provides a public HTTPS URL automatically (the production deployment for this project lives at <https://jobpilot-production-1eb8.up.railway.app/app>).
+6. Railway provides a public HTTPS URL automatically. The production deployment for this project is served at <https://www.jobspilot.site> (the canonical custom domain; CNAME-mapped to the Railway service).
 
 ### Known Railway Issues (Already Fixed)
 
@@ -208,6 +200,9 @@ Configure these in your `.env` file (local) or Railway **Variables** panel (prod
 | `ADZUNA_APP_KEY` | Recommended | Adzuna App Key |
 | `GOOGLE_CLIENT_ID` | Optional | Google OAuth client ID for "Sign in with Google" |
 | `GOOGLE_CLIENT_SECRET` | Optional | Google OAuth client secret |
+| `GITHUB_CLIENT_ID` | Optional | GitHub OAuth App client ID for "Sign in with GitHub" |
+| `GITHUB_CLIENT_SECRET` | Optional | GitHub OAuth App client secret |
+| `GITHUB_REDIRECT_URI` | Optional | Override the GitHub OAuth callback URL (defaults to `https://www.jobspilot.site/api/auth/github/callback`) |
 | `APIFY_API_TOKEN` | Optional | Apify token for the LinkedIn scraper |
 | `USAJOBS_API_KEY` | Optional | US Federal jobs API key — [developer.usajobs.gov](https://developer.usajobs.gov) |
 | `USAJOBS_EMAIL` | Optional | Email associated with the USAJobs API key |
@@ -223,7 +218,7 @@ The "Continue with Google" button on the landing page is hidden until
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
 2. Create an **OAuth 2.0 Client ID** of type *Web application*.
 3. Add **Authorized JavaScript origins** for every domain you serve from, e.g.
-   `https://jobpilot-production-1eb8.up.railway.app` and `http://localhost:5000`.
+   `https://www.jobspilot.site` and `http://localhost:5000`.
 4. Add **Authorized redirect URIs** matching the same origins (the GSI library
    uses the same origin, so adding the bare origin is sufficient for the
    one-tap flow JobPilot uses).
@@ -236,6 +231,33 @@ If `GOOGLE_CLIENT_ID` is unset, the entire Google block (button + divider) is
 hidden so end users only see the email/password and Demo options. Append
 `?debug=1` to the landing URL to render an admin-visible "not configured"
 hint instead — useful when triaging a deploy.
+
+### Enable GitHub Sign-In (host as a GitHub App)
+
+The "Continue with GitHub" button is hidden until both `GITHUB_CLIENT_ID`
+and `GITHUB_CLIENT_SECRET` are set. To enable it:
+
+1. Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**
+   (<https://github.com/settings/developers>).
+2. Set the fields:
+   - **Application name:** `JobPilot`
+   - **Homepage URL:** `https://www.jobspilot.site`
+   - **Authorization callback URL:** `https://www.jobspilot.site/api/auth/github/callback`
+     (for local dev, register a second OAuth App with `http://localhost:5000/api/auth/github/callback`).
+3. Click **Register application**, then **Generate a new client secret**.
+4. Copy the **Client ID** and **Client secret** into your environment:
+   - Local: `GITHUB_CLIENT_ID=...` and `GITHUB_CLIENT_SECRET=...` in `jobpilot/.env`.
+   - Railway: add both under the service's **Variables** tab.
+5. (Optional) Override the redirect URI per environment with
+   `GITHUB_REDIRECT_URI` if you serve from a non-default host.
+6. Restart the app. The GitHub button will render on the landing page's auth modal.
+
+The flow is the standard OAuth 2.0 Authorization Code grant: the button
+redirects the browser to GitHub, GitHub calls back with a `code`, the
+server exchanges it for an access token, fetches the user's primary
+verified email via the GitHub API, and issues the same JWT used by every
+other sign-in path. State is signed into the Flask session for CSRF
+protection.
 
 ---
 
@@ -281,6 +303,8 @@ The full interactive API documentation is available at `/docs` when the app is r
 | `POST` | `/api/auth/register` | Register with email/password |
 | `POST` | `/api/auth/login` | Log in with email/password |
 | `POST` | `/api/auth/google` | Sign in with Google OAuth credential |
+| `GET`  | `/api/auth/github/start` | Redirect to GitHub OAuth authorize URL |
+| `GET`  | `/api/auth/github/callback` | Handle GitHub OAuth callback and mint a JWT |
 | `POST` | `/api/auth/demo` | Issue a demo-mode JWT (no sign-up) |
 | `GET`  | `/api/health` | Health check — shows API key status and resume count |
 | `GET`  | `/api/usage` | API quota usage counters |
@@ -329,6 +353,7 @@ To customise the brand mark, edit the `<text>` element inside `favicon.svg` (or 
 | DOCX download fails | Ensure `python-docx` is installed: `pip install python-docx` |
 | Port 5000 in use locally | Set `PORT=5001` in your `.env` before running `python app.py` |
 | Google Sign-In not working | Verify `GOOGLE_CLIENT_ID` is set and the OAuth consent screen is configured at [console.cloud.google.com](https://console.cloud.google.com) |
+| GitHub Sign-In not working | Verify both `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are set and the OAuth App's **Authorization callback URL** matches `<your-host>/api/auth/github/callback` exactly |
 | Railway deploy fails | Check the Railway build logs; ensure all required env vars are set in the Variables tab |
 | Jobs show datacenter block | Some platforms (LinkedIn) block datacenter IPs — use Apify (`APIFY_API_TOKEN`) for better LinkedIn coverage |
 | Favicon not updating | Hard-refresh the browser (`Ctrl+Shift+R` / `Cmd+Shift+R`) — browsers cache favicons aggressively |

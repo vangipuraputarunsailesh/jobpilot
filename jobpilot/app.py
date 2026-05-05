@@ -3,8 +3,11 @@ app.py — JobPilot Flask Backend (v4.0)
 Run: python app.py
 """
 import os
+import sys
 import time
 import logging
+import threading
+from collections import defaultdict, deque
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -34,13 +37,71 @@ _USAGE = {
     "total_ai_chats":    0,
 }
 
-_PUBLIC_PATHS = {"/", "/app", "/api/auth/login", "/api/auth/register",
-                 "/api/auth/google", "/api/auth/demo", "/api/health"}
+_PUBLIC_PATHS = {"/", "/app", "/terms", "/privacy",
+                 "/api/auth/login", "/api/auth/register",
+                 "/api/auth/google", "/api/auth/demo", "/api/health",
+                 "/api/auth/github/start", "/api/auth/github/callback"}
+
+# ── Per-user rate limit for paid Anthropic-backed routes ─────────────────────
+# In-memory sliding-window counter (per email, per route group). Resets on
+# server restart — acceptable for MVP; the Postgres migration (#23) will move
+# this server-side. Demo accounts get a tighter cap so abuse can't drain the
+# Anthropic budget.
+_RATE_LIMITED_PATHS = (
+    "/api/tailor", "/api/score", "/api/chat-instruction",
+    "/api/improve-line", "/api/generate-resume",
+    "/api/suggest-certs", "/api/answer",
+)
+_RATE_WINDOW_SECONDS = int(os.environ.get("RATE_WINDOW_SECONDS", "86400"))  # 24h
+_RATE_LIMIT_DEFAULT  = int(os.environ.get("RATE_LIMIT_PER_USER", "60"))
+_RATE_LIMIT_DEMO     = int(os.environ.get("RATE_LIMIT_DEMO", "10"))
+_rate_lock = threading.Lock()
+_rate_buckets: "dict[str, deque[float]]" = defaultdict(deque)
+
+
+def _rate_limit_check(email: str) -> tuple[bool, int, int]:
+    """Returns (allowed, used, cap). Drops a tick when allowed."""
+    cap = _RATE_LIMIT_DEMO if email == "demo@jobpilot.app" else _RATE_LIMIT_DEFAULT
+    now = time.time()
+    cutoff = now - _RATE_WINDOW_SECONDS
+    with _rate_lock:
+        bucket = _rate_buckets[email]
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+        if len(bucket) >= cap:
+            return False, len(bucket), cap
+        bucket.append(now)
+        return True, len(bucket), cap
 
 
 def create_app() -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
-    app.secret_key = os.environ.get("FLASK_SECRET", "jobpilot-flask-secret")
+
+    # ── Secret hygiene (fail-fast in prod) ────────────────────────────────────
+    # Refuse to boot with the placeholder secrets when FLASK_ENV=production
+    # (or RAILWAY_ENVIRONMENT is set). Locally the defaults are fine.
+    flask_secret = os.environ.get("FLASK_SECRET", "jobpilot-flask-secret")
+    jwt_secret   = os.environ.get("JWT_SECRET",   "jobpilot-secret-change-in-production")
+    is_prod = (
+        os.environ.get("FLASK_ENV") == "production"
+        or bool(os.environ.get("RAILWAY_ENVIRONMENT"))
+        or os.environ.get("JOBPILOT_ENFORCE_SECRETS") == "1"
+    )
+    if is_prod:
+        bad = []
+        if flask_secret == "jobpilot-flask-secret" or len(flask_secret) < 32:
+            bad.append("FLASK_SECRET (must be >=32 chars and not the default)")
+        if jwt_secret == "jobpilot-secret-change-in-production" or len(jwt_secret) < 32:
+            bad.append("JWT_SECRET (must be >=32 chars and not the default)")
+        if bad:
+            sys.stderr.write(
+                "FATAL: refusing to start in production with weak secrets:\n  - "
+                + "\n  - ".join(bad)
+                + "\nGenerate strong values, e.g. `python -c \"import secrets;print(secrets.token_urlsafe(48))\"`\n"
+            )
+            sys.exit(1)
+
+    app.secret_key = flask_secret
     app.config["USAGE"] = _USAGE
 
     CORS(app)
@@ -87,9 +148,25 @@ def create_app() -> Flask:
             if not token:
                 return jsonify({"detail": "Not authenticated"}), 401
             try:
-                decode_token(token)
+                email = decode_token(token)
             except pyjwt.PyJWTError:
                 return jsonify({"detail": "Invalid or expired token"}), 401
+            g.email = email
+            # Per-user rate limit on Anthropic-backed routes.
+            if path in _RATE_LIMITED_PATHS:
+                ok, used, cap = _rate_limit_check(email)
+                if not ok:
+                    logging.getLogger("jobpilot").warning(
+                        "RATE LIMIT | %s used %d/%d on %s", email, used, cap, path
+                    )
+                    return jsonify({
+                        "detail": (
+                            f"Daily AI usage limit reached ({cap}/day). "
+                            "Try again in 24 hours."
+                        ),
+                        "used": used,
+                        "cap":  cap,
+                    }), 429
         return None
 
     # ── Register blueprints ───────────────────────────────────────────────────
@@ -109,11 +186,20 @@ def create_app() -> Flask:
             "GOOGLE_CLIENT_ID is not set; Google Sign-In is disabled. "
             "Set it in .env / Railway env to enable the button."
         )
+    if not (os.environ.get("GITHUB_CLIENT_ID") and os.environ.get("GITHUB_CLIENT_SECRET")):
+        logging.getLogger("jobpilot").warning(
+            "GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET not set; GitHub Sign-In is disabled. "
+            "Register an OAuth App at https://github.com/settings/developers to enable it."
+        )
 
     @app.get("/")
     def landing():
+        github_enabled = bool(
+            os.environ.get("GITHUB_CLIENT_ID") and os.environ.get("GITHUB_CLIENT_SECRET")
+        )
         return render_template("landing.html",
-                               google_client_id=os.environ.get("GOOGLE_CLIENT_ID", ""))
+                               google_client_id=os.environ.get("GOOGLE_CLIENT_ID", ""),
+                               github_enabled=github_enabled)
 
     @app.get("/app")
     def index():

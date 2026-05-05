@@ -31,3 +31,7 @@ jobpilot/resumes/
 
 # Claude Code
 .claude/
+
+# Local deploy secrets (used by scripts/sync-secrets.ps1)
+scripts/.env.deploy
+
