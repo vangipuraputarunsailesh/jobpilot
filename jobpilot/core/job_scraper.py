@@ -424,6 +424,38 @@ def _normalize_date(raw) -> str:
         return s[:10] if len(s) >= 10 else (s or "Today")
 
 
+# Issue #102 — parse the human-readable string produced by `_normalize_date`
+# back into a "days old" integer so `search_all_platforms` can enforce the
+# date-posted window for sources that don't expose a server-side filter
+# (The Muse, Remotive, Arbeitnow). Returns None when the string can't be
+# interpreted, in which case the post-filter keeps the job (fail-open) so
+# we don't accidentally nuke results from a source whose date format
+# changes upstream.
+def _days_old(posted: str) -> int | None:
+    if not posted:
+        return None
+    s = posted.strip().lower()
+    if not s:
+        return None
+    if s in ("just now", "today") or "hr ago" in s or "min ago" in s:
+        return 0
+    m = re.match(r"(\d+)\s+days?\s+ago$", s)
+    if m:
+        try:
+            return int(m.group(1))
+        except ValueError:
+            return None
+    if s == "1 day ago":
+        return 1
+    # ISO date "YYYY-MM-DD" (possibly with trailing time)
+    try:
+        d = datetime.fromisoformat(s[:10]).date()
+        delta = (datetime.now(timezone.utc).date() - d).days
+        return max(delta, 0)
+    except Exception:
+        return None
+
+
 # ── Salary builder ────────────────────────────────────────────────────────────
 
 def _salary(min_s, max_s, period=None) -> str:
@@ -465,7 +497,45 @@ _REMOTE_KEYWORDS = {"remote", "united states", "usa", "u.s.", "us,", "worldwide"
 _NON_US_COUNTRIES = {
     "united kingdom", "india", "canada", "australia", "germany", "france",
     "netherlands", "singapore", "brazil", "mexico", "spain", "italy",
-    "poland", "uk", "gb", "eu", "europe"
+    "poland", "uk", "gb", "eu", "europe", "ireland", "scotland", "wales",
+    "switzerland", "sweden", "norway", "denmark", "finland", "belgium",
+    "austria", "portugal", "greece", "czech", "czechia", "romania", "hungary",
+    "ukraine", "russia", "turkey", "israel", "uae", "saudi", "qatar",
+    "china", "japan", "korea", "taiwan", "hong kong", "vietnam", "thailand",
+    "indonesia", "philippines", "malaysia", "pakistan", "bangladesh",
+    "south africa", "nigeria", "kenya", "egypt", "argentina", "chile",
+    "colombia", "peru", "new zealand",
+}
+# Issue #102 — known non-US cities. The previous fallback ("short string → keep")
+# let single-word foreign cities like "Berlin" / "Munich" / "London" pass the
+# US filter when the user explicitly searched within the United States.
+_FOREIGN_CITIES = {
+    # Europe
+    "london", "manchester", "birmingham", "edinburgh", "glasgow", "dublin",
+    "berlin", "munich", "hamburg", "frankfurt", "cologne", "stuttgart",
+    "düsseldorf", "dusseldorf", "leipzig", "dresden",
+    "paris", "lyon", "marseille", "toulouse", "nice", "bordeaux",
+    "madrid", "barcelona", "valencia", "seville", "bilbao",
+    "rome", "milan", "turin", "naples", "florence",
+    "amsterdam", "rotterdam", "eindhoven", "the hague", "utrecht",
+    "brussels", "antwerp", "vienna", "zurich", "geneva", "basel", "bern",
+    "stockholm", "gothenburg", "oslo", "copenhagen", "helsinki",
+    "warsaw", "krakow", "prague", "budapest", "bucharest", "sofia",
+    "lisbon", "porto", "athens", "istanbul",
+    # Americas (non-US)
+    "toronto", "vancouver", "montreal", "ottawa", "calgary", "edmonton",
+    "mexico city", "guadalajara", "monterrey", "sao paulo", "são paulo",
+    "rio de janeiro", "buenos aires", "santiago", "bogota", "bogotá", "lima",
+    # Asia / Pacific
+    "bangalore", "bengaluru", "hyderabad", "mumbai", "delhi", "new delhi",
+    "chennai", "pune", "kolkata", "noida", "gurgaon", "gurugram",
+    "singapore", "tokyo", "osaka", "kyoto", "yokohama",
+    "seoul", "beijing", "shanghai", "shenzhen", "guangzhou", "taipei",
+    "hong kong", "bangkok", "jakarta", "manila", "kuala lumpur", "hanoi",
+    "sydney", "melbourne", "brisbane", "perth", "auckland", "wellington",
+    # Middle East / Africa
+    "dubai", "abu dhabi", "doha", "riyadh", "tel aviv", "jerusalem",
+    "cairo", "johannesburg", "cape town", "nairobi", "lagos",
 }
 
 
@@ -478,11 +548,16 @@ def _is_us_or_remote(loc: str) -> bool:
     # Reject known non-US countries
     if any(k in u for k in _NON_US_COUNTRIES):
         return False
+    # Issue #102 — reject known non-US cities (whole-word match so we don't
+    # nuke US locations that happen to contain the substring, e.g. "Newark").
+    for city in _FOREIGN_CITIES:
+        if re.search(r"\b" + re.escape(city) + r"\b", u):
+            return False
     u_up = loc.upper()
     for state in _US_STATES:
         if f", {state}" in u_up or f" {state}," in u_up or u_up.endswith(f" {state}") or u_up.endswith(f",{state}"):
             return True
-    # Short ambiguous string → keep
+    # Short ambiguous string → keep (only after foreign-city/country rejection).
     if len(loc.split()) <= 3:
         return True
     return False
@@ -1183,7 +1258,7 @@ def search_remotive(title: str) -> list[dict]:
 
 # ── 5. USAJobs (free, government) ────────────────────────────────────────────
 
-def search_usajobs(title: str, location: str) -> list[dict]:
+def search_usajobs(title: str, location: str, date_posted: str = "pastWeek") -> list[dict]:
     """
     Official US federal government job portal.
     Sign up free at: https://developer.usajobs.gov/
@@ -1196,13 +1271,16 @@ def search_usajobs(title: str, location: str) -> list[dict]:
     if api_key:
         hdrs["Authorization-Key"] = api_key
 
+    # Issue #102 — honour the date_posted filter instead of hard-coding 1 day.
+    # USAJobs `DatePosted` is the max age in days (0–60, default 60).
+    days_window = 1 if date_posted == "past24Hours" else (7 if date_posted == "pastWeek" else 30)
     r = _get(
         "https://data.usajobs.gov/api/search",
         headers=hdrs,
         params={
             "Keyword":        title,
             "LocationName":   location,
-            "DatePosted":     1,
+            "DatePosted":     days_window,
             "ResultsPerPage": 25,
             "SortField":      "OpenDate",
             "SortDirection":  "Desc",
@@ -1434,7 +1512,7 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
         lambda: search_adzuna(title, location, pages=4, date_posted=date_posted),
         lambda: search_themuse(title, location, pages=4),
         lambda: search_remotive(title),
-        lambda: search_usajobs(title, location),
+        lambda: search_usajobs(title, location, date_posted=date_posted),
         lambda: search_arbeitnow(title),
     ]
 
@@ -1491,6 +1569,21 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
         all_jobs = [j for j in all_jobs if _seniority_matches(j.get("title", ""), seniority)]
         logger.info("[filter] After seniority filter  : %4d  (removed %d wrong-level titles)",
                     len(all_jobs), before_seniority - len(all_jobs))
+
+    # ── Filter 4b: Date-posted post-filter (Issue #102) ───────────────────────
+    # Several free sources (The Muse, Remotive, Arbeitnow) have no server-side
+    # date filter, and others (USAJobs) only loosely honour it. Enforce the
+    # window the user actually picked. Jobs with an unparseable `posted` field
+    # are kept (fail-open) so format drift in any single source doesn't blank
+    # the result set.
+    _date_window = {"past24Hours": 1, "pastWeek": 7, "pastMonth": 30}.get(date_posted, 7)
+    before_date = len(all_jobs)
+    def _within_window(j: dict) -> bool:
+        d = _days_old(j.get("posted", ""))
+        return d is None or d <= _date_window
+    all_jobs = [j for j in all_jobs if _within_window(j)]
+    logger.info("[filter] After date filter       : %4d  (removed %d outside %d-day window)",
+                len(all_jobs), before_date - len(all_jobs), _date_window)
 
     # ── Filter 5: Deduplicate by (title_lower, company_lower) ─────────────────
     seen:   set  = set()

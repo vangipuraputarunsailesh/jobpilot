@@ -92,6 +92,10 @@ function revealTopbarUser() {
     userEl.style.display = "";
   }
   if (btnEl) btnEl.style.display = "";
+  // Resume library is gated behind login.
+  const libBtn = document.getElementById("resume-library-btn");
+  if (libBtn) libBtn.style.display = "";
+  refreshResumeLibraryCount();
 }
 
 function switchAuthTab(tab) {
@@ -167,7 +171,7 @@ function logout(opts) {
   const proceed = () => {
     clearLoginSession();
     clearStoredResume();
-    try { sessionHistory = []; } catch (_) {}
+    try { if (typeof sessionHistory !== "undefined") sessionHistory.length = 0; } catch (_) {}
     window.location.href = "/";
   };
   if (silent) { proceed(); return; }
@@ -227,8 +231,20 @@ function enforceSessionLifecycle() {
 }
 
 // ── Session history (in-memory, resets on reload / logout) ───────────────────
-let sessionHistory = [];
-let _sessionHistoryOpen = false;
+// Issue #69 — keep these as `var`s and back them with `window.*` so a second
+// inclusion of app.js (e.g. due to a bfcache restore or a duplicated <script>
+// tag) does not throw `SyntaxError: redeclaration of let sessionHistory` and
+// wipe out the in-progress activity log. The redeclaration is also written
+// idempotently so the array reference is preserved across re-includes; that
+// is why `clearSessionHistory()` mutates the array in place rather than
+// reassigning it. A full IIFE wrapper is intentionally deferred until we add
+// a bundler (see issues #44 / #45).
+var sessionHistory = window.sessionHistory || [];
+window.sessionHistory = sessionHistory;
+var _sessionHistoryOpen = (typeof window._sessionHistoryOpen === "boolean")
+  ? window._sessionHistoryOpen
+  : false;
+window._sessionHistoryOpen = _sessionHistoryOpen;
 
 function logSession(type, text, meta) {
   try {
@@ -253,6 +269,7 @@ function _fmtSessionTime(ts) {
 
 function toggleSessionHistory() {
   _sessionHistoryOpen = !_sessionHistoryOpen;
+  window._sessionHistoryOpen = _sessionHistoryOpen;
   const panel = document.getElementById("session-history-panel");
   if (!panel) return;
   panel.style.display = _sessionHistoryOpen ? "" : "none";
@@ -277,7 +294,9 @@ function renderSessionHistoryPanel() {
 }
 
 function clearSessionHistory() {
-  sessionHistory = [];
+  // Issue #69 — mutate in place so the `window.sessionHistory` alias and any
+  // older bindings continue to point at the same array.
+  sessionHistory.length = 0;
   _persistSessionHistory();
   renderSessionHistoryPanel();
 }
@@ -702,7 +721,248 @@ async function deleteStoredResume() {
   const txt = document.getElementById("search-btn-text");
   if (txt) txt.textContent = "Find jobs now";
   showToast("Resume removed", "success");
+  refreshResumeLibraryCount();
 }
+
+// ── Resume library (multi-resume) ───────────────────────────────────────────
+// Topbar "Resumes" button → modal listing every resume the user has saved,
+// with [Use], [Delete], and Upload affordances. The "active" resume mirrors
+// into the legacy /api/me/resume endpoint so existing flows keep working.
+
+async function refreshResumeLibraryCount() {
+  const badge = document.getElementById("resume-library-count");
+  if (!badge) return;
+  try {
+    const tok = getToken();
+    if (!tok) { badge.style.display = "none"; return; }
+    const r = await fetch(`${API}/api/me/resumes`, {
+      headers: { "Authorization": `Bearer ${tok}` },
+    });
+    if (!r.ok) { badge.style.display = "none"; return; }
+    const d = await r.json();
+    const n = (d && Array.isArray(d.items)) ? d.items.length : 0;
+    if (n > 0) {
+      badge.textContent = String(n);
+      badge.style.display = "";
+    } else {
+      badge.style.display = "none";
+    }
+  } catch (_) { badge.style.display = "none"; }
+}
+
+function openResumeLibrary() {
+  const ov = document.getElementById("library-overlay");
+  if (!ov) return;
+  ov.style.display = "flex";
+  const status = document.getElementById("library-status");
+  if (status) { status.textContent = ""; status.classList.remove("error"); }
+  loadResumeLibrary();
+}
+
+function closeResumeLibrary() {
+  const ov = document.getElementById("library-overlay");
+  if (ov) ov.style.display = "none";
+}
+
+async function loadResumeLibrary() {
+  const list = document.getElementById("library-list");
+  const cap  = document.getElementById("library-cap");
+  if (!list) return;
+  list.innerHTML = `<div class="library-empty">Loading your saved resumes…</div>`;
+  try {
+    const tok = getToken();
+    if (!tok) {
+      list.innerHTML = `<div class="library-empty">Sign in to manage saved resumes.</div>`;
+      return;
+    }
+    const r = await fetch(`${API}/api/me/resumes`, {
+      headers: { "Authorization": `Bearer ${tok}` },
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "Could not load library");
+    const items = (d && d.items) || [];
+    if (cap) cap.textContent = items.length ? `${items.length} of 20 used` : "";
+    if (!items.length) {
+      list.innerHTML = `<div class="library-empty">No resumes saved yet. Upload one to get started.</div>`;
+      return;
+    }
+    list.innerHTML = items.map(renderLibraryItem).join("");
+  } catch (e) {
+    list.innerHTML = `<div class="library-empty">Could not load resumes: ${escHtml(e.message || "error")}</div>`;
+  }
+}
+
+function renderLibraryItem(it) {
+  const created = it.created
+    ? new Date(it.created.replace(" ", "T") + "Z").toLocaleString()
+    : "";
+  const sizeKb = Math.max(1, Math.round((it.chars || 0) / 1024));
+  const source = (it.source || "upload").toLowerCase();
+  const sourceLabel = source.charAt(0).toUpperCase() + source.slice(1);
+  const badges = [
+    it.is_active ? `<span class="library-badge active">Active</span>` : "",
+    `<span class="library-badge ${escHtml(source)}">${escHtml(sourceLabel)}</span>`,
+  ].filter(Boolean).join(" ");
+  return `
+    <div class="library-item" data-id="${it.id}">
+      <div class="library-item-main">
+        <div class="library-item-name">${escHtml(it.name || "resume")}</div>
+        <div class="library-item-meta">
+          ${badges}
+          <span>${sizeKb} KB</span>
+          ${created ? `<span>${escHtml(created)}</span>` : ""}
+        </div>
+        <div class="library-item-preview">${escHtml(it.preview || "")}</div>
+      </div>
+      <div class="library-item-actions">
+        ${it.is_active
+          ? `<button class="library-act-btn" disabled>In use</button>`
+          : `<button class="library-act-btn primary" type="button" onclick="useLibraryResume(${it.id})">Use this</button>`}
+        <button class="library-act-btn danger" type="button" onclick="deleteLibraryResume(${it.id})">Delete</button>
+      </div>
+    </div>`;
+}
+
+async function useLibraryResume(id) {
+  const status = document.getElementById("library-status");
+  if (status) { status.textContent = "Loading resume…"; status.classList.remove("error"); }
+  try {
+    const tok = getToken();
+    const r = await fetch(`${API}/api/me/resumes/${id}/default`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${tok}` },
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "Could not switch resume");
+    setStoredResume(d.text, d.name);
+    renderTopbarResumeChip();
+    relabelSearchAsScrape({ pulse: true });
+    // Refresh in-flight tailor tabs that haven't started yet.
+    Object.values(jobStates || {}).forEach(st => {
+      if (st && st.state === "idle") {
+        st.resumeText = d.text;
+        st.resumeName = d.name;
+      }
+    });
+    if (selectedJob && jobStates[selectedJob.id]?.state === "idle") renderTabBody();
+    showToast(`Now using "${d.name}"`, "success");
+    closeResumeLibrary();
+  } catch (e) {
+    if (status) { status.textContent = e.message || "Failed"; status.classList.add("error"); }
+    showToast(e.message || "Failed to switch resume", "error");
+  }
+}
+
+async function deleteLibraryResume(id) {
+  const ok = await appConfirm("Remove this resume from your library?", "Delete");
+  if (!ok) return;
+  try {
+    const tok = getToken();
+    const r = await fetch(`${API}/api/me/resumes/${id}`, {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${tok}` },
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || "Delete failed");
+    showToast("Resume deleted", "success");
+    loadResumeLibrary();
+    refreshResumeLibraryCount();
+    // The active pointer may have changed server-side. Re-hydrate.
+    await hydrateStoredResumeFromServer();
+    renderTopbarResumeChip();
+  } catch (e) {
+    showToast(e.message || "Delete failed", "error");
+  }
+}
+
+async function handleLibraryResumeFile(input) {
+  if (!input.files || !input.files.length) return;
+  const file = input.files[0];
+  const status = document.getElementById("library-status");
+  if (status) { status.textContent = `Uploading ${file.name}…`; status.classList.remove("error"); }
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const r = await fetch(`${API}/api/upload-resume`, {
+      method: "POST",
+      body: form,
+      headers: getToken() ? { "Authorization": `Bearer ${getToken()}` } : {},
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "Upload failed");
+    if (!d.text) throw new Error("Could not extract resume text");
+    // Existing /api/upload-resume already mirrors this into the library
+    // (server-side save_user_resume() upserts by name) AND sets it as the
+    // active resume. So we just need to refresh local state.
+    setStoredResume(d.text, d.filename || file.name);
+    renderTopbarResumeChip();
+    relabelSearchAsScrape({ pulse: true });
+    showToast(`Saved: ${d.filename || file.name}`, "success");
+    if (status) status.textContent = "";
+    loadResumeLibrary();
+    refreshResumeLibraryCount();
+  } catch (e) {
+    if (status) { status.textContent = e.message || "Upload failed"; status.classList.add("error"); }
+    showToast(e.message || "Upload failed", "error");
+  } finally {
+    input.value = "";
+  }
+}
+
+// Save a tailored resume into the user's library so it's available for
+// future searches without re-tailoring.
+async function saveTailoredToLibrary(btn) {
+  const j = selectedJob;
+  if (!j) { showToast("No job selected", "error"); return; }
+  const st = jobStates[j.id];
+  if (!st || !st.tailoredText || !st.tailoredText.trim()) {
+    showToast("Nothing to save yet", "error");
+    return;
+  }
+  const company = (j.company || "Company").slice(0, 40);
+  const title   = (j.title   || "Role").slice(0, 40);
+  const stamp   = new Date().toISOString().slice(0, 10);
+  const name    = `Tailored — ${company} — ${title} — ${stamp}`;
+  if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+  try {
+    const tok = getToken();
+    const r = await fetch(`${API}/api/me/resumes`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${tok}`,
+        "Content-Type":  "application/json",
+      },
+      body: JSON.stringify({ name, text: st.tailoredText, source: "tailored" }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "Save failed");
+    st.savedToLibrary = true;
+    showToast("Saved to your resume library", "success");
+    refreshResumeLibraryCount();
+    const bar = document.getElementById("save-to-library-bar");
+    if (bar) {
+      bar.classList.add("saved");
+      const msg = bar.querySelector(".stl-msg");
+      if (msg) msg.innerHTML = `<b>Saved</b> as “${escHtml(name)}” — available for future searches.`;
+      if (btn) { btn.textContent = "Saved ✓"; btn.disabled = true; }
+    }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = "Save to library"; }
+    showToast(e.message || "Save failed", "error");
+  }
+}
+
+// Close library when clicking outside the card / pressing Escape.
+document.addEventListener("click", (e) => {
+  const ov = document.getElementById("library-overlay");
+  if (!ov || ov.style.display === "none") return;
+  if (e.target === ov) closeResumeLibrary();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const ov = document.getElementById("library-overlay");
+  if (ov && ov.style.display !== "none") closeResumeLibrary();
+});
 
 async function deleteMyAccount() {
   const ok = await appConfirm(
@@ -1544,6 +1804,16 @@ function buildTailorTab(j, st) {
               <button class="btn-ghost" style="flex:1" onclick="downloadResume('pdf',1)">1 page</button>
               <button class="btn-ghost" style="flex:1" onclick="downloadResume('docx',0)">.docx</button>
             </div>
+            <div class="save-to-library-bar ${st.savedToLibrary ? "saved" : ""}" id="save-to-library-bar">
+              <div class="stl-msg">
+                ${st.savedToLibrary
+                  ? `<b>Saved</b> to your resume library — available for future searches.`
+                  : `Like this version? Save it to your <b>resume library</b> so you can reuse it next time.`}
+              </div>
+              <button type="button" onclick="saveTailoredToLibrary(this)" ${st.savedToLibrary ? "disabled" : ""}>
+                ${st.savedToLibrary ? "Saved ✓" : "Save to library"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1668,6 +1938,7 @@ async function generateResume() {
     if (d.error) throw new Error(d.error);
     st.resumeText = d.resume;
     st.resumeName = "AI Generated Resume";
+    notifyTruncation(d);
     logSession("generate", `Generated AI resume for ${j.title || "role"}`);
     showToast("Resume generated!", "success");
     await startTailor();
@@ -1719,6 +1990,8 @@ async function startTailor() {
     st.auditFindings   = d.audit       || "";
     st.state           = "tailored";
     st.chatHistory     = [];
+    st.savedToLibrary  = false;  // new tailor → re-prompt user to save
+    notifyTruncation(d);
     logSession("tailor", `Tailored resume for ${j.company} — ${j.title}`);
     showToast("Resume tailored successfully!", "success");
     scheduleAutoAtsScore(250, "tailor");
@@ -1931,6 +2204,7 @@ async function applyInstruction() {
     st.chatHistory.push({ role: "ai", text: d.explanation });
 
     renderTabBody();
+    notifyTruncation(d);
     if (d.resume_changed !== false) {
       scheduleAutoAtsScore(250, "chat");
       showToast("Resume updated!", "success");
@@ -1991,6 +2265,7 @@ async function checkATSScore(opts = {}) {
     st.score     = d.score;
     st.state     = "scored";
     if (!auto) {
+      notifyTruncation(d);
       logSession("ats", `ATS score: ${d.score}/100 for ${selectedJob?.company || ""} — ${selectedJob?.title || ""}`);
     }
     const normalized = _normalizeForScore(st.tailoredText);
@@ -2258,6 +2533,10 @@ async function downloadResume(fmt = "pdf", fitPages = 0) {
       }),
     });
     if (!r.ok) throw new Error("Download failed");
+    // Issue #91 — backend advertises which renderer produced the PDF via the
+    // X-PDF-Renderer header; warn the user when WeasyPrint silently fell back
+    // to ReportLab so styling regressions don't go unnoticed.
+    const renderer = (r.headers.get("X-PDF-Renderer") || "").toLowerCase();
     const blob = await r.blob();
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
@@ -2266,7 +2545,11 @@ async function downloadResume(fmt = "pdf", fitPages = 0) {
     a.click();
     URL.revokeObjectURL(url);
     logSession("download", `Downloaded ${fmt.toUpperCase()}${fitPages ? ` (${fitPages}-page)` : ""} — ${selectedJob.company || ""}`);
-    showToast("Resume downloaded!", "success");
+    if (fmt === "pdf" && renderer === "reportlab") {
+      showToast("PDF rendered with the ReportLab fallback — styling may differ from the preview.", "error");
+    } else {
+      showToast("Resume downloaded!", "success");
+    }
   } catch (e) {
     showToast("Download failed: " + e.message, "error");
   }
@@ -2438,4 +2721,13 @@ function showToast(msg, type = "") {
   t.className   = `toast show ${type}`;
   clearTimeout(t._timer);
   t._timer = setTimeout(() => t.classList.remove("show"), 3500);
+}
+
+// Issue #90 — surface backend `truncation_warning` fields as a soft warning so
+// users know their longest job description / resume was clipped before the
+// AI saw it.
+function notifyTruncation(j) {
+  if (j && typeof j.truncation_warning === "string" && j.truncation_warning) {
+    showToast(j.truncation_warning, "error");
+  }
 }

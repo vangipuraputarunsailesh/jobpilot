@@ -163,12 +163,17 @@ def save_tailored_resume(filename: str, content: str) -> str:
     return str(out_path)
 
 
-def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
+def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> tuple[str, str]:
     """
     Save tailored resume as a styled PDF using HTML/CSS templates.
     Template 1 (black)  = 1-page style  (auto-selected for short content)
     Template 2 (teal)   = 2-page style  (auto-selected for long content)
     max_pages=0 → auto-detect; 1 or 2 → force that template + fit.
+
+    Issue #91 — returns ``(path, renderer)`` where ``renderer`` is one of
+    ``"weasyprint"`` (preferred path) or ``"reportlab"`` (silent fallback).
+    The caller is expected to advertise the fallback to the user (e.g. via a
+    response header or banner) so styling regressions don't go unnoticed.
     """
     out_path = _safe_out_path(_safe_stem(filename), "_tailored.pdf")
 
@@ -176,7 +181,7 @@ def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
         from core.resume_templates import render_to_pdf
         pdf_bytes = render_to_pdf(content, max_pages=max_pages)
         out_path.write_bytes(pdf_bytes)
-        return str(out_path)
+        return str(out_path), "weasyprint"
     except Exception as e:
         # Issue #21 — surface render failures via the configured logger so they
         # land in the rotating log file instead of stdout-only print().
@@ -474,11 +479,14 @@ def save_tailored_pdf(filename: str, content: str, max_pages: int = 0) -> str:
                 story = best_story if best_story is not None else _build_story_with_scale(0.75)
 
         doc.build(story)
-        return str(out_path)
+        return str(out_path), "reportlab"
 
     except Exception as e:
         logger.warning("[pdf export] Error: %s", e, exc_info=True)
-        return save_tailored_resume(filename, content)
+        # Last-ditch fallback: a plain .txt with the same naming pattern. We
+        # still tag the renderer as "reportlab" since this branch is reached
+        # only after the ReportLab path has already started executing.
+        return save_tailored_resume(filename, content), "reportlab"
 
 
 def save_tailored_docx(filename: str, content: str) -> str:

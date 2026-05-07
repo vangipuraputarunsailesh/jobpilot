@@ -104,6 +104,32 @@ def _call_json(prompt: str, max_tokens: int = 800) -> dict:
         raise
 
 
+# Issue #90 — shared truncation helper. Every Claude-bound input field clipped
+# by these limits must surface the clip back to the caller so the UI can warn
+# the user (otherwise their most recent role / longest JD section is silently
+# lost). Returns the (possibly clipped) text and a `(label, original, limit)`
+# triple to be combined into a single human-readable warning by the caller.
+def _truncate(text: str, limit: int, label: str) -> tuple[str, tuple[str, int, int] | None]:
+    if text is None:
+        return "", None
+    if len(text) <= limit:
+        return text, None
+    return text[:limit], (label, len(text), limit)
+
+
+def _format_truncation_warning(parts: list[tuple[str, int, int] | None]) -> str:
+    """Build a single human-readable warning string from the per-field tuples."""
+    fragments = [
+        f"{label} ({original:,} \u2192 {limit:,} chars)"
+        for entry in parts
+        if entry is not None
+        for label, original, limit in (entry,)
+    ]
+    if not fragments:
+        return ""
+    return "Input was truncated for AI processing: " + ", ".join(fragments) + "."
+
+
 def _extract_skill_candidates(text: str, limit: int = 40) -> list[str]:
     """Extract likely skill/tool keywords from free text and deduplicate them."""
     candidates = []
@@ -226,18 +252,12 @@ def score_ats(resume_text: str, job_description: str, compact_mode: bool = False
     """
     MAX_RESUME_CHARS = 6000
     MAX_JD_CHARS     = 3000
-    truncated_parts = []
-    if len(resume_text) > MAX_RESUME_CHARS:
-        truncated_parts.append(f"resume ({len(resume_text):,} \u2192 {MAX_RESUME_CHARS:,} chars)")
-    if len(job_description) > MAX_JD_CHARS:
-        truncated_parts.append(f"job description ({len(job_description):,} \u2192 {MAX_JD_CHARS:,} chars)")
-    truncation_warning = (
-        "Input was truncated for scoring: " + ", ".join(truncated_parts) + "."
-        if truncated_parts else ""
-    )
+    # Issue #90 — share the truncation helper used across the AI engine so
+    # every clipped input surfaces a consistent warning to the caller/UI.
+    compact_resume, resume_trunc = _truncate(resume_text,     MAX_RESUME_CHARS, "resume")
+    compact_jd,     jd_trunc     = _truncate(job_description, MAX_JD_CHARS,     "job description")
+    truncation_warning = _format_truncation_warning([resume_trunc, jd_trunc])
 
-    compact_resume = resume_text[:MAX_RESUME_CHARS]
-    compact_jd = job_description[:MAX_JD_CHARS]
     if compact_mode:
         compact_resume, compact_jd = _compact_scoring_payload(resume_text, job_description)
 
@@ -384,6 +404,11 @@ def tailor_resume(
     real_education      = _extract_section(resume_text, "EDUCATION")
     real_certifications = _extract_section(resume_text, "CERTIFICATIONS")
 
+    # Issue #90 — surface clipping to the caller so the UI can warn the user.
+    jd_clip,     jd_trunc     = _truncate(job_description, 3000, "job description")
+    resume_clip, resume_trunc = _truncate(resume_text,     6000, "resume")
+    truncation_warning = _format_truncation_warning([jd_trunc, resume_trunc])
+
     prompt = f"""# SYSTEM PROMPT: Elite Resume Tailoring Engine v2.0
 
 ## IDENTITY & ROLE
@@ -404,10 +429,10 @@ JOB TITLE: {job_title}
 COMPANY: {company}
 
 JOB DESCRIPTION:
-{job_description[:3000]}
+{jd_clip}
 
 ORIGINAL RESUME:
-{resume_text[:6000]}
+{resume_clip}
 
 ---
 
@@ -611,6 +636,7 @@ CERTIFICATIONS_PLACEHOLDER
             "report":      report,
             "jd_analysis": jd_analysis,
             "audit":       audit,
+            "truncation_warning": truncation_warning,
         }
     except Exception as e:
         logger.warning("[tailor] Error: %s", e)
@@ -619,6 +645,7 @@ CERTIFICATIONS_PLACEHOLDER
             "report":      f"Error: {e}",
             "jd_analysis": "",
             "audit":       "",
+            "truncation_warning": truncation_warning,
         }
 
 
@@ -652,16 +679,22 @@ def apply_chat_instruction(
         messages.append({"role": "assistant", "content": older_summary})
 
     # Session context injection (per developer notes in prompt)
+    # Issue #90 — clip via shared helper and surface a warning back to caller.
+    desc_clip,     desc_trunc     = _truncate(description or "",                         2000, "job description")
+    orig_clip,     orig_trunc     = _truncate(original_resume or resume_text or "",      4000, "original resume")
+    current_clip,  current_trunc  = _truncate(resume_text or "",                         4000, "current resume")
+    truncation_warning = _format_truncation_warning([desc_trunc, orig_trunc, current_trunc])
+
     session_context = f"""SESSION CONTEXT (do not respond to this, just load it):
 
 JOB DESCRIPTION:
-{description[:2000] if description else "Not provided"}
+{desc_clip if desc_clip else "Not provided"}
 
 ORIGINAL RESUME (v1 — never modify this reference):
-{(original_resume or resume_text)[:4000]}
+{orig_clip}
 
 CURRENT RESUME (v{version}):
-{resume_text[:4000]}"""
+{current_clip}"""
 
     messages.append({"role": "user",      "content": session_context})
     messages.append({"role": "assistant", "content": "Context loaded. Ready to help refine your resume."})
@@ -822,7 +855,7 @@ ANSWER:
         # ANSWER: — pure conversation, no resume change
         if raw.startswith("ANSWER:"):
             answer = raw[len("ANSWER:"):].strip()
-            return {"resume": resume_text, "explanation": answer, "resume_changed": False, "version": version}
+            return {"resume": resume_text, "explanation": answer, "resume_changed": False, "version": version, "truncation_warning": truncation_warning}
 
         # Resume v[N]: — edit was made
         version_match = re.search(r"Resume v(\d+):", raw)
@@ -848,6 +881,7 @@ ANSWER:
                 "explanation":    explanation or "Applied your change.",
                 "resume_changed": True,
                 "version":        new_version,
+                "truncation_warning": truncation_warning,
             }
 
         # Legacy fallback — UPDATED RESUME: format
@@ -864,14 +898,15 @@ ANSWER:
                 "explanation":    explanation or "Applied your change.",
                 "resume_changed": True,
                 "version":        version + 1,
+                "truncation_warning": truncation_warning,
             }
 
         # Fallback — treat as conversational
-        return {"resume": resume_text, "explanation": raw, "resume_changed": False, "version": version}
+        return {"resume": resume_text, "explanation": raw, "resume_changed": False, "version": version, "truncation_warning": truncation_warning}
 
     except Exception as e:
         logger.warning("[chat_instruction] Error: %s", e)
-        return {"resume": resume_text, "explanation": f"Error: {e}", "resume_changed": False, "version": version}
+        return {"resume": resume_text, "explanation": f"Error: {e}", "resume_changed": False, "version": version, "truncation_warning": truncation_warning}
 
 
 # ── Smart Certification Suggestions ──────────────────────────────────────────
@@ -891,6 +926,11 @@ def suggest_certifications(
       - add: new certs to add (with reasoning)
       - updated_cert_section: ready-to-paste certifications section
     """
+    # Issue #90 — surface input clipping back to caller.
+    desc_clip,   desc_trunc   = _truncate(description, 2000, "job description")
+    resume_clip, resume_trunc = _truncate(resume_text, 2500, "resume")
+    truncation_warning = _format_truncation_warning([desc_trunc, resume_trunc])
+
     prompt = f"""You are an expert career advisor who knows certifications deeply.
 
 Analyze this resume and job description. Provide smart certification recommendations.
@@ -927,21 +967,25 @@ JOB TITLE: {job_title}
 COMPANY: {company}
 
 JOB DESCRIPTION:
-{description[:2000]}
+{desc_clip}
 
 CURRENT RESUME (for existing certs and background):
-{resume_text[:2500]}
+{resume_clip}
 
 Return ONLY valid JSON. No markdown, no explanation outside the JSON."""
 
     try:
-        return _call_json(prompt, 1000)
+        out = _call_json(prompt, 1000)
+        if truncation_warning:
+            out["truncation_warning"] = truncation_warning
+        return out
     except Exception as e:
         logger.warning("[certs] Error: %s", e)
         return {
             "keep": [], "remove": [], "add": [],
             "updated_cert_section": "",
-            "error": str(e)
+            "error": str(e),
+            "truncation_warning": truncation_warning,
         }
 
 
@@ -975,18 +1019,22 @@ Return ONLY the improved bullet text. Nothing else."""
 
 # ── Generate Resume from Scratch ─────────────────────────────────────────────
 
-def generate_resume(user_description: str, job_title: str = "", job_description: str = "") -> str:
+def generate_resume(user_description: str, job_title: str = "", job_description: str = "") -> dict:
     """
     Generate a complete resume using the Resume Generation Engine v2.0.
     Handles thin input, infers role-standard bullets, flags all AI-generated content.
-    Returns full output including resume + scorecard + placeholder tracker.
+    Returns {"resume": str, "truncation_warning": str} so the caller can warn the
+    user when their job-description input was clipped (Issue #90).
     """
+    jd_clip, jd_trunc = _truncate(job_description, 2500, "job description")
+    truncation_warning = _format_truncation_warning([jd_trunc])
+
     jd_section = ""
     if job_title or job_description:
         jd_section = f"""TARGET ROLE: {job_title}
 
 JOB DESCRIPTION (tailor resume to this from the start):
-{job_description[:2500]}"""
+{jd_clip}"""
 
     prompt = f"""# SYSTEM PROMPT: JobPilot Resume Generation Engine v2.0
 
@@ -1173,10 +1221,10 @@ USER INPUT:
 {user_description}"""
 
     try:
-        return _call(prompt, max_tokens=7000)
+        return {"resume": _call(prompt, max_tokens=7000), "truncation_warning": truncation_warning}
     except Exception as e:
         logger.warning("[generate_resume] Error: %s", e)
-        return ""
+        return {"resume": "", "truncation_warning": truncation_warning}
 
 
 # ── Answer Screening Question ─────────────────────────────────────────────────
@@ -1185,8 +1233,17 @@ def answer_screening_question(
     question:    str,
     resume_text: str,
     job_description: str = ""
-) -> str:
-    """Generate a strong answer to a job application screening question."""
+) -> dict:
+    """Generate a strong answer to a job application screening question.
+
+    Returns ``{"answer": str, "truncation_warning": str}`` so the caller can
+    warn the user when their inputs were clipped before being sent to Claude
+    (Issue #90).
+    """
+    resume_clip, resume_trunc = _truncate(resume_text,    2000, "resume")
+    jd_clip,     jd_trunc     = _truncate(job_description, 800, "job description")
+    truncation_warning = _format_truncation_warning([resume_trunc, jd_trunc])
+
     prompt = f"""You are helping a job applicant answer a screening question honestly and compellingly.
 
 Write a strong, genuine, first-person answer (3-5 sentences) based on their actual experience.
@@ -1197,15 +1254,15 @@ Match the answer to what the job description is looking for.
 QUESTION: {question}
 
 RESUME:
-{resume_text[:2000]}
+{resume_clip}
 
 JOB DESCRIPTION:
-{job_description[:800]}
+{jd_clip}
 
 Return ONLY the answer text. No preamble, no "Here is your answer:", just the answer itself."""
 
     try:
-        return _call(prompt, 400)
+        return {"answer": _call(prompt, 400), "truncation_warning": truncation_warning}
     except Exception as e:
         logger.warning("[answer] Error: %s", e)
-        return f"Error generating answer: {e}"
+        return {"answer": f"Error generating answer: {e}", "truncation_warning": truncation_warning}

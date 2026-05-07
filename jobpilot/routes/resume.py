@@ -87,9 +87,14 @@ def generate_resume_endpoint():
         job_title=data.get("job_title", ""),
         job_description=data.get("job_description", ""),
     )
-    if not result:
+    # Issue #90 — generate_resume now returns a dict so the caller can warn the
+    # user when their inputs were clipped before being sent to Claude.
+    if not result or not result.get("resume"):
         return jsonify({"detail": "Resume generation failed — check ANTHROPIC_API_KEY"}), 500
-    return jsonify({"resume": result})
+    payload = {"resume": result["resume"]}
+    if result.get("truncation_warning"):
+        payload["truncation_warning"] = result["truncation_warning"]
+    return jsonify(payload)
 
 
 @resume_bp.post("/api/score")
@@ -132,12 +137,16 @@ def tailor():
     try:
         result = tailor_resume(resume_text, description, job_title, company)
         logger.info("TAILOR DONE")
-        return jsonify({
+        payload = {
             "tailored":    result["resume"],
             "report":      result.get("report", ""),
             "jd_analysis": result.get("jd_analysis", ""),
             "audit":       result.get("audit", ""),
-        })
+        }
+        # Issue #90 — forward the truncation warning so the UI can banner it.
+        if result.get("truncation_warning"):
+            payload["truncation_warning"] = result["truncation_warning"]
+        return jsonify(payload)
     except Exception as e:
         logger.error(f"TAILOR ERROR | {e}", exc_info=True)
         return jsonify({"detail": "Resume tailoring failed. Please try again."}), 500
@@ -182,6 +191,8 @@ def chat_instruction():
         "explanation":    result["explanation"],
         "resume_changed": result.get("resume_changed", True),
         "version":        result.get("version", version),
+        # Issue #90 — surface input clipping back to the chat UI.
+        "truncation_warning": result.get("truncation_warning", ""),
     })
 
 
@@ -203,11 +214,17 @@ def answer():
     _usage = current_app.config["USAGE"]
     data = request.get_json(silent=True) or {}
     _usage["claude_calls"] += 1
-    return jsonify({"answer": answer_screening_question(
+    # Issue #90 — answer_screening_question now returns a dict so the caller
+    # can warn the user when inputs were clipped before being sent to Claude.
+    result = answer_screening_question(
         data.get("question", ""),
         data.get("resume_text", ""),
         data.get("description", ""),
-    )})
+    )
+    payload = {"answer": result["answer"]}
+    if result.get("truncation_warning"):
+        payload["truncation_warning"] = result["truncation_warning"]
+    return jsonify(payload)
 
 
 @resume_bp.post("/api/download")
@@ -232,9 +249,14 @@ def download():
                 download_name=Path(path).name,
             )
         if fmt == "pdf":
-            path = save_tailored_pdf(safe_stem, content, max_pages=fit_pages)
-            return send_file(path, mimetype="application/pdf",
-                             as_attachment=True, download_name=Path(path).name)
+            # Issue #91 — save_tailored_pdf now returns the renderer that
+            # actually produced the bytes so we can advertise the WeasyPrint
+            # → ReportLab fallback to the client via a response header.
+            path, renderer = save_tailored_pdf(safe_stem, content, max_pages=fit_pages)
+            response = send_file(path, mimetype="application/pdf",
+                                 as_attachment=True, download_name=Path(path).name)
+            response.headers["X-PDF-Renderer"] = renderer
+            return response
         path = save_tailored_resume(safe_stem, content)
         return send_file(path, mimetype="text/plain",
                          as_attachment=True, download_name=Path(path).name)

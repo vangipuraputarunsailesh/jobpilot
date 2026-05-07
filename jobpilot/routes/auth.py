@@ -14,6 +14,8 @@ from flask import Blueprint, request, jsonify, redirect, session, url_for, Respo
 from core.auth_db import (
     create_user, get_user, verify_password, create_token,
     get_user_resume, clear_user_resume, delete_user,
+    list_user_resumes, add_user_resume, get_user_resume_by_id,
+    delete_user_resume_by_id, set_default_user_resume,
 )
 
 auth_bp = Blueprint("auth", __name__)
@@ -124,6 +126,77 @@ def me_delete_resume():
     clear_user_resume(email)
     logger.info("RESUME CLEARED | %s", email)
     return jsonify({"ok": True})
+
+
+# ── Multi-resume library ────────────────────────────────────────────────────
+# These endpoints back the topbar "Resumes" library modal so a user can keep
+# multiple named resumes (e.g. one base + several tailored variants) and
+# pick which one is "active" for new searches.
+
+@auth_bp.get("/api/me/resumes")
+def me_list_resumes():
+    email = getattr(g, "email", None)
+    if not email:
+        return jsonify({"detail": "Not authenticated"}), 401
+    return jsonify({"items": list_user_resumes(email)})
+
+
+@auth_bp.get("/api/me/resumes/<int:resume_id>")
+def me_get_resume_by_id(resume_id):
+    email = getattr(g, "email", None)
+    if not email:
+        return jsonify({"detail": "Not authenticated"}), 401
+    res = get_user_resume_by_id(email, resume_id)
+    if not res:
+        return jsonify({"detail": "Resume not found"}), 404
+    return jsonify(res)
+
+
+@auth_bp.post("/api/me/resumes")
+def me_add_resume():
+    email = getattr(g, "email", None)
+    if not email:
+        return jsonify({"detail": "Not authenticated"}), 401
+    data = request.get_json(silent=True) or {}
+    text = (data.get("text") or "").strip()
+    name = (data.get("name") or "").strip()
+    source = (data.get("source") or "manual").strip()
+    if not text:
+        return jsonify({"detail": "Resume text is required"}), 400
+    if not name:
+        return jsonify({"detail": "Resume name is required"}), 400
+    try:
+        new_id = add_user_resume(email, text, name, source)
+    except ValueError as e:
+        # Library full or bad input — surface to UI as a clean 400.
+        return jsonify({"detail": str(e)}), 400
+    logger.info("RESUME LIBRARY ADD | %s | id=%s | name=%s | source=%s",
+                email, new_id, name, source)
+    return jsonify({"id": new_id, "name": name, "source": source})
+
+
+@auth_bp.delete("/api/me/resumes/<int:resume_id>")
+def me_delete_resume_by_id(resume_id):
+    email = getattr(g, "email", None)
+    if not email:
+        return jsonify({"detail": "Not authenticated"}), 401
+    removed = delete_user_resume_by_id(email, resume_id)
+    if not removed:
+        return jsonify({"detail": "Resume not found"}), 404
+    logger.info("RESUME LIBRARY DELETE | %s | id=%s", email, resume_id)
+    return jsonify({"ok": True})
+
+
+@auth_bp.post("/api/me/resumes/<int:resume_id>/default")
+def me_set_default_resume(resume_id):
+    email = getattr(g, "email", None)
+    if not email:
+        return jsonify({"detail": "Not authenticated"}), 401
+    res = set_default_user_resume(email, resume_id)
+    if not res:
+        return jsonify({"detail": "Resume not found"}), 404
+    logger.info("RESUME LIBRARY SET DEFAULT | %s | id=%s", email, resume_id)
+    return jsonify({"id": res["id"], "name": res["name"], "text": res["text"]})
 
 
 @auth_bp.delete("/api/me")
