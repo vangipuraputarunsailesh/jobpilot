@@ -328,6 +328,19 @@
       <div id="byok-status-usajobs" class="byok-status"></div>
     </div>
 
+    <!-- Cloudflare Worker URL (Phase 5 — job-search proxy) -->
+    <div class="byok-section">
+      <div class="byok-row-head">
+        <label class="byok-label" for="byok-cf-worker-url">
+          Cloudflare Worker URL <span class="byok-opt">optional — needed for the GitHub Pages build of JobPilot</span>
+        </label>
+        <a class="byok-help" href="https://github.com/Unigalactix/jobpilot/tree/master/proxy" target="_blank" rel="noopener">Deploy →</a>
+      </div>
+      <input id="byok-cf-worker-url" type="url" autocomplete="off" spellcheck="false"
+             class="byok-input" placeholder="https://jobpilot-proxy.your-subdomain.workers.dev"/>
+      <div id="byok-status-cf-worker" class="byok-status"></div>
+    </div>
+
     <div class="byok-footer">
       <div id="byok-save-status" class="byok-save-status"></div>
       <div class="byok-footer-actions">
@@ -546,10 +559,12 @@
 
 <!-- Phase 3: client-side Google Drive resume storage. -->
 <!-- Phase 4: client-side Anthropic + parse + export modules. -->
+<!-- Phase 5: client-side job search via Cloudflare Worker proxy. -->
 <!-- All of these MUST load before app.js so their window.* exports exist. -->
 <script src="/static/js/drive.js"></script>
 <script src="/static/js/ai.js"></script>
 <script src="/static/js/resume-parser.js"></script>
 <script src="/static/js/export.js"></script>
+<script src="/static/js/jobs.js"></script>
 <script src="/static/js/app.js"></script>
 {% endblock %}

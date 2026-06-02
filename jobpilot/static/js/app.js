@@ -103,8 +103,9 @@ const BYOK_PBKDF2_ITERS = 200_000;
 const BYOK_SALT_BYTES = new TextEncoder().encode("jobpilot-byok-v1");
 
 // In-memory plaintext cache. Keys: anthropic, claude_model, rapidapi,
-// adzuna_id, adzuna_key, usajobs_email, usajobs_key. Empty object when
-// no keys have ever been saved (or after `byokClear()`).
+// adzuna_id, adzuna_key, usajobs_email, usajobs_key, cf_worker_url
+// (Phase 5 — Cloudflare Worker URL for client-side job search). Empty
+// object when no keys have ever been saved (or after `byokClear()`).
 let _byokPlain = {};
 let _byokLoaded = false;
 
@@ -238,6 +239,8 @@ function _byokFormRead() {
     adzuna_key:    v("byok-adzuna-key").trim(),
     usajobs_email: v("byok-usajobs-email").trim(),
     usajobs_key:   v("byok-usajobs-key").trim(),
+    // Phase 5: optional Cloudflare Worker URL for client-side job search.
+    cf_worker_url: v("byok-cf-worker-url").trim(),
   };
 }
 
@@ -250,6 +253,7 @@ function _byokFormWrite(p) {
   set("byok-adzuna-key",    p.adzuna_key);
   set("byok-usajobs-email", p.usajobs_email);
   set("byok-usajobs-key",   p.usajobs_key);
+  set("byok-cf-worker-url", p.cf_worker_url);
 }
 
 function openSettingsModal() {
@@ -1641,13 +1645,40 @@ async function searchJobs() {
   showSearching(title, location);
 
   try {
-    const r    = await fetch(`${API}/api/jobs`, {
-      method:  "POST",
-      headers: authHeaders(),
-      body:    JSON.stringify({ title, location, seniority, date_posted }),
-      signal:  searchAbortController.signal,
-    });
-    const data = await r.json();
+    // Phase 5: prefer the Cloudflare Worker job-search path when the user
+    // has configured a Worker URL in Settings AND we're not running in
+    // demo mode (demo users still hit the Flask /api/jobs endpoint because
+    // the Worker can't auth to JSearch / Adzuna / USAJobs without their
+    // BYOK keys). If the Worker call throws or returns zero jobs because
+    // it's not configured, fall back to the legacy Flask path so the
+    // currently-deployed Railway server keeps working unchanged.
+    const workerUrl = (_byokPlain && _byokPlain.cf_worker_url) || "";
+    const isDemo    = localStorage.getItem("jp_demo") === "1";
+    let data        = null;
+
+    if (workerUrl && !isDemo && typeof window.searchJobsViaWorker === "function") {
+      try {
+        data = await window.searchJobsViaWorker({
+          title, location, seniority,
+          datePosted: date_posted,
+          workerUrl,
+        });
+      } catch (workerErr) {
+        if (workerErr && workerErr.name === "AbortError") throw workerErr;
+        console.warn("[jobs] Worker search failed, falling back to /api/jobs", workerErr);
+        data = null;
+      }
+    }
+
+    if (!data) {
+      const r    = await fetch(`${API}/api/jobs`, {
+        method:  "POST",
+        headers: authHeaders(),
+        body:    JSON.stringify({ title, location, seniority, date_posted }),
+        signal:  searchAbortController.signal,
+      });
+      data = await r.json();
+    }
     allJobs    = data.jobs || [];
 
     const sourceList = data.sources || [];
