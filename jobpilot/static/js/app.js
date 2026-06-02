@@ -57,6 +57,10 @@ function clearLoginSession() {
   // sign-in. The seed (their email) changes on the next login anyway,
   // but we belt-and-suspender it.
   try { byokClear(); } catch (_) {}
+  // Phase 3: drop the client-side Drive state (active-resume pointer + demo
+  // library). The Drive files themselves stay in the user's account.
+  localStorage.removeItem("jp_active_resume_id");
+  localStorage.removeItem("jp_demo_library");
   sessionStorage.removeItem("jp_session_active");
   sessionStorage.removeItem("jp_session_history");
 }
@@ -851,8 +855,9 @@ function initApp() {
 
   // ── Resume hydration & onboarding ───────────────────────────────────────
   // 1. localStorage gives instant feedback on warm reloads.
-  // 2. /api/me/resume hydrates server-side state so a fresh device, cleared
-  //    cache, or new browser still recovers the user's saved resume.
+  // 2. hydrateStoredResumeFromServer() pulls the active resume from the
+  //    user's Drive appDataFolder (Phase 3) so a fresh device or cleared
+  //    cache still recovers the resume.
   // 3. Welcome modal only shows if no resume exists AND the user hasn't
   //    already dismissed it this browser session.
   hydrateStoredResumeFromServer().then(() => {
@@ -892,19 +897,26 @@ function maybeAutoSearchFromHero() {
   searchJobs();
 }
 
-// Pull the user's saved resume from the server. Failures swallowed so the UI
-// degrades to localStorage-only.
+// Pull the user's saved resume from Drive (or the demo localStorage library)
+// on app boot so a fresh device or cleared cache still recovers the active
+// resume. Picks the resume marked active via localStorage.jp_active_resume_id,
+// falling back to the most-recently-created one. Failures swallowed so the
+// UI degrades to whatever's already in jp_resume_text.
 async function hydrateStoredResumeFromServer() {
   try {
-    const tok = getToken();
-    if (!tok) return;
-    const r = await fetch(`${API}/api/me/resume`, {
-      headers: { "Authorization": `Bearer ${tok}` },
-    });
-    if (!r.ok) return;
-    const d = await r.json();
-    if (d && d.text) setStoredResume(d.text, d.name || "resume");
-  } catch (_) { /* offline / cold-start — ignore */ }
+    if (!getToken()) return;
+    if (typeof listResumesFromDrive !== "function") return; // drive.js not loaded yet
+    const items = await listResumesFromDrive();
+    if (!items || !items.length) return;
+    const activeId = (typeof getActiveResumeId === "function") ? getActiveResumeId() : "";
+    const pick = (activeId && items.find(x => x.id === activeId)) || items[0];
+    if (!pick) return;
+    const text = await getResumeFromDrive(pick.id);
+    if (text) {
+      setStoredResume(text, pick.name || "resume");
+      if (typeof setActiveResumeId === "function") setActiveResumeId(pick.id);
+    }
+  } catch (_) { /* offline / no Drive permission / demo — ignore */ }
 }
 
 // ── Welcome modal: prompt the user to upload a resume after login ──────────
@@ -951,6 +963,9 @@ async function handleWelcomeResumeFile(input) {
   if (status) { status.textContent = "Reading your resume…"; status.classList.remove("error"); }
   if (btn) btn.disabled = true;
   try {
+    // 1) Send the file to the server purely for text extraction (PDF/DOCX
+    //    parsing moves client-side in Phase 4). The server's own library
+    //    mirror is harmless dead data now — the UI only reads from Drive.
     const form = new FormData();
     form.append("file", file);
     const r = await fetch(`${API}/api/upload-resume`, {
@@ -965,11 +980,25 @@ async function handleWelcomeResumeFile(input) {
     }
     const d = await r.json();
     if (!d || !d.text) throw new Error("Resume text could not be extracted");
-    setStoredResume(d.text, d.filename || file.name);
-    showToast(`Resume saved: ${d.filename || file.name}`, "success");
+    const displayName = d.filename || file.name;
+    // 2) Persist to Drive (or demo localStorage). Mark as active so this
+    //    resume hydrates on the next page load.
+    let savedId = "";
+    if (typeof saveResumeToDrive === "function") {
+      try {
+        const saved = await saveResumeToDrive(displayName, d.text, "upload");
+        savedId = saved && saved.id;
+        if (savedId && typeof setActiveResumeId === "function") setActiveResumeId(savedId);
+      } catch (driveErr) {
+        console.warn("Drive save failed; resume only in local cache:", driveErr);
+      }
+    }
+    setStoredResume(d.text, displayName);
+    showToast(`Resume saved: ${displayName}`, "success");
     dismissWelcomeModal();
     relabelSearchAsScrape({ pulse: true, focus: true });
     renderTopbarResumeChip();
+    refreshResumeLibraryCount();
     maybeAutoSearchFromHero();
   } catch (e) {
     if (status) { status.textContent = e.message || "Upload failed"; status.classList.add("error"); }
@@ -1033,15 +1062,15 @@ function replaceStoredResume() {
 async function deleteStoredResume() {
   const ok = await appConfirm("Remove your saved resume from JobPilot?", "Remove resume");
   if (!ok) return;
+  // Delete the Drive-backed copy if there is one. Local cache is cleared
+  // unconditionally below so the chip vanishes even if the Drive call fails.
   try {
-    const tok = getToken();
-    if (tok) {
-      await fetch(`${API}/api/me/resume`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${tok}` },
-      });
+    const activeId = (typeof getActiveResumeId === "function") ? getActiveResumeId() : "";
+    if (activeId && typeof deleteResumeFromDrive === "function") {
+      await deleteResumeFromDrive(activeId);
     }
-  } catch (_) {}
+  } catch (_) { /* network / permission failure — local cache still clears */ }
+  if (typeof setActiveResumeId === "function") setActiveResumeId("");
   clearStoredResume();
   renderTopbarResumeChip();
   // Reset every job's local cache so the picker reappears in Tailor tab.
@@ -1060,21 +1089,19 @@ async function deleteStoredResume() {
 
 // ── Resume library (multi-resume) ───────────────────────────────────────────
 // Topbar "Resumes" button → modal listing every resume the user has saved,
-// with [Use], [Delete], and Upload affordances. The "active" resume mirrors
-// into the legacy /api/me/resume endpoint so existing flows keep working.
+// with [Use], [Delete], and Upload affordances. Phase 3: library now lives
+// in the user's Drive `appDataFolder` (real users) or localStorage (demo).
+// The active-resume pointer is local-only — see jp_active_resume_id.
 
 async function refreshResumeLibraryCount() {
   const badge = document.getElementById("resume-library-count");
   if (!badge) return;
   try {
-    const tok = getToken();
-    if (!tok) { badge.style.display = "none"; return; }
-    const r = await fetch(`${API}/api/me/resumes`, {
-      headers: { "Authorization": `Bearer ${tok}` },
-    });
-    if (!r.ok) { badge.style.display = "none"; return; }
-    const d = await r.json();
-    const n = (d && Array.isArray(d.items)) ? d.items.length : 0;
+    if (!getToken() || typeof listResumesFromDrive !== "function") {
+      badge.style.display = "none"; return;
+    }
+    const items = await listResumesFromDrive();
+    const n = items.length;
     if (n > 0) {
       badge.textContent = String(n);
       badge.style.display = "";
@@ -1104,17 +1131,15 @@ async function loadResumeLibrary() {
   if (!list) return;
   list.innerHTML = `<div class="library-empty">Loading your saved resumes…</div>`;
   try {
-    const tok = getToken();
-    if (!tok) {
+    if (!getToken()) {
       list.innerHTML = `<div class="library-empty">Sign in to manage saved resumes.</div>`;
       return;
     }
-    const r = await fetch(`${API}/api/me/resumes`, {
-      headers: { "Authorization": `Bearer ${tok}` },
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || "Could not load library");
-    const items = (d && d.items) || [];
+    if (typeof listResumesFromDrive !== "function") {
+      list.innerHTML = `<div class="library-empty">Drive client not loaded. Refresh the page.</div>`;
+      return;
+    }
+    const items = await listResumesFromDrive();
     if (cap) cap.textContent = items.length ? `${items.length} of 20 used` : "";
     if (!items.length) {
       list.innerHTML = `<div class="library-empty">No resumes saved yet. Upload one to get started.</div>`;
@@ -1127,9 +1152,9 @@ async function loadResumeLibrary() {
 }
 
 function renderLibraryItem(it) {
-  const created = it.created
-    ? new Date(it.created.replace(" ", "T") + "Z").toLocaleString()
-    : "";
+  // Drive returns RFC3339 timestamps; demo items use ISO8601. Both parse via
+  // the Date constructor directly — no manual munging required.
+  const created = it.created ? new Date(it.created).toLocaleString() : "";
   const sizeKb = Math.max(1, Math.round((it.chars || 0) / 1024));
   const source = (it.source || "upload").toLowerCase();
   const sourceLabel = source.charAt(0).toUpperCase() + source.slice(1);
@@ -1137,50 +1162,58 @@ function renderLibraryItem(it) {
     it.is_active ? `<span class="library-badge active">Active</span>` : "",
     `<span class="library-badge ${escHtml(source)}">${escHtml(sourceLabel)}</span>`,
   ].filter(Boolean).join(" ");
+  // Drive ids are opaque strings — pass them quoted, and stash the display
+  // name on a data-* attr so `useLibraryResume` can show it in the toast
+  // without a second metadata fetch.
+  const idAttr   = escHtml(String(it.id));
+  const nameAttr = escHtml(it.name || "resume");
+  const previewHtml = it.preview ? escHtml(it.preview) : "";
   return `
-    <div class="library-item" data-id="${it.id}">
+    <div class="library-item" data-id="${idAttr}">
       <div class="library-item-main">
-        <div class="library-item-name">${escHtml(it.name || "resume")}</div>
+        <div class="library-item-name">${nameAttr}</div>
         <div class="library-item-meta">
           ${badges}
           <span>${sizeKb} KB</span>
           ${created ? `<span>${escHtml(created)}</span>` : ""}
         </div>
-        <div class="library-item-preview">${escHtml(it.preview || "")}</div>
+        ${previewHtml ? `<div class="library-item-preview">${previewHtml}</div>` : ""}
       </div>
       <div class="library-item-actions">
         ${it.is_active
           ? `<button class="library-act-btn" disabled>In use</button>`
-          : `<button class="library-act-btn primary" type="button" onclick="useLibraryResume(${it.id})">Use this</button>`}
-        <button class="library-act-btn danger" type="button" onclick="deleteLibraryResume(${it.id})">Delete</button>
+          : `<button class="library-act-btn primary" type="button" data-rid="${idAttr}" data-rname="${nameAttr}" onclick="useLibraryResume(this.dataset.rid, this.dataset.rname)">Use this</button>`}
+        <button class="library-act-btn danger" type="button" data-rid="${idAttr}" onclick="deleteLibraryResume(this.dataset.rid)">Delete</button>
       </div>
     </div>`;
 }
 
-async function useLibraryResume(id) {
+async function useLibraryResume(id, name) {
   const status = document.getElementById("library-status");
   if (status) { status.textContent = "Loading resume…"; status.classList.remove("error"); }
   try {
-    const tok = getToken();
-    const r = await fetch(`${API}/api/me/resumes/${id}/default`, {
-      method: "POST",
-      headers: { "Authorization": `Bearer ${tok}` },
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || "Could not switch resume");
-    setStoredResume(d.text, d.name);
+    if (typeof getResumeFromDrive !== "function") {
+      throw new Error("Drive client not loaded");
+    }
+    const text = await getResumeFromDrive(id);
+    if (!text) throw new Error("Resume body was empty");
+    const displayName = name || "resume";
+    if (typeof setActiveResumeId === "function") setActiveResumeId(id);
+    setStoredResume(text, displayName);
     renderTopbarResumeChip();
     relabelSearchAsScrape({ pulse: true });
     // Refresh in-flight tailor tabs that haven't started yet.
     Object.values(jobStates || {}).forEach(st => {
       if (st && st.state === "idle") {
-        st.resumeText = d.text;
-        st.resumeName = d.name;
+        st.resumeText = text;
+        st.resumeName = displayName;
       }
     });
     if (selectedJob && jobStates[selectedJob.id]?.state === "idle") renderTabBody();
-    showToast(`Now using "${d.name}"`, "success");
+    showToast(`Now using "${displayName}"`, "success");
     closeResumeLibrary();
+    // Re-render so the active badge moves to the new pick.
+    loadResumeLibrary();
   } catch (e) {
     if (status) { status.textContent = e.message || "Failed"; status.classList.add("error"); }
     showToast(e.message || "Failed to switch resume", "error");
@@ -1191,19 +1224,21 @@ async function deleteLibraryResume(id) {
   const ok = await appConfirm("Remove this resume from your library?", "Delete");
   if (!ok) return;
   try {
-    const tok = getToken();
-    const r = await fetch(`${API}/api/me/resumes/${id}`, {
-      method: "DELETE",
-      headers: { "Authorization": `Bearer ${tok}` },
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(d.detail || "Delete failed");
+    if (typeof deleteResumeFromDrive !== "function") {
+      throw new Error("Drive client not loaded");
+    }
+    const wasActive = (typeof getActiveResumeId === "function") && getActiveResumeId() === id;
+    await deleteResumeFromDrive(id);
     showToast("Resume deleted", "success");
+    if (wasActive) {
+      // Local cache pointed at the deleted file — wipe it and re-hydrate
+      // from whatever's still in Drive (most-recent fallback).
+      clearStoredResume();
+      await hydrateStoredResumeFromServer();
+      renderTopbarResumeChip();
+    }
     loadResumeLibrary();
     refreshResumeLibraryCount();
-    // The active pointer may have changed server-side. Re-hydrate.
-    await hydrateStoredResumeFromServer();
-    renderTopbarResumeChip();
   } catch (e) {
     showToast(e.message || "Delete failed", "error");
   }
@@ -1215,6 +1250,9 @@ async function handleLibraryResumeFile(input) {
   const status = document.getElementById("library-status");
   if (status) { status.textContent = `Uploading ${file.name}…`; status.classList.remove("error"); }
   try {
+    // 1) Extract text server-side (Phase 4 moves this client-side via
+    //    pdf.js/mammoth.js). We discard the server's library mirror —
+    //    Drive is the only place the UI now reads from.
     const form = new FormData();
     form.append("file", file);
     const r = await fetch(`${API}/api/upload-resume`, {
@@ -1225,13 +1263,19 @@ async function handleLibraryResumeFile(input) {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || "Upload failed");
     if (!d.text) throw new Error("Could not extract resume text");
-    // Existing /api/upload-resume already mirrors this into the library
-    // (server-side save_user_resume() upserts by name) AND sets it as the
-    // active resume. So we just need to refresh local state.
-    setStoredResume(d.text, d.filename || file.name);
+    const displayName = d.filename || file.name;
+    // 2) Persist to Drive and mark as active.
+    if (typeof saveResumeToDrive !== "function") {
+      throw new Error("Drive client not loaded");
+    }
+    const saved = await saveResumeToDrive(displayName, d.text, "upload");
+    if (saved && saved.id && typeof setActiveResumeId === "function") {
+      setActiveResumeId(saved.id);
+    }
+    setStoredResume(d.text, displayName);
     renderTopbarResumeChip();
     relabelSearchAsScrape({ pulse: true });
-    showToast(`Saved: ${d.filename || file.name}`, "success");
+    showToast(`Saved: ${displayName}`, "success");
     if (status) status.textContent = "";
     loadResumeLibrary();
     refreshResumeLibraryCount();
@@ -1259,17 +1303,10 @@ async function saveTailoredToLibrary(btn) {
   const name    = `Tailored — ${company} — ${title} — ${stamp}`;
   if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
   try {
-    const tok = getToken();
-    const r = await fetch(`${API}/api/me/resumes`, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${tok}`,
-        "Content-Type":  "application/json",
-      },
-      body: JSON.stringify({ name, text: st.tailoredText, source: "tailored" }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || "Save failed");
+    if (typeof saveResumeToDrive !== "function") {
+      throw new Error("Drive client not loaded");
+    }
+    await saveResumeToDrive(name, st.tailoredText, "tailored");
     st.savedToLibrary = true;
     showToast("Saved to your resume library", "success");
     refreshResumeLibraryCount();
@@ -2230,6 +2267,18 @@ async function handleResumeFile(input) {
     st.resumeName = d.filename;
     // Persist as the user's default resume so other jobs reuse it.
     setStoredResume(d.text, d.filename);
+    // Phase 3: also persist to Drive (or demo localStorage) and mark active.
+    if (typeof saveResumeToDrive === "function") {
+      try {
+        const saved = await saveResumeToDrive(d.filename, d.text, "upload");
+        if (saved && saved.id && typeof setActiveResumeId === "function") {
+          setActiveResumeId(saved.id);
+        }
+        refreshResumeLibraryCount();
+      } catch (driveErr) {
+        console.warn("Drive save failed; resume only in local cache:", driveErr);
+      }
+    }
     logSession("upload", `Uploaded resume: ${d.filename}`);
     showToast(`Resume uploaded: ${d.filename}`, "success");
     await startTailor();

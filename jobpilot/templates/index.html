@@ -531,5 +531,8 @@
 
 {% block scripts %}
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<!-- Phase 3: client-side Google Drive resume storage. MUST load before app.js
+     so window.saveResumeToDrive() etc. are available when user actions fire. -->
+<script src="/static/js/drive.js"></script>
 <script src="/static/js/app.js"></script>
 {% endblock %}
