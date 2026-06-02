@@ -48,6 +48,31 @@ def _resolve_anthropic():
     return None
 
 
+# Phase 4 — Claude / parse / export routes are demo-only.
+# Real users do all of this in the browser (static/js/ai.js,
+# resume-parser.js, export.js). Returning 410 instead of 404 keeps
+# legacy clients from silently treating this as a routing bug.
+DEMO_EMAIL = "demo@jobpilot.app"
+
+
+def _demo_only_guard():
+    """Block non-demo users from the legacy server route with a 410.
+
+    Returns ``None`` when the caller may proceed, or a Flask error tuple
+    ``(jsonify(...), 410)`` that the caller must propagate.
+    """
+    email = getattr(g, "email", None)
+    if email != DEMO_EMAIL:
+        return jsonify({
+            "detail": (
+                "This endpoint is demo-only. Real users run AI and resume "
+                "parse/export in the browser via static/js/ai.js, "
+                "resume-parser.js, and export.js (Phase 4)."
+            ),
+        }), 410
+    return None
+
+
 # Issue #52 — hard cap on uploaded resume size to prevent memory exhaustion
 # from oversized PDFs/DOCX. Tunable via env var RESUME_MAX_BYTES.
 MAX_RESUME_BYTES = int(os.environ.get("RESUME_MAX_BYTES", str(5 * 1024 * 1024)))  # 5 MB
@@ -59,6 +84,9 @@ MAX_DESCRIPTION_CHARS = int(os.environ.get("RESUME_DESCRIPTION_MAX_CHARS", "8000
 
 @resume_bp.post("/api/upload-resume")
 def upload_resume():
+    err = _demo_only_guard()
+    if err:
+        return err
     f = request.files.get("file")
     if not f or not f.filename:
         return jsonify({"detail": "No file provided"}), 400
@@ -93,6 +121,9 @@ def upload_resume():
 
 @resume_bp.post("/api/generate-resume")
 def generate_resume_endpoint():
+    err = _demo_only_guard()
+    if err:
+        return err
     err = _resolve_anthropic()
     if err:
         return err
@@ -124,6 +155,9 @@ def generate_resume_endpoint():
 
 @resume_bp.post("/api/score")
 def score():
+    err = _demo_only_guard()
+    if err:
+        return err
     err = _resolve_anthropic()
     if err:
         return err
@@ -149,6 +183,9 @@ def score():
 
 @resume_bp.post("/api/tailor")
 def tailor():
+    err = _demo_only_guard()
+    if err:
+        return err
     err = _resolve_anthropic()
     if err:
         return err
@@ -185,6 +222,9 @@ def tailor():
 
 @resume_bp.post("/api/improve-line")
 def improve():
+    err = _demo_only_guard()
+    if err:
+        return err
     err = _resolve_anthropic()
     if err:
         return err
@@ -199,6 +239,9 @@ def improve():
 
 @resume_bp.post("/api/chat-instruction")
 def chat_instruction():
+    err = _demo_only_guard()
+    if err:
+        return err
     err = _resolve_anthropic()
     if err:
         return err
@@ -272,6 +315,9 @@ def answer():
 
 @resume_bp.post("/api/download")
 def download():
+    err = _demo_only_guard()
+    if err:
+        return err
     data = request.get_json(silent=True) or {}
     content = data.get("content", "")
     if not content:

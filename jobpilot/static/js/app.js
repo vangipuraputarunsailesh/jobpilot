@@ -963,22 +963,13 @@ async function handleWelcomeResumeFile(input) {
   if (status) { status.textContent = "Reading your resume…"; status.classList.remove("error"); }
   if (btn) btn.disabled = true;
   try {
-    // 1) Send the file to the server purely for text extraction (PDF/DOCX
-    //    parsing moves client-side in Phase 4). The server's own library
-    //    mirror is harmless dead data now — the UI only reads from Drive.
-    const form = new FormData();
-    form.append("file", file);
-    const r = await fetch(`${API}/api/upload-resume`, {
-      method: "POST",
-      body: form,
-      headers: getToken() ? { "Authorization": `Bearer ${getToken()}` } : {},
-    });
-    if (!r.ok) {
-      let msg = "Upload failed";
-      try { const e = await r.json(); msg = e.detail || msg; } catch (_) {}
-      throw new Error(msg);
+    // 1) Parse the file (client-side via pdf.js/mammoth.js for real users;
+    //    demo users still hit the server). Phase 4 moves parsing out of
+    //    Flask entirely — the server route is demo-only now.
+    if (typeof parseResumeFile !== "function") {
+      throw new Error("Resume parser not loaded yet");
     }
-    const d = await r.json();
+    const d = await parseResumeFile(file);
     if (!d || !d.text) throw new Error("Resume text could not be extracted");
     const displayName = d.filename || file.name;
     // 2) Persist to Drive (or demo localStorage). Mark as active so this
@@ -1250,18 +1241,14 @@ async function handleLibraryResumeFile(input) {
   const status = document.getElementById("library-status");
   if (status) { status.textContent = `Uploading ${file.name}…`; status.classList.remove("error"); }
   try {
-    // 1) Extract text server-side (Phase 4 moves this client-side via
-    //    pdf.js/mammoth.js). We discard the server's library mirror —
-    //    Drive is the only place the UI now reads from.
-    const form = new FormData();
-    form.append("file", file);
-    const r = await fetch(`${API}/api/upload-resume`, {
-      method: "POST",
-      body: form,
-      headers: getToken() ? { "Authorization": `Bearer ${getToken()}` } : {},
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.detail || "Upload failed");
+    // 1) Parse the file (Phase 4: client-side for real users via pdf.js +
+    //    mammoth.js; demo users still hit the server). We discard any
+    //    server-side library mirror — Drive is the only place the UI
+    //    now reads from.
+    if (typeof parseResumeFile !== "function") {
+      throw new Error("Resume parser not loaded yet");
+    }
+    const d = await parseResumeFile(file);
     if (!d.text) throw new Error("Could not extract resume text");
     const displayName = d.filename || file.name;
     // 2) Persist to Drive and mark as active.
@@ -2097,7 +2084,7 @@ function buildTailorTab(j, st) {
            <button class="tb-btn" onclick="editorAddSection()">+ Section</button>
            <div class="tb-sep"></div>
            <button class="tb-btn" onclick="document.execCommand('undo')">Undo</button>
-           <button class="tb-btn tb-ai" onclick="aiImproveLine()">✦ AI improve line</button>
+           <button class="tb-btn tb-ai" onclick="aiImproveSelectedLine()">✦ AI improve line</button>
          </div>
          <textarea class="editor-area editor-fill" id="resume-editor"
            oninput="saveEditorContent()"
@@ -2251,18 +2238,10 @@ async function handleResumeFile(input) {
   renderTabBody();
 
   try {
-    const form = new FormData();
-    form.append("file", file);
-    const r = await fetch(`${API}/api/upload-resume`, {
-      method: "POST",
-      body: form,
-      headers: getToken() ? { "Authorization": `Bearer ${getToken()}` } : {},
-    });
-    if (!r.ok) {
-      const err = await r.json();
-      throw new Error(err.detail || "Upload failed");
+    if (typeof parseResumeFile !== "function") {
+      throw new Error("Resume parser not loaded yet");
     }
-    const d = await r.json();
+    const d = await parseResumeFile(file);
     st.resumeText = d.text;
     st.resumeName = d.filename;
     // Persist as the user's default resume so other jobs reuse it.
@@ -2308,16 +2287,10 @@ async function generateResume() {
   renderTabBody();
 
   try {
-    const r = await fetch(`${API}/api/generate-resume`, {
-      method:  "POST",
-      headers: authHeaders(),
-      body:    JSON.stringify({
-        description:     description,
-        job_title:       j.title,
-        job_description: st.jdText || "",
-      }),
-    });
-    const d = await r.json();
+    if (typeof aiGenerateResume !== "function") {
+      throw new Error("AI module not loaded");
+    }
+    const d = await aiGenerateResume(description, j.title, st.jdText || "");
     if (handleByokRequired(d)) { st.state = "gen_form"; renderTabBody(); return; }
     if (d.error) throw new Error(d.error);
     st.resumeText = d.resume;
@@ -2354,17 +2327,10 @@ async function startTailor() {
   renderTabBody();
 
   try {
-    const r = await fetch(`${API}/api/tailor`, {
-      method:  "POST",
-      headers: authHeaders(),
-      body:    JSON.stringify({
-        resume_text: st.resumeText,
-        description: st.jdText,
-        job_title:   j.title,
-        company:     j.company,
-      }),
-    });
-    const d = await r.json();
+    if (typeof aiTailorResume !== "function") {
+      throw new Error("AI module not loaded");
+    }
+    const d = await aiTailorResume(st.resumeText, st.jdText, j.title, j.company);
     if (handleByokRequired(d)) { st.state = "idle"; renderTabBody(); return; }
     if (d.error) throw new Error(d.error);
     st.tailoredText    = d.tailored;
@@ -2444,7 +2410,7 @@ function editorAddSection() {
   ta.setRangeText("\n\nNEW SECTION\n" + "─".repeat(30) + "\n", ta.selectionStart, ta.selectionStart, "end");
   saveEditorContent();
 }
-async function aiImproveLine() {
+async function aiImproveSelectedLine() {
   const ta = document.getElementById("resume-editor");
   if (!ta) return;
   const s = ta.selectionStart, e = ta.selectionEnd;
@@ -2454,11 +2420,10 @@ async function aiImproveLine() {
   const st = jobStates[j.id];
   ta.setRangeText("⏳ Improving...", s, e, "select");
   try {
-    const r = await fetch(`${API}/api/improve-line`, {
-      method: "POST", headers: authHeaders(),
-      body: JSON.stringify({ line: original, description: st.jdText, job_title: j.title }),
-    });
-    const d = await r.json();
+    if (typeof window.aiImproveLine !== "function") {
+      throw new Error("AI module not loaded");
+    }
+    const d = await window.aiImproveLine(original, st.jdText, j.title);
     if (handleByokRequired(d)) { ta.setRangeText(original, s, s + "⏳ Improving...".length, "select"); return; }
     ta.setRangeText(d.improved || original, s, s + "⏳ Improving...".length, "select");
     saveEditorContent();
@@ -2566,21 +2531,19 @@ async function applyInstruction() {
   renderTabBody();
 
   try {
-    const r = await fetch(`${API}/api/chat-instruction`, {
-      method:  "POST",
-      headers: authHeaders(),
-      body:    JSON.stringify({
-        instruction:     instruction,
-        resume_text:     st.tailoredText,
-        description:     st.jdText || "",
-        job_title:       selectedJob.title,
-        company:         selectedJob.company,
-        chat_history:    st.chatHistory.slice(0, -1),
-        version:         st.resumeVersion || 1,
-        original_resume: st.originalTailored || st.tailoredText,
-      }),
+    if (typeof aiApplyChatInstruction !== "function") {
+      throw new Error("AI module not loaded");
+    }
+    const d = await aiApplyChatInstruction({
+      instruction:     instruction,
+      resume_text:     st.tailoredText,
+      description:     st.jdText || "",
+      job_title:       selectedJob.title,
+      company:         selectedJob.company,
+      chat_history:    st.chatHistory.slice(0, -1),
+      version:         st.resumeVersion || 1,
+      original_resume: st.originalTailored || st.tailoredText,
     });
-    const d = await r.json();
     if (handleByokRequired(d)) { st.chatHistory.pop(); renderTabBody(); return; }
     if (d.error) throw new Error(d.error);
 
@@ -2637,15 +2600,10 @@ async function checkATSScore(opts = {}) {
   }
 
   try {
-    const r = await fetch(`${API}/api/score`, {
-      method: "POST", headers: authHeaders(),
-      body: JSON.stringify({
-        resume_text: st.tailoredText,
-        description: st.jdText,
-        final_check: !auto,
-      }),
-    });
-    const d = await r.json();
+    if (typeof aiScoreAts !== "function") {
+      throw new Error("AI module not loaded");
+    }
+    const d = await aiScoreAts(st.tailoredText, st.jdText, !auto);
     if (handleByokRequired(d)) {
       if (!auto) { currentTab = "tailor"; renderTabBody(); }
       return;
@@ -2800,19 +2758,17 @@ async function runAtsBoost(mode = "generic", manualExtras = "") {
   renderTabBody();
 
   try {
-    const r = await fetch(`${API}/api/chat-instruction`, {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({
-        instruction,
-        resume_text: st.tailoredText,
-        description: st.jdText || "",
-        job_title: j.title,
-        company: j.company,
-        chat_history: st.chatHistory.slice(0, -1),
-      }),
+    if (typeof aiApplyChatInstruction !== "function") {
+      throw new Error("AI module not loaded");
+    }
+    const d = await aiApplyChatInstruction({
+      instruction,
+      resume_text: st.tailoredText,
+      description: st.jdText || "",
+      job_title: j.title,
+      company: j.company,
+      chat_history: st.chatHistory.slice(0, -1),
     });
-    const d = await r.json();
     if (handleByokRequired(d)) { st.chatHistory.pop(); st.atsAssistWorking = false; st.atsAssistMode = ""; renderTabBody(); return; }
     if (d.error) throw new Error(d.error);
 
@@ -2821,12 +2777,10 @@ async function runAtsBoost(mode = "generic", manualExtras = "") {
     }
     st.chatHistory.push({ role: "ai", text: d.explanation || "Applied ATS improvements." });
 
-    const scoreRes = await fetch(`${API}/api/score`, {
-      method: "POST",
-      headers: authHeaders(),
-      body: JSON.stringify({ resume_text: st.tailoredText, description: st.jdText, final_check: true }),
-    });
-    const newScore = await scoreRes.json();
+    if (typeof aiScoreAts !== "function") {
+      throw new Error("AI module not loaded");
+    }
+    const newScore = await aiScoreAts(st.tailoredText, st.jdText, true);
     if (handleByokRequired(newScore)) { st.atsAssistWorking = false; st.atsAssistMode = ""; renderTabBody(); return; }
     if (newScore.error) throw new Error(newScore.error);
 
@@ -2915,34 +2869,56 @@ async function downloadResume(fmt = "pdf", fitPages = 0) {
   if (!st?.tailoredText) { showToast("No tailored resume to download", "error"); return; }
   if (fitPages > 0) showToast(`Building ${fitPages}-page PDF...`);
 
+  const downloadName = `${(selectedJob.company || "resume").replace(/\s+/g,"_")}_${(selectedJob.title||"").replace(/\s+/g,"_")}_tailored.${fmt}`;
+
   try {
-    const r = await fetch(`${API}/api/download`, {
-      method: "POST", headers: authHeaders(),
-      body: JSON.stringify({
-        content:   st.tailoredText,
-        filename:  st.resumeName || "resume",
-        format:    fmt,
-        fit_pages: fitPages,
-      }),
-    });
-    if (!r.ok) throw new Error("Download failed");
-    // Issue #91 — backend advertises which renderer produced the PDF via the
-    // X-PDF-Renderer header; warn the user when WeasyPrint silently fell back
-    // to ReportLab so styling regressions don't go unnoticed.
-    const renderer = (r.headers.get("X-PDF-Renderer") || "").toLowerCase();
-    const blob = await r.blob();
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = `${(selectedJob.company || "resume").replace(/\s+/g,"_")}_${(selectedJob.title||"").replace(/\s+/g,"_")}_tailored.${fmt}`;
-    a.click();
-    URL.revokeObjectURL(url);
-    logSession("download", `Downloaded ${fmt.toUpperCase()}${fitPages ? ` (${fitPages}-page)` : ""} — ${selectedJob.company || ""}`);
-    if (fmt === "pdf" && renderer === "reportlab") {
-      showToast("PDF rendered with the ReportLab fallback — styling may differ from the preview.", "error");
-    } else {
-      showToast("Resume downloaded!", "success");
+    // Demo users fall through to the server (export.js handles that internally).
+    const isDemo = (typeof localStorage !== "undefined" && localStorage.getItem("jp_demo") === "1");
+
+    if (isDemo) {
+      // Server path: preserves WeasyPrint styling for the shared demo flow.
+      const r = await fetch(`${API}/api/download`, {
+        method: "POST", headers: authHeaders(),
+        body: JSON.stringify({
+          content:   st.tailoredText,
+          filename:  st.resumeName || "resume",
+          format:    fmt,
+          fit_pages: fitPages,
+        }),
+      });
+      if (!r.ok) throw new Error("Download failed");
+      const renderer = (r.headers.get("X-PDF-Renderer") || "").toLowerCase();
+      const blob = await r.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = downloadName;
+      a.click();
+      URL.revokeObjectURL(url);
+      logSession("download", `Downloaded ${fmt.toUpperCase()}${fitPages ? ` (${fitPages}-page)` : ""} — ${selectedJob.company || ""}`);
+      if (fmt === "pdf" && renderer === "reportlab") {
+        showToast("PDF rendered with the ReportLab fallback — styling may differ from the preview.", "error");
+      } else {
+        showToast("Resume downloaded!", "success");
+      }
+      return;
     }
+
+    // Real users: client-side render via jsPDF / docx.js (Phase 4).
+    if (fmt === "pdf") {
+      if (typeof downloadResumePdf !== "function") throw new Error("PDF exporter not loaded");
+      downloadResumePdf(st.tailoredText, downloadName, { fitPages: fitPages > 0 ? fitPages : null });
+    } else if (fmt === "docx") {
+      if (typeof downloadResumeDocx !== "function") throw new Error("DOCX exporter not loaded");
+      await downloadResumeDocx(st.tailoredText, downloadName);
+    } else if (fmt === "txt") {
+      if (typeof downloadResumeText !== "function") throw new Error("Text exporter not loaded");
+      downloadResumeText(st.tailoredText, downloadName);
+    } else {
+      throw new Error(`Unknown format: ${fmt}`);
+    }
+    logSession("download", `Downloaded ${fmt.toUpperCase()}${fitPages ? ` (${fitPages}-page)` : ""} — ${selectedJob.company || ""}`);
+    showToast("Resume downloaded!", "success");
   } catch (e) {
     showToast("Download failed: " + e.message, "error");
   }

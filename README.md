@@ -59,7 +59,7 @@ JobPilot is a full-stack AI job application assistant built on **Flask** (Python
 | **Resume generation** | Generate a complete professional resume from a free-text description of your background |
 | **Inline editing** | Edit tailored resumes directly in the browser; AI assists line-by-line on demand |
 | **Chat-style instructions** | Natural language commands to refine your resume ("make the summary more concise", "add Python to skills") |
-| **PDF & DOCX download** | Export tailored resumes in multiple formats |
+| **PDF & DOCX download** | Export tailored resumes in multiple formats. *Phase 4 caveat:* real-user exports now render in the browser via **jsPDF** + **docx.js**, so the output may differ visually from the legacy server-side WeasyPrint render (different font metrics, slightly different line-wrapping). Demo accounts still use the server WeasyPrint path. |
 | **Auth system** | **Google Sign-In only** (Phase 1 of the BYOK refactor) — JWT-protected API; resumes will move to your own Google Drive `appDataFolder` in Phase 3 |
 | **Demo mode** | One-click "Try Demo" button — no sign-up required to explore the app |
 | **Usage monitor** | Live API quota tracker for all paid integrations |

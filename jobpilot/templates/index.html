@@ -531,8 +531,25 @@
 
 {% block scripts %}
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<!-- Phase 3: client-side Google Drive resume storage. MUST load before app.js
-     so window.saveResumeToDrive() etc. are available when user actions fire. -->
+
+<!-- Phase 4 CDNs: browser-side resume parse + export. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.2.2/docx.umd.min.js"></script>
+
+<!-- Phase 3: client-side Google Drive resume storage. -->
+<!-- Phase 4: client-side Anthropic + parse + export modules. -->
+<!-- All of these MUST load before app.js so their window.* exports exist. -->
 <script src="/static/js/drive.js"></script>
+<script src="/static/js/ai.js"></script>
+<script src="/static/js/resume-parser.js"></script>
+<script src="/static/js/export.js"></script>
 <script src="/static/js/app.js"></script>
 {% endblock %}

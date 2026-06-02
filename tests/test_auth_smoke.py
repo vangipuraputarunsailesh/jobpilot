@@ -64,9 +64,12 @@ def _real_user_token(monkeypatch):
 
 
 def test_tailor_requires_byok_header_for_real_user(client, monkeypatch):
-    """A real Google user with no X-Anthropic-Key MUST get a 400 pointing
-    at Settings \u2014 the server no longer falls back to ANTHROPIC_API_KEY for
-    them (Phase 2 BYOK contract)."""
+    """Phase 4 contract: /api/tailor is demo-only. Real users get a 410
+    because the tailoring path now runs in the browser via
+    static/js/ai.js (POST direct to Anthropic with their own BYOK key).
+
+    Replaces the original Phase 2 BYOK 400 contract for this route.
+    """
     # Make sure no server env key leaks the test result either way.
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     token = _real_user_token(monkeypatch)
@@ -75,10 +78,9 @@ def test_tailor_requires_byok_header_for_real_user(client, monkeypatch):
         json={"resume_text": "x", "description": "y"},
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 410
     body = resp.get_json() or {}
-    assert body.get("byok_required") is True
-    assert body.get("header") == "X-Anthropic-Key"
+    assert "demo-only" in (body.get("detail") or "")
 
 
 def test_byok_test_route_rejects_unknown_provider(client, monkeypatch):
