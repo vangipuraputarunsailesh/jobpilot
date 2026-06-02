@@ -35,3 +35,8 @@ jobpilot/resumes/
 # Local deploy secrets (used by scripts/sync-secrets.ps1)
 scripts/.env.deploy
 
+# GitHub Pages build artifact (rebuilt by .github/workflows/deploy-pages.yml
+# on every push that touches templates/ or static/ — keeping it out of git
+# avoids noisy diffs on every template tweak).
+docs/
+
