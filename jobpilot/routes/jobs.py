@@ -3,8 +3,9 @@ routes/jobs.py — Job search Blueprint for JobPilot Flask app.
 """
 import logging
 
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, g
 
+from core.byok import read_job_search_creds
 from core.job_scraper import search_all_platforms, fetch_job_description
 
 jobs_bp = Blueprint("jobs", __name__)
@@ -21,20 +22,26 @@ def search_jobs():
     seniority = data.get("seniority", "any") or "any"
     date_posted = data.get("date_posted", "pastWeek") or "pastWeek"
 
-    # Issue #46 — only count quota against APIs that are actually configured.
-    # Prevents the usage dashboard from inflating numbers when an integration
-    # is disabled by missing env vars.
-    import os as _os
+    # Phase 2 BYOK: resolve per-user job-board credentials on the request
+    # thread (flask.g doesn't propagate into the scraper's thread pool).
+    # Any missing credential just disables that one source — matching
+    # pre-BYOK behaviour where unset env vars made the scraper skip itself.
+    email = getattr(g, "email", None)
+    creds = read_job_search_creds(email)
+
+    # Issue #46 — only count quota against APIs that are actually configured
+    # for THIS user. Prevents the usage dashboard from inflating numbers
+    # when a per-user integration is missing its BYOK header.
     _usage = current_app.config["USAGE"]
     _usage["total_searches"] += 1
-    if _os.environ.get("RAPIDAPI_KEY"):
+    if creds.rapidapi_key:
         _usage["jsearch_requests"] += 5
-    if _os.environ.get("ADZUNA_APP_ID") and _os.environ.get("ADZUNA_APP_KEY"):
+    if creds.adzuna_app_id and creds.adzuna_app_key:
         _usage["adzuna_requests"] += 4
 
     logger.info(f"SEARCH | title='{title}' location='{location}' seniority='{seniority}'")
     try:
-        jobs = search_all_platforms(title, location, seniority, date_posted)
+        jobs = search_all_platforms(title, location, seniority, date_posted, creds=creds)
     except Exception as e:
         logger.error(f"SEARCH ERROR | {e}", exc_info=True)
         return jsonify({"detail": "Job search failed. Please try again."}), 500

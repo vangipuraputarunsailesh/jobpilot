@@ -60,7 +60,7 @@ JobPilot is a full-stack AI job application assistant built on **Flask** (Python
 | **Inline editing** | Edit tailored resumes directly in the browser; AI assists line-by-line on demand |
 | **Chat-style instructions** | Natural language commands to refine your resume ("make the summary more concise", "add Python to skills") |
 | **PDF & DOCX download** | Export tailored resumes in multiple formats |
-| **Auth system** | Email/password, **Google**, and **GitHub** sign-in; JWT-protected API |
+| **Auth system** | **Google Sign-In only** (Phase 1 of the BYOK refactor) — JWT-protected API; resumes will move to your own Google Drive `appDataFolder` in Phase 3 |
 | **Demo mode** | One-click "Try Demo" button — no sign-up required to explore the app |
 | **Usage monitor** | Live API quota tracker for all paid integrations |
 
@@ -70,10 +70,10 @@ JobPilot is a full-stack AI job application assistant built on **Flask** (Python
 
 ### Landing Page
 
-The app opens on a dark-themed marketing landing page (`/`) with a teal/green color palette. The hero section now includes three primary CTAs plus a direct link to the live site:
+The app opens on a dark-themed marketing landing page (`/`) with a teal/green color palette. The hero section now includes two primary CTAs plus a direct link to the live site:
 
-- **Start for free** — opens the sign-up modal
-- **Sign in →** — opens the login modal
+- **Start for free** — opens the Google Sign-In modal
+- **Sign in →** — opens the same Google Sign-In modal
 - **Try Demo** — enter the app instantly with a demo account
 - **Visit www.jobspilot.site** — the canonical production URL
 
@@ -109,7 +109,7 @@ The AI pipeline (powered by Claude Sonnet) performs:
 
 ## Workflow — Step by Step
 
-1. **Sign up / log in** (or click **Try Demo** for an instant tour).
+1. **Sign in with Google** (or click **Try Demo** for an instant tour).
 2. **Search jobs** — pick a title, location, seniority and date range, then toggle which job boards to query.
 3. **Review a job** — click any card to open the right panel with the full description.
 4. **Tailor your resume** — upload a resume, then click **✨ Tailor with AI**. Refine inline or via the AI chat box.
@@ -192,17 +192,14 @@ Configure these in your `.env` file (local) or Railway **Variables** panel (prod
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | ✅ | Claude AI key — get one at [console.anthropic.com](https://console.anthropic.com) |
+| `GOOGLE_CLIENT_ID` | ✅ | Google OAuth client ID — the only identity provider after the Phase 1 BYOK refactor. The client-side flow requests `openid email profile` plus `drive.appdata` and `drive.file` scopes (Phase 3 will use those scopes to persist resumes in the user's own Drive). |
 | `JWT_SECRET` | ✅ | Secret string for signing JWTs — use a long random value in production |
-| `FLASK_SECRET` | Recommended | Flask session secret |
-| `RAPIDAPI_KEY` | Recommended | JSearch key (LinkedIn, Indeed, Glassdoor) — [rapidapi.com](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch) |
-| `ADZUNA_APP_ID` | Recommended | Adzuna App ID — [developer.adzuna.com](https://developer.adzuna.com) |
-| `ADZUNA_APP_KEY` | Recommended | Adzuna App Key |
-| `GOOGLE_CLIENT_ID` | Optional | Google OAuth client ID for "Sign in with Google" |
-| `GOOGLE_CLIENT_SECRET` | Optional | Google OAuth client secret |
-| `GITHUB_CLIENT_ID` | Optional | GitHub OAuth App client ID for "Sign in with GitHub" |
-| `GITHUB_CLIENT_SECRET` | Optional | GitHub OAuth App client secret |
-| `GITHUB_REDIRECT_URI` | Optional | Override the GitHub OAuth callback URL (defaults to `https://www.jobspilot.site/api/auth/github/callback`) |
+| `FLASK_SECRET` | ✅ | Flask session secret |
+| `ANTHROPIC_API_KEY` | Demo-only | Claude AI key used **only** for requests from the demo account. Real users supply their own via the in-app Settings panel (BYOK, Phase 2). |
+| `RAPIDAPI_KEY` | Demo-only | JSearch key used only for demo requests. Real users supply their own (BYOK, Phase 2). |
+| `ADZUNA_APP_ID` | Demo-only | Adzuna App ID — demo fallback (BYOK in Phase 2). |
+| `ADZUNA_APP_KEY` | Demo-only | Adzuna App Key — demo fallback (BYOK in Phase 2). |
+| `GOOGLE_CLIENT_SECRET` | Optional | Kept for tooling/back-compat; not used at runtime (the client-side GIS flow is sufficient). |
 | `APIFY_API_TOKEN` | Optional | Apify token for the LinkedIn scraper |
 | `USAJOBS_API_KEY` | Optional | US Federal jobs API key — [developer.usajobs.gov](https://developer.usajobs.gov) |
 | `USAJOBS_EMAIL` | Optional | Email associated with the USAJobs API key |
@@ -212,52 +209,33 @@ Configure these in your `.env` file (local) or Railway **Variables** panel (prod
 
 ### Enable Google Sign-In
 
-The "Continue with Google" button on the landing page is hidden until
-`GOOGLE_CLIENT_ID` is set. To enable it:
+Google is the only identity provider — the app will refuse to render the
+sign-in modal without `GOOGLE_CLIENT_ID`. To enable it:
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
 2. Create an **OAuth 2.0 Client ID** of type *Web application*.
 3. Add **Authorized JavaScript origins** for every domain you serve from, e.g.
    `https://www.jobspilot.site` and `http://localhost:5000`.
-4. Add **Authorized redirect URIs** matching the same origins (the GSI library
-   uses the same origin, so adding the bare origin is sufficient for the
-   one-tap flow JobPilot uses).
+4. Configure the **OAuth consent screen** with the following scopes:
+   - `openid`, `email`, `profile`
+   - `https://www.googleapis.com/auth/drive.appdata` (hidden per-app folder)
+   - `https://www.googleapis.com/auth/drive.file` (files the user picks or that JobPilot creates)
 5. Copy the generated **Client ID** into your environment:
    - Local: `GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com` in `jobpilot/.env`.
    - Railway: add `GOOGLE_CLIENT_ID` under the service's **Variables** tab.
-6. Restart the app. The Google button will render on the landing page's auth modal.
+6. Restart the app. The Google button renders on the landing page's auth modal
+   and the Drive-scoped `access_token` is fetched immediately after sign-in
+   so the resume Drive sync (Phase 3) can store data without a second consent
+   prompt.
 
-If `GOOGLE_CLIENT_ID` is unset, the entire Google block (button + divider) is
-hidden so end users only see the email/password and Demo options. Append
-`?debug=1` to the landing URL to render an admin-visible "not configured"
-hint instead — useful when triaging a deploy.
+Append `?debug=1` to the landing URL to render an admin-visible "not configured"
+hint when `GOOGLE_CLIENT_ID` is missing — useful when triaging a deploy.
 
-### Enable GitHub Sign-In (host as a GitHub App)
-
-The "Continue with GitHub" button is hidden until both `GITHUB_CLIENT_ID`
-and `GITHUB_CLIENT_SECRET` are set. To enable it:
-
-1. Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**
-   (<https://github.com/settings/developers>).
-2. Set the fields:
-   - **Application name:** `JobPilot`
-   - **Homepage URL:** `https://www.jobspilot.site`
-   - **Authorization callback URL:** `https://www.jobspilot.site/api/auth/github/callback`
-     (for local dev, register a second OAuth App with `http://localhost:5000/api/auth/github/callback`).
-3. Click **Register application**, then **Generate a new client secret**.
-4. Copy the **Client ID** and **Client secret** into your environment:
-   - Local: `GITHUB_CLIENT_ID=...` and `GITHUB_CLIENT_SECRET=...` in `jobpilot/.env`.
-   - Railway: add both under the service's **Variables** tab.
-5. (Optional) Override the redirect URI per environment with
-   `GITHUB_REDIRECT_URI` if you serve from a non-default host.
-6. Restart the app. The GitHub button will render on the landing page's auth modal.
-
-The flow is the standard OAuth 2.0 Authorization Code grant: the button
-redirects the browser to GitHub, GitHub calls back with a `code`, the
-server exchanges it for an access token, fetches the user's primary
-verified email via the GitHub API, and issues the same JWT used by every
-other sign-in path. State is signed into the Flask session for CSRF
-protection.
+> **Note on removed providers.** Email/password registration and GitHub OAuth
+> were removed in Phase 1 of the BYOK refactor. The legacy routes
+> (`/api/auth/register`, `/api/auth/login`, `/api/auth/github/*`) no longer
+> exist; the `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` / `GITHUB_REDIRECT_URI`
+> environment variables are now ignored and safe to delete from your deploy.
 
 ---
 

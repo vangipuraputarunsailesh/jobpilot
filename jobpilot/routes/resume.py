@@ -21,9 +21,31 @@ from core.resume_reader import (
     read_resume_bytes,
 )
 from core.auth_db import save_user_resume
+from core.byok import require_api_key, get_api_key
 
 resume_bp = Blueprint("resume", __name__)
 logger = logging.getLogger("jobpilot")
+
+
+def _resolve_anthropic():
+    """Phase 2 BYOK helper. Reads `X-Anthropic-Key` (+ optional
+    `X-Claude-Model`) for the current request and stashes them on
+    `flask.g` for `core.ai_engine._resolve_key_and_model()` to pick up.
+
+    Returns `None` on success, or a Flask error tuple `(json, status)`
+    that the caller must propagate.
+    """
+    email = getattr(g, "email", None)
+    key, err = require_api_key(
+        "X-Anthropic-Key", "ANTHROPIC_API_KEY", email=email
+    )
+    if err:
+        return jsonify(err[0]), err[1]
+    g.anthropic_key = key
+    g.claude_model = (
+        get_api_key("X-Claude-Model", "CLAUDE_MODEL", email=email) or ""
+    )
+    return None
 
 
 # Issue #52 — hard cap on uploaded resume size to prevent memory exhaustion
@@ -71,6 +93,9 @@ def upload_resume():
 
 @resume_bp.post("/api/generate-resume")
 def generate_resume_endpoint():
+    err = _resolve_anthropic()
+    if err:
+        return err
     _usage = current_app.config["USAGE"]
     _usage["claude_calls"] += 1
     data = request.get_json(silent=True) or {}
@@ -99,6 +124,9 @@ def generate_resume_endpoint():
 
 @resume_bp.post("/api/score")
 def score():
+    err = _resolve_anthropic()
+    if err:
+        return err
     _usage = current_app.config["USAGE"]
     data = request.get_json(silent=True) or {}
     resume_text = data.get("resume_text", "").strip()
@@ -121,6 +149,9 @@ def score():
 
 @resume_bp.post("/api/tailor")
 def tailor():
+    err = _resolve_anthropic()
+    if err:
+        return err
     _usage = current_app.config["USAGE"]
     data = request.get_json(silent=True) or {}
     resume_text = data.get("resume_text", "").strip()
@@ -154,6 +185,9 @@ def tailor():
 
 @resume_bp.post("/api/improve-line")
 def improve():
+    err = _resolve_anthropic()
+    if err:
+        return err
     _usage = current_app.config["USAGE"]
     data = request.get_json(silent=True) or {}
     line = data.get("line", "")
@@ -165,6 +199,9 @@ def improve():
 
 @resume_bp.post("/api/chat-instruction")
 def chat_instruction():
+    err = _resolve_anthropic()
+    if err:
+        return err
     _usage = current_app.config["USAGE"]
     data = request.get_json(silent=True) or {}
     instruction = data.get("instruction", "").strip()
@@ -198,6 +235,9 @@ def chat_instruction():
 
 @resume_bp.post("/api/suggest-certs")
 def suggest_certs():
+    err = _resolve_anthropic()
+    if err:
+        return err
     _usage = current_app.config["USAGE"]
     data = request.get_json(silent=True) or {}
     _usage["claude_calls"] += 1
@@ -211,6 +251,9 @@ def suggest_certs():
 
 @resume_bp.post("/api/answer")
 def answer():
+    err = _resolve_anthropic()
+    if err:
+        return err
     _usage = current_app.config["USAGE"]
     data = request.get_json(silent=True) or {}
     _usage["claude_calls"] += 1

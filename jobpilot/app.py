@@ -38,30 +38,32 @@ _USAGE = {
 }
 
 _PUBLIC_PATHS = {"/", "/app", "/terms", "/privacy",
-                 "/api/auth/login", "/api/auth/register",
-                 "/api/auth/google", "/api/auth/demo", "/api/health",
-                 "/api/auth/github/start", "/api/auth/github/callback"}
+                 "/api/auth/google", "/api/auth/demo", "/api/health"}
 
 # ── Per-user rate limit for paid Anthropic-backed routes ─────────────────────
-# In-memory sliding-window counter (per email, per route group). Resets on
-# server restart — acceptable for MVP; the Postgres migration (#23) will move
-# this server-side. Demo accounts get a tighter cap so abuse can't drain the
-# Anthropic budget.
+# Phase 2 BYOK: real Google-signed-in users supply their OWN Anthropic key
+# via Settings (`X-Anthropic-Key`) so they pay their own bill — the server
+# no longer has a reason to limit them. The rate limiter now only applies
+# to the shared demo account (which uses the server-side fallback key) so
+# anonymous traffic can't drain the Anthropic budget. The in-memory
+# bucket resets on server restart — acceptable for a single-process demo.
+DEMO_EMAIL = "demo@jobpilot.app"
 _RATE_LIMITED_PATHS = (
     "/api/tailor", "/api/score", "/api/chat-instruction",
     "/api/improve-line", "/api/generate-resume",
     "/api/suggest-certs", "/api/answer",
 )
 _RATE_WINDOW_SECONDS = int(os.environ.get("RATE_WINDOW_SECONDS", "86400"))  # 24h
-_RATE_LIMIT_DEFAULT  = int(os.environ.get("RATE_LIMIT_PER_USER", "60"))
 _RATE_LIMIT_DEMO     = int(os.environ.get("RATE_LIMIT_DEMO", "10"))
 _rate_lock = threading.Lock()
 _rate_buckets: "dict[str, deque[float]]" = defaultdict(deque)
 
 
 def _rate_limit_check(email: str) -> tuple[bool, int, int]:
-    """Returns (allowed, used, cap). Drops a tick when allowed."""
-    cap = _RATE_LIMIT_DEMO if email == "demo@jobpilot.app" else _RATE_LIMIT_DEFAULT
+    """Returns (allowed, used, cap). Demo only; real users always pass."""
+    if email != DEMO_EMAIL:
+        return True, 0, 0
+    cap = _RATE_LIMIT_DEMO
     now = time.time()
     cutoff = now - _RATE_WINDOW_SECONDS
     with _rate_lock:
@@ -173,33 +175,31 @@ def create_app() -> Flask:
     from routes.auth   import auth_bp
     from routes.jobs   import jobs_bp
     from routes.resume import resume_bp
+    from routes.byok   import byok_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(jobs_bp)
     app.register_blueprint(resume_bp)
+    app.register_blueprint(byok_bp)
 
     from core.auth_db import init_db
     init_db()
 
     # Surface common misconfigurations once at startup (Issue #80).
+    # Phase 1 (BYOK refactor): Google is the only auth provider. GitHub
+    # OAuth has been removed; the GOOGLE_CLIENT_ID is the single critical
+    # piece of identity configuration this deployment needs.
     if not os.environ.get("GOOGLE_CLIENT_ID"):
         logging.getLogger("jobpilot").warning(
             "GOOGLE_CLIENT_ID is not set; Google Sign-In is disabled. "
             "Set it in .env / Railway env to enable the button."
         )
-    if not (os.environ.get("GITHUB_CLIENT_ID") and os.environ.get("GITHUB_CLIENT_SECRET")):
-        logging.getLogger("jobpilot").warning(
-            "GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET not set; GitHub Sign-In is disabled. "
-            "Register an OAuth App at https://github.com/settings/developers to enable it."
-        )
 
     @app.get("/")
     def landing():
-        github_enabled = bool(
-            os.environ.get("GITHUB_CLIENT_ID") and os.environ.get("GITHUB_CLIENT_SECRET")
+        return render_template(
+            "landing.html",
+            google_client_id=os.environ.get("GOOGLE_CLIENT_ID", ""),
         )
-        return render_template("landing.html",
-                               google_client_id=os.environ.get("GOOGLE_CLIENT_ID", ""),
-                               github_enabled=github_enabled)
 
     @app.get("/app")
     def index():

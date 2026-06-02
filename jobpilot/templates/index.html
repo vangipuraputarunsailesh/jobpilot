@@ -18,6 +18,10 @@
       localStorage.removeItem('jp_email');
       localStorage.removeItem('jp_demo');
       localStorage.removeItem('jp_session_expiry');
+      // Phase 1: also wipe Google Drive access_token + expiry so a stale
+      // gtoken can never leak across sessions.
+      localStorage.removeItem('jp_gtoken');
+      localStorage.removeItem('jp_gtoken_expiry');
       sessionStorage.removeItem('jp_session_active'); // legacy key
       window.location.replace('/');
       return;
@@ -67,6 +71,16 @@
       </svg>
       <span>Resumes</span>
       <span id="resume-library-count" class="topbar-action-badge" style="display:none">0</span>
+    </button>
+    <button id="byok-settings-btn" class="topbar-action-btn" type="button"
+            style="display:none" onclick="openSettingsModal()"
+            title="Add your own Anthropic / job-board API keys (stored encrypted in your browser)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+              stroke="currentColor" stroke-width="1.6"/>
+      </svg>
+      <span>Settings</span>
     </button>
     <span id="topbar-user" class="topbar-user" style="display:none"></span>
     <button id="logout-btn" class="logout-btn" style="display:none" onclick="logout()">Sign out</button>
@@ -231,6 +245,99 @@
   </div>
 </div>
 
+<!-- BYOK (Bring Your Own Key) SETTINGS MODAL -->
+<div class="byok-overlay" id="byok-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="byok-title">
+  <div class="byok-modal">
+    <div class="byok-head">
+      <h2 class="byok-title" id="byok-title">API keys &amp; Settings</h2>
+      <button class="byok-close" type="button" onclick="closeSettingsModal()" aria-label="Close">×</button>
+    </div>
+    <p class="byok-sub">
+      JobPilot calls Anthropic Claude (for AI features) and a few job boards on your behalf.
+      Paste your own keys below — they're encrypted with AES-GCM in this browser only and
+      <strong>never sent to JobPilot's server</strong>, only forwarded to each upstream API.
+    </p>
+
+    <!-- Anthropic (required) -->
+    <div class="byok-section">
+      <div class="byok-row-head">
+        <label class="byok-label" for="byok-anthropic">
+          Anthropic API key <span class="byok-req">required for AI features</span>
+        </label>
+        <a class="byok-help" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get one →</a>
+      </div>
+      <input id="byok-anthropic" type="password" autocomplete="off" spellcheck="false"
+             class="byok-input" placeholder="sk-ant-…"/>
+      <div class="byok-row-foot">
+        <input id="byok-claude-model" type="text" autocomplete="off" spellcheck="false"
+               class="byok-input byok-input-small" placeholder="Model (optional, e.g. claude-sonnet-4-5)"/>
+        <button type="button" class="byok-test-btn" onclick="byokTestFromForm('anthropic')">Test</button>
+      </div>
+      <div id="byok-status-anthropic" class="byok-status"></div>
+    </div>
+
+    <!-- RapidAPI / JSearch -->
+    <div class="byok-section">
+      <div class="byok-row-head">
+        <label class="byok-label" for="byok-rapidapi">
+          RapidAPI key <span class="byok-opt">optional — unlocks JSearch (LinkedIn / Indeed / Glassdoor / ZipRecruiter)</span>
+        </label>
+        <a class="byok-help" href="https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch" target="_blank" rel="noopener">Get one →</a>
+      </div>
+      <div class="byok-row-foot">
+        <input id="byok-rapidapi" type="password" autocomplete="off" spellcheck="false"
+               class="byok-input" placeholder="RapidAPI key"/>
+        <button type="button" class="byok-test-btn" onclick="byokTestFromForm('jsearch')">Test</button>
+      </div>
+      <div id="byok-status-jsearch" class="byok-status"></div>
+    </div>
+
+    <!-- Adzuna -->
+    <div class="byok-section">
+      <div class="byok-row-head">
+        <label class="byok-label" for="byok-adzuna-id">
+          Adzuna credentials <span class="byok-opt">optional — solo founders, SMBs, enterprises</span>
+        </label>
+        <a class="byok-help" href="https://developer.adzuna.com/" target="_blank" rel="noopener">Get one →</a>
+      </div>
+      <input id="byok-adzuna-id" type="text" autocomplete="off" spellcheck="false"
+             class="byok-input" placeholder="App ID"/>
+      <div class="byok-row-foot">
+        <input id="byok-adzuna-key" type="password" autocomplete="off" spellcheck="false"
+               class="byok-input" placeholder="App key"/>
+        <button type="button" class="byok-test-btn" onclick="byokTestFromForm('adzuna')">Test</button>
+      </div>
+      <div id="byok-status-adzuna" class="byok-status"></div>
+    </div>
+
+    <!-- USAJobs -->
+    <div class="byok-section">
+      <div class="byok-row-head">
+        <label class="byok-label" for="byok-usajobs-email">
+          USAJobs credentials <span class="byok-opt">optional — federal jobs</span>
+        </label>
+        <a class="byok-help" href="https://developer.usajobs.gov/" target="_blank" rel="noopener">Get one →</a>
+      </div>
+      <input id="byok-usajobs-email" type="email" autocomplete="off" spellcheck="false"
+             class="byok-input" placeholder="Email registered with usajobs.gov"/>
+      <div class="byok-row-foot">
+        <input id="byok-usajobs-key" type="password" autocomplete="off" spellcheck="false"
+               class="byok-input" placeholder="USAJobs API key"/>
+        <button type="button" class="byok-test-btn" onclick="byokTestFromForm('usajobs')">Test</button>
+      </div>
+      <div id="byok-status-usajobs" class="byok-status"></div>
+    </div>
+
+    <div class="byok-footer">
+      <div id="byok-save-status" class="byok-save-status"></div>
+      <div class="byok-footer-actions">
+        <button type="button" class="byok-cancel-btn" onclick="closeSettingsModal()">Cancel</button>
+        <button type="button" id="byok-save-btn" class="byok-save-btn" onclick="byokSaveFromForm()">Save keys</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <style>
   .topbar-action-btn{display:inline-flex;align-items:center;gap:6px;background:var(--bg2,#f1f5f9);
     color:var(--text1,#0f172a);border:1px solid var(--border1,#e2e8f0);
@@ -305,6 +412,60 @@
   .save-to-library-bar button:disabled{opacity:.7;cursor:wait;}
   .save-to-library-bar.saved{background:rgba(20,184,166,.12);}
   .save-to-library-bar.saved button{background:#94a3b8;cursor:default;}
+
+  /* BYOK (Bring Your Own Key) — Settings modal */
+  .byok-overlay{position:fixed;inset:0;background:rgba(8,15,28,.62);backdrop-filter:blur(4px);
+    display:flex;align-items:center;justify-content:center;z-index:9200;padding:20px;animation:wmFade .18s ease-out;}
+  .byok-modal{background:var(--bg1,#fff);color:var(--text1,#0f172a);border:1px solid var(--border1,#e5e7eb);
+    border-radius:16px;padding:24px 26px;max-width:640px;width:100%;
+    max-height:min(88vh,820px);display:flex;flex-direction:column;overflow-y:auto;
+    box-shadow:0 20px 60px rgba(0,0,0,.25);animation:wmPop .22s cubic-bezier(.2,.9,.3,1.2);}
+  .byok-head{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  .byok-title{font-size:20px;margin:0;font-weight:700;letter-spacing:-0.01em;}
+  .byok-close{background:none;border:0;font-size:24px;line-height:1;color:var(--text3,#94a3b8);
+    cursor:pointer;padding:0 6px;border-radius:6px;}
+  .byok-close:hover{color:var(--text1,#0f172a);background:var(--bg2,#f1f5f9);}
+  .byok-sub{font-size:13px;color:var(--text2,#475569);margin:6px 0 18px;line-height:1.55;}
+  .byok-sub strong{color:var(--text1,#0f172a);}
+  .byok-section{border:1px solid var(--border1,#e5e7eb);border-radius:10px;
+    padding:12px 14px;margin-bottom:12px;background:var(--bg2,#f8fafc);}
+  .byok-row-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap;}
+  .byok-label{font-size:13px;font-weight:600;color:var(--text1,#0f172a);}
+  .byok-req{font-size:11px;font-weight:500;color:#dc2626;margin-left:6px;}
+  .byok-opt{font-size:11px;font-weight:400;color:var(--text3,#94a3b8);margin-left:6px;}
+  .byok-help{font-size:11px;color:#0d9488;text-decoration:none;}
+  .byok-help:hover{text-decoration:underline;}
+  .byok-input{width:100%;padding:8px 10px;border:1px solid var(--border1,#e2e8f0);
+    border-radius:7px;font-size:13px;background:var(--bg1,#fff);color:var(--text1,#0f172a);
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin-top:4px;}
+  .byok-input:focus{outline:2px solid #14b8a6;outline-offset:-1px;border-color:transparent;}
+  .byok-input-small{flex:1;}
+  .byok-row-foot{display:flex;gap:8px;align-items:stretch;margin-top:6px;}
+  .byok-row-foot .byok-input{margin-top:0;}
+  .byok-test-btn{flex-shrink:0;background:var(--bg1,#fff);color:var(--text1,#0f172a);
+    border:1px solid var(--border1,#e2e8f0);padding:8px 14px;border-radius:7px;
+    font-size:12px;font-weight:600;cursor:pointer;}
+  .byok-test-btn:hover{background:var(--bg3,#e2e8f0);}
+  .byok-status{font-size:12px;margin-top:6px;min-height:16px;color:var(--text3,#94a3b8);}
+  .byok-status.ok{color:#0d9488;}
+  .byok-status.fail{color:#dc2626;}
+  .byok-status.pending{color:var(--text2,#475569);}
+  .byok-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    margin-top:14px;padding-top:14px;border-top:1px solid var(--border1,#e5e7eb);flex-wrap:wrap;}
+  .byok-save-status{font-size:12px;color:var(--text2,#475569);flex:1;min-width:200px;}
+  .byok-save-status.ok{color:#0d9488;}
+  .byok-save-status.fail{color:#dc2626;}
+  .byok-save-status.pending{color:var(--text2,#475569);}
+  .byok-footer-actions{display:flex;gap:8px;}
+  .byok-cancel-btn{background:var(--bg2,#f1f5f9);color:var(--text1,#0f172a);
+    border:1px solid var(--border1,#e2e8f0);padding:8px 16px;border-radius:8px;
+    font-size:13px;font-weight:500;cursor:pointer;}
+  .byok-cancel-btn:hover{background:var(--bg3,#e2e8f0);}
+  .byok-save-btn{background:linear-gradient(135deg,#14b8a6,#0d9488);color:#fff;border:0;
+    padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;
+    box-shadow:0 3px 10px rgba(20,184,166,.30);}
+  .byok-save-btn:hover{transform:translateY(-1px);}
+  .byok-save-btn:disabled{opacity:.7;cursor:wait;transform:none;}
 </style>
 
 <!-- WELCOME / RESUME-FIRST MODAL -->

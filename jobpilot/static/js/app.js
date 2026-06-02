@@ -48,6 +48,15 @@ function clearLoginSession() {
   localStorage.removeItem("jp_email");
   localStorage.removeItem("jp_demo");
   localStorage.removeItem("jp_session_expiry");
+  // Phase 1: drop the Google access_token + expiry alongside the JobPilot
+  // session. We never want a stale Drive token surviving sign-out.
+  localStorage.removeItem("jp_gtoken");
+  localStorage.removeItem("jp_gtoken_expiry");
+  // Phase 2 BYOK: drop the user's encrypted keys + in-memory cache so a
+  // shared browser can't leak the previous user's keys into the next
+  // sign-in. The seed (their email) changes on the next login anyway,
+  // but we belt-and-suspender it.
+  try { byokClear(); } catch (_) {}
   sessionStorage.removeItem("jp_session_active");
   sessionStorage.removeItem("jp_session_history");
 }
@@ -59,8 +68,334 @@ function isLoginSessionValid() {
 
 function authHeaders() {
   const t = getToken();
-  return t ? { "Content-Type": "application/json", "Authorization": `Bearer ${t}` }
-           : { "Content-Type": "application/json" };
+  const base = t ? { "Content-Type": "application/json", "Authorization": `Bearer ${t}` }
+                 : { "Content-Type": "application/json" };
+  // Phase 2 BYOK: every authenticated request also carries the user's
+  // per-provider API keys so the server can call Anthropic / RapidAPI /
+  // Adzuna / USAJobs on their behalf without a server-side env var.
+  // `_byokHeaders()` returns an empty object if the user hasn't saved
+  // any keys yet (in which case Claude routes will respond 400 with
+  // `byok_required` and the frontend surfaces a "open Settings" toast).
+  Object.assign(base, _byokHeaders());
+  return base;
+}
+
+// ── BYOK (Bring Your Own Key) — client-side encrypted key vault ──────────────
+//
+// Phase 2 of the refactor. User pastes their Anthropic / RapidAPI / Adzuna /
+// USAJobs keys into the Settings modal; we encrypt the JSON blob with
+// AES-GCM using a key derived from their signed-in email (PBKDF2-SHA-256,
+// 200k iterations) and persist the ciphertext under `jp_byok_v1`. On every
+// app load we decrypt back into the in-memory `_byokPlain` cache so
+// `authHeaders()` can inject the headers synchronously.
+//
+// IMPORTANT: this is *not* zero-knowledge security — anyone with the user's
+// email + access to their localStorage can decrypt. The point is to (a)
+// keep the keys off our server entirely and (b) make casual localStorage
+// inspection (devtools, browser extensions) show ciphertext instead of
+// plaintext API keys. For the real threat model see Phase 5.
+const BYOK_STORAGE_KEY = "jp_byok_v1";
+const BYOK_PBKDF2_ITERS = 200_000;
+const BYOK_SALT_BYTES = new TextEncoder().encode("jobpilot-byok-v1");
+
+// In-memory plaintext cache. Keys: anthropic, claude_model, rapidapi,
+// adzuna_id, adzuna_key, usajobs_email, usajobs_key. Empty object when
+// no keys have ever been saved (or after `byokClear()`).
+let _byokPlain = {};
+let _byokLoaded = false;
+
+function _byokHeaders() {
+  const out = {};
+  if (!_byokLoaded) return out;
+  const p = _byokPlain || {};
+  if (p.anthropic)     out["X-Anthropic-Key"]  = p.anthropic;
+  if (p.claude_model)  out["X-Claude-Model"]   = p.claude_model;
+  if (p.rapidapi)      out["X-RapidAPI-Key"]   = p.rapidapi;
+  if (p.adzuna_id)     out["X-Adzuna-App-Id"]  = p.adzuna_id;
+  if (p.adzuna_key)    out["X-Adzuna-App-Key"] = p.adzuna_key;
+  if (p.usajobs_email) out["X-USAJobs-Email"]  = p.usajobs_email;
+  if (p.usajobs_key)   out["X-USAJobs-Key"]    = p.usajobs_key;
+  return out;
+}
+
+async function _byokDeriveKey(seed) {
+  if (!seed) throw new Error("byok: missing seed");
+  const enc = new TextEncoder();
+  const base = await crypto.subtle.importKey(
+    "raw", enc.encode(seed), { name: "PBKDF2" }, false, ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: BYOK_SALT_BYTES, iterations: BYOK_PBKDF2_ITERS, hash: "SHA-256" },
+    base,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+function _b64encode(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.byteLength; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s);
+}
+function _b64decode(b64) {
+  const s = atob(b64);
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+
+async function _byokEncrypt(plain, seed) {
+  const key = await _byokDeriveKey(seed);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = new TextEncoder().encode(JSON.stringify(plain));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, data));
+  return JSON.stringify({ v: 1, iv: _b64encode(iv), ct: _b64encode(ct) });
+}
+
+async function _byokDecrypt(blob, seed) {
+  const obj = JSON.parse(blob);
+  if (!obj || obj.v !== 1 || !obj.iv || !obj.ct) throw new Error("byok: bad blob");
+  const key = await _byokDeriveKey(seed);
+  const pt = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv: _b64decode(obj.iv) }, key, _b64decode(obj.ct)
+  );
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+// Called once during initApp() on every page load. Loads encrypted keys
+// from localStorage into the in-memory `_byokPlain` cache. Silently no-ops
+// if the user hasn't saved any keys yet, isn't signed in, or the blob is
+// corrupted (the Settings modal will let them re-enter their keys).
+async function byokInit() {
+  _byokLoaded = true;  // mark loaded even on empty, so headers() returns {}
+  const blob = localStorage.getItem(BYOK_STORAGE_KEY);
+  const seed = getEmail();
+  if (!blob || !seed) return;
+  try {
+    _byokPlain = await _byokDecrypt(blob, seed) || {};
+  } catch (e) {
+    console.warn("byok: failed to decrypt stored keys; clearing", e);
+    localStorage.removeItem(BYOK_STORAGE_KEY);
+    _byokPlain = {};
+  }
+}
+
+async function byokSave(plain) {
+  const seed = getEmail();
+  if (!seed) throw new Error("byok: not signed in");
+  const cleaned = {};
+  Object.keys(plain || {}).forEach(k => {
+    const v = (plain[k] || "").trim();
+    if (v) cleaned[k] = v;
+  });
+  if (Object.keys(cleaned).length === 0) {
+    localStorage.removeItem(BYOK_STORAGE_KEY);
+    _byokPlain = {};
+    return;
+  }
+  const blob = await _byokEncrypt(cleaned, seed);
+  localStorage.setItem(BYOK_STORAGE_KEY, blob);
+  _byokPlain = cleaned;
+}
+
+function byokClear() {
+  localStorage.removeItem(BYOK_STORAGE_KEY);
+  _byokPlain = {};
+}
+
+// Calls /api/byok/test?provider=… so the Settings modal "Test" buttons
+// can validate a key BEFORE saving. The candidate keys are injected as
+// per-provider headers WITHOUT touching the persistent cache.
+async function byokTestProvider(provider, candidateHeaders) {
+  const base = { "Content-Type": "application/json" };
+  const t = getToken();
+  if (t) base["Authorization"] = `Bearer ${t}`;
+  Object.assign(base, candidateHeaders || {});
+  const r = await fetch(`${API}/api/byok/test?provider=${encodeURIComponent(provider)}`,
+                        { headers: base });
+  let body = {};
+  try { body = await r.json(); } catch (_) {}
+  return { ok: r.ok && body.ok === true, detail: body.detail || `HTTP ${r.status}`, status: r.status };
+}
+
+// ── Settings modal (Phase 2 BYOK) ────────────────────────────────────────
+// The modal HTML lives in templates/index.html (#byok-overlay). These
+// handlers populate the form from the in-memory `_byokPlain` cache, run
+// per-provider Test probes, and persist via `byokSave()`.
+
+function _byokFormRead() {
+  const v = (id) => (document.getElementById(id) || {}).value || "";
+  return {
+    anthropic:     v("byok-anthropic").trim(),
+    claude_model:  v("byok-claude-model").trim(),
+    rapidapi:      v("byok-rapidapi").trim(),
+    adzuna_id:     v("byok-adzuna-id").trim(),
+    adzuna_key:    v("byok-adzuna-key").trim(),
+    usajobs_email: v("byok-usajobs-email").trim(),
+    usajobs_key:   v("byok-usajobs-key").trim(),
+  };
+}
+
+function _byokFormWrite(p) {
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ""; };
+  set("byok-anthropic",     p.anthropic);
+  set("byok-claude-model",  p.claude_model);
+  set("byok-rapidapi",      p.rapidapi);
+  set("byok-adzuna-id",     p.adzuna_id);
+  set("byok-adzuna-key",    p.adzuna_key);
+  set("byok-usajobs-email", p.usajobs_email);
+  set("byok-usajobs-key",   p.usajobs_key);
+}
+
+function openSettingsModal() {
+  const ov = document.getElementById("byok-overlay");
+  if (!ov) return;
+  _byokFormWrite(_byokPlain || {});
+  // Reset every probe status pill.
+  document.querySelectorAll(".byok-status").forEach(el => { el.textContent = ""; el.className = "byok-status"; });
+  const st = document.getElementById("byok-save-status"); if (st) { st.textContent = ""; st.className = "byok-save-status"; }
+  ov.style.display = "flex";
+  document.body.style.overflow = "hidden";
+}
+
+function closeSettingsModal() {
+  const ov = document.getElementById("byok-overlay");
+  if (ov) ov.style.display = "none";
+  document.body.style.overflow = "";
+}
+
+async function byokTestFromForm(provider) {
+  const f = _byokFormRead();
+  const statusId = "byok-status-" + provider;
+  const el = document.getElementById(statusId);
+  if (el) { el.textContent = "Testing…"; el.className = "byok-status pending"; }
+  let candidate = {};
+  if (provider === "anthropic") {
+    if (!f.anthropic) { if (el) { el.textContent = "Paste a key first"; el.className = "byok-status fail"; } return; }
+    candidate = { "X-Anthropic-Key": f.anthropic };
+    if (f.claude_model) candidate["X-Claude-Model"] = f.claude_model;
+  } else if (provider === "jsearch") {
+    if (!f.rapidapi) { if (el) { el.textContent = "Paste a key first"; el.className = "byok-status fail"; } return; }
+    candidate = { "X-RapidAPI-Key": f.rapidapi };
+  } else if (provider === "adzuna") {
+    if (!f.adzuna_id || !f.adzuna_key) { if (el) { el.textContent = "Paste both App Id and App Key"; el.className = "byok-status fail"; } return; }
+    candidate = { "X-Adzuna-App-Id": f.adzuna_id, "X-Adzuna-App-Key": f.adzuna_key };
+  } else if (provider === "usajobs") {
+    if (!f.usajobs_email || !f.usajobs_key) { if (el) { el.textContent = "Paste both email and key"; el.className = "byok-status fail"; } return; }
+    candidate = { "X-USAJobs-Email": f.usajobs_email, "X-USAJobs-Key": f.usajobs_key };
+  }
+  try {
+    const res = await byokTestProvider(provider, candidate);
+    if (el) {
+      el.textContent = res.detail;
+      el.className = "byok-status " + (res.ok ? "ok" : "fail");
+    }
+  } catch (e) {
+    if (el) { el.textContent = "Network error: " + (e && e.message || e); el.className = "byok-status fail"; }
+  }
+}
+
+async function byokSaveFromForm() {
+  const st = document.getElementById("byok-save-status");
+  const btn = document.getElementById("byok-save-btn");
+  if (btn) btn.disabled = true;
+  if (st) { st.textContent = "Saving…"; st.className = "byok-save-status pending"; }
+  try {
+    await byokSave(_byokFormRead());
+    if (st) { st.textContent = "Saved. Keys are encrypted in this browser and never sent to JobPilot's server."; st.className = "byok-save-status ok"; }
+    showToast("Settings saved.", "success");
+    setTimeout(closeSettingsModal, 900);
+  } catch (e) {
+    if (st) { st.textContent = "Save failed: " + (e && e.message || e); st.className = "byok-save-status fail"; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// Surface a single toast + auto-open Settings whenever the backend returns
+// `byok_required: true` (i.e. the user hit a Claude route with no key).
+// Call sites pass the parsed JSON body; returns true if it handled the
+// error so the caller can short-circuit.
+function handleByokRequired(body) {
+  if (!body || body.byok_required !== true) return false;
+  const header = body.header || "API key";
+  showToast(`Open Settings → paste your ${header.replace(/^X-/, "")} to use AI features.`, "error");
+  setTimeout(openSettingsModal, 250);
+  return true;
+}
+
+// ── Google Drive access_token (Phase 1) ─────────────────────────────────
+// The Drive-scoped OAuth access_token is obtained on the landing page via
+// `google.accounts.oauth2.initTokenClient(...).requestAccessToken(...)` and
+// stored in localStorage. It expires after ~1 hour, so any code that needs
+// it should await `getGoogleToken()` which silently re-mints when expired.
+const GOOGLE_OAUTH_SCOPES = [
+  'openid', 'email', 'profile',
+  'https://www.googleapis.com/auth/drive.appdata',
+  'https://www.googleapis.com/auth/drive.file',
+].join(' ');
+let _gisTokenClient = null;
+
+function _gtokenValid() {
+  const tok = localStorage.getItem("jp_gtoken");
+  const exp = parseInt(localStorage.getItem("jp_gtoken_expiry") || "0", 10);
+  // 60s safety buffer so we refresh *before* the token actually expires.
+  return !!tok && !!exp && Date.now() < (exp - 60_000);
+}
+
+// Returns a fresh Google access_token, silently re-minting via GIS if the
+// cached one is missing/expired. Resolves with a string token or rejects
+// if the user must re-consent (e.g. they revoked Drive access from their
+// Google account). Demo users have no gtoken and this rejects immediately.
+function getGoogleToken() {
+  return new Promise(function (resolve, reject) {
+    if (localStorage.getItem("jp_demo") === "1") {
+      reject(new Error("demo-no-drive")); return;
+    }
+    if (_gtokenValid()) { resolve(localStorage.getItem("jp_gtoken")); return; }
+    const clientId = (window.JOBPILOT_GOOGLE_CLIENT_ID ||
+      (document.querySelector('meta[name="google-client-id"]') || {}).content || "");
+    if (!clientId) { reject(new Error("GOOGLE_CLIENT_ID not configured")); return; }
+    if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+      reject(new Error("GIS library not loaded")); return;
+    }
+    if (!_gisTokenClient) {
+      _gisTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: GOOGLE_OAUTH_SCOPES,
+        callback: function (resp) {
+          if (resp && resp.access_token) {
+            try {
+              const expiresIn = parseInt(resp.expires_in || "3600", 10);
+              localStorage.setItem("jp_gtoken", resp.access_token);
+              localStorage.setItem("jp_gtoken_expiry", String(Date.now() + (expiresIn * 1000)));
+            } catch (_) {}
+            resolve(resp.access_token);
+          } else {
+            reject(new Error((resp && resp.error) || "No access_token returned"));
+          }
+        },
+        error_callback: function (err) { reject(err || new Error("Token request failed")); },
+      });
+    }
+    // Silent refresh: prompt='' means "only succeed if the user already
+    // granted the requested scopes". If they revoked Drive, this rejects
+    // and the caller can fall back to a full re-consent flow.
+    try { _gisTokenClient.requestAccessToken({ prompt: '' }); }
+    catch (e) { reject(e); }
+  });
+}
+
+// Header bundle for Drive-backed routes. Adds X-Google-Token alongside the
+// usual Authorization header. Awaits a silent re-mint if needed.
+async function gAuthHeaders() {
+  const base = authHeaders();
+  try {
+    const gtok = await getGoogleToken();
+    base["X-Google-Token"] = gtok;
+  } catch (_) { /* caller's route will return 401 and surface a re-consent CTA */ }
+  return base;
 }
 
 function showAuthOverlay() {
@@ -95,51 +430,44 @@ function revealTopbarUser() {
   // Resume library is gated behind login.
   const libBtn = document.getElementById("resume-library-btn");
   if (libBtn) libBtn.style.display = "";
+  // Phase 2 BYOK: same gating for the Settings button.
+  const setBtn = document.getElementById("byok-settings-btn");
+  if (setBtn) setBtn.style.display = "";
   refreshResumeLibraryCount();
 }
 
 function switchAuthTab(tab) {
-  // Dead code path — preserved as a no-op so any stale event handler in
-  // cached HTML doesn't throw. Real implementation lives in landing.html
-  // (Issue #42).
+  // Dead code path — Phase 1 of the BYOK refactor removed the email/password
+  // tabs entirely. Kept as a no-op so any stale event handler in cached
+  // HTML doesn't throw (Issue #42).
   void tab;
 }
 
 async function submitAuth() {
-  // Dead code path — auth submission lives in landing.html (Issue #42).
+  // Dead code path — email/password sign-in was removed in Phase 1 of the
+  // BYOK refactor. Google Sign-In is the only identity path; the UI for it
+  // lives entirely in templates/landing.html.
 }
 
 function showAuthError(msg) {
   const el = document.getElementById("auth-error");
+  if (!el) return;
   el.textContent = msg;
   el.style.display = "block";
 }
 
 function googleSignIn() {
-  const clientId = document.getElementById("g_id_onload").dataset.client_id;
-  if (!clientId) {
-    showAuthError("Google login is not configured yet. Please use email/password.");
-    return;
-  }
-  google.accounts.id.initialize({ client_id: clientId, callback: handleGoogleCredential });
-  google.accounts.id.prompt();
+  // Dead code path — the landing page owns the GIS button + token flow.
+  // The /app shell never shows a sign-in prompt; it redirects unauthenticated
+  // requests back to / via the IIFE in templates/index.html.
+  window.location.href = "/";
 }
 
-async function handleGoogleCredential(response) {
-  try {
-    const r = await fetch("/api/auth/google", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ credential: response.credential })
-    });
-    const d = await r.json();
-    if (!r.ok) { showAuthError(d.detail || "Google sign-in failed"); return; }
-    setLoginSession(d.token, d.email);
-    hideAuthOverlay();
-    initApp();
-  } catch {
-    showAuthError("Google sign-in failed — server error");
-  }
+async function handleGoogleCredential(_response) {
+  // Dead code path — see googleSignIn() above. The real handler is in
+  // templates/landing.html and is responsible for both the JobPilot JWT and
+  // the Drive-scoped access_token (`jp_gtoken`).
+  window.location.href = "/";
 }
 
 // ── Stored resume (per-browser, persists across job clicks) ───────────────────
@@ -508,6 +836,12 @@ function setupAutocomplete(inputId, data, onSelect) {
 
 function initApp() {
   checkHealth();
+  // Phase 2 BYOK: decrypt the user's saved API keys into the in-memory
+  // cache so `authHeaders()` can inject them synchronously into every
+  // subsequent fetch. Fire-and-forget — if it hasn't completed by the
+  // time the first request goes out, the server will respond 400 with
+  // `byok_required` and the user will be nudged to open Settings.
+  byokInit().catch(e => console.warn("byokInit failed", e));
   // Show demo banner when user is in demo/guest mode
   if (localStorage.getItem("jp_demo") === "1") {
     const banner = document.getElementById("demo-banner");
@@ -1935,6 +2269,7 @@ async function generateResume() {
       }),
     });
     const d = await r.json();
+    if (handleByokRequired(d)) { st.state = "gen_form"; renderTabBody(); return; }
     if (d.error) throw new Error(d.error);
     st.resumeText = d.resume;
     st.resumeName = "AI Generated Resume";
@@ -1981,6 +2316,7 @@ async function startTailor() {
       }),
     });
     const d = await r.json();
+    if (handleByokRequired(d)) { st.state = "idle"; renderTabBody(); return; }
     if (d.error) throw new Error(d.error);
     st.tailoredText    = d.tailored;
     st.originalTailored = d.tailored;  // v1 snapshot for reset
@@ -2074,6 +2410,7 @@ async function aiImproveLine() {
       body: JSON.stringify({ line: original, description: st.jdText, job_title: j.title }),
     });
     const d = await r.json();
+    if (handleByokRequired(d)) { ta.setRangeText(original, s, s + "⏳ Improving...".length, "select"); return; }
     ta.setRangeText(d.improved || original, s, s + "⏳ Improving...".length, "select");
     saveEditorContent();
     showToast("Line improved!", "success");
@@ -2195,6 +2532,7 @@ async function applyInstruction() {
       }),
     });
     const d = await r.json();
+    if (handleByokRequired(d)) { st.chatHistory.pop(); renderTabBody(); return; }
     if (d.error) throw new Error(d.error);
 
     if (d.resume_changed !== false) {
@@ -2259,6 +2597,10 @@ async function checkATSScore(opts = {}) {
       }),
     });
     const d = await r.json();
+    if (handleByokRequired(d)) {
+      if (!auto) { currentTab = "tailor"; renderTabBody(); }
+      return;
+    }
     if (d.error) throw new Error(d.error);
 
     st.scoreData = d;
@@ -2422,6 +2764,7 @@ async function runAtsBoost(mode = "generic", manualExtras = "") {
       }),
     });
     const d = await r.json();
+    if (handleByokRequired(d)) { st.chatHistory.pop(); st.atsAssistWorking = false; st.atsAssistMode = ""; renderTabBody(); return; }
     if (d.error) throw new Error(d.error);
 
     if (d.resume_changed !== false && d.updated_resume) {
@@ -2435,6 +2778,7 @@ async function runAtsBoost(mode = "generic", manualExtras = "") {
       body: JSON.stringify({ resume_text: st.tailoredText, description: st.jdText, final_check: true }),
     });
     const newScore = await scoreRes.json();
+    if (handleByokRequired(newScore)) { st.atsAssistWorking = false; st.atsAssistMode = ""; renderTabBody(); return; }
     if (newScore.error) throw new Error(newScore.error);
 
     st.scoreData = newScore;

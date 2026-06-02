@@ -56,34 +56,73 @@ def _clean_resume(text: str) -> str:
     return '\n'.join(cleaned)
 
 
-# Module-level Anthropic client (Issue #11) — created lazily on first use
-# and reused across calls so the underlying HTTP connection pool survives.
-_CLIENT: anthropic.Anthropic | None = None
+# Phase 2 BYOK — Anthropic clients are now keyed on the API key string so
+# real users (each with their own key) and the demo account can share the
+# same process without leaking each other's connections. We memoise one
+# `anthropic.Anthropic` instance per key so the underlying HTTPX connection
+# pool is reused across calls (Issue #11 — connection-reuse goal preserved).
+_CLIENT_BY_KEY: dict[str, anthropic.Anthropic] = {}
 
 
-def _client() -> anthropic.Anthropic:
-    global _CLIENT
-    if _CLIENT is None:
-        key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not key:
-            raise ValueError("ANTHROPIC_API_KEY not set in .env file")
-        _CLIENT = anthropic.Anthropic(api_key=key)
-    return _CLIENT
-
-
-# Default Claude model. Override with env var CLAUDE_MODEL for easy upgrades.
-# NOTE: keep this in sync with .env.example. The previous default
-# `claude-sonnet-4-6` is NOT a real Anthropic SKU (Issue #84) and produced
-# 404s on every AI call (score_ats / tailor_resume / chat) when the env
-# var was unset. The current released family is `claude-sonnet-4-5-*`;
-# the stable alias `claude-sonnet-4-5` always points at the latest minor.
+# Default Claude model. Override per-request with the `X-Claude-Model`
+# header (preferred) or the legacy `CLAUDE_MODEL` env var (demo fallback).
+# The previous default `claude-sonnet-4-6` is NOT a real Anthropic SKU
+# (Issue #84) — the stable alias `claude-sonnet-4-5` is current.
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5")
+
+
+def _resolve_key_and_model() -> tuple[str, str]:
+    """Resolve the Anthropic API key + model for the *current* request.
+
+    Order of precedence:
+      1. `flask.g.anthropic_key` / `flask.g.claude_model` — set by the
+         BYOK helper in each route (`require_api_key`). This is the
+         normal production path for real Google-signed-in users.
+      2. `ANTHROPIC_API_KEY` / `CLAUDE_MODEL` env vars — fallback for the
+         demo account, for CLI / pytest harnesses with no Flask context,
+         and for legacy scripts that import ai_engine directly.
+    """
+    key = ""
+    model = CLAUDE_MODEL
+    try:
+        from flask import g, has_request_context  # local import — keep
+        # ai_engine importable outside Flask.
+        if has_request_context():
+            key = getattr(g, "anthropic_key", "") or ""
+            model = getattr(g, "claude_model", "") or CLAUDE_MODEL
+    except Exception:  # noqa: BLE001 — never fail AI calls on flask glue
+        pass
+    if not key:
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        raise ValueError(
+            "Anthropic API key not provided. Real users: open Settings and "
+            "paste your key. Demo / CLI: set ANTHROPIC_API_KEY in .env."
+        )
+    return key, model
+
+
+def _client(api_key: str | None = None) -> anthropic.Anthropic:
+    """Return a memoised `anthropic.Anthropic` for the given (or current) key.
+
+    Passing `api_key` explicitly bypasses the Flask context lookup —
+    useful for the `/api/byok/test` probe which needs to validate a key
+    *before* it is saved to the request bundle.
+    """
+    if api_key is None:
+        api_key, _ = _resolve_key_and_model()
+    client = _CLIENT_BY_KEY.get(api_key)
+    if client is None:
+        client = anthropic.Anthropic(api_key=api_key)
+        _CLIENT_BY_KEY[api_key] = client
+    return client
 
 
 def _call(prompt: str, max_tokens: int = 2000) -> str:
     """Single Claude call, returns text."""
-    msg = _client().messages.create(
-        model=CLAUDE_MODEL,
+    api_key, model = _resolve_key_and_model()
+    msg = _client(api_key).messages.create(
+        model=model,
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}]
     )

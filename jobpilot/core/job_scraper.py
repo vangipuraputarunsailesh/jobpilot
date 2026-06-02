@@ -52,6 +52,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from itertools import product as itertools_product
 
+from core.byok import JobSearchCreds
+
 logger = logging.getLogger("jobpilot")
 
 
@@ -1017,16 +1019,28 @@ def search_apify_modular(title: str, location: str, max_results: int = 100, date
 
 # ── 2. JSearch (RapidAPI) ────────────────────────────────────────────────────
 
-def search_jsearch(title: str, location: str, max_results: int = 100, date_posted: str = "pastWeek") -> list[dict]:
+def search_jsearch(
+    title: str,
+    location: str,
+    max_results: int = 100,
+    date_posted: str = "pastWeek",
+    *,
+    api_key: str | None = None,
+) -> list[dict]:
     """
     JSearch via RapidAPI — aggregates LinkedIn, Indeed, Glassdoor, ZipRecruiter
     and more via Google Jobs under the hood.
     Sign up free at: https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch
-    Free tier: 500 requests/month. Set RAPIDAPI_KEY in .env.
+    Free tier: 500 requests/month.
+
+    Phase 2 BYOK: `api_key` is now passed explicitly from the request
+    handler (per-user RapidAPI key resolved via `core.byok`); the
+    `os.environ` fallback is preserved only for CLI / pytest callers.
     """
-    api_key = os.environ.get("RAPIDAPI_KEY", "")
+    if api_key is None:
+        api_key = os.environ.get("RAPIDAPI_KEY", "")
     if not api_key:
-        logger.info("  [jsearch] RAPIDAPI_KEY not set — skipping")
+        logger.info("  [jsearch] RAPIDAPI_KEY not provided — skipping")
         return []
 
     date_map = {"past24Hours": "today", "pastWeek": "week", "pastMonth": "month"}
@@ -1090,18 +1104,32 @@ def search_jsearch(title: str, location: str, max_results: int = 100, date_poste
 
 # ── 3. Adzuna ─────────────────────────────────────────────────────────────────
 
-def search_adzuna(title: str, location: str, pages: int = 4, date_posted: str = "pastWeek") -> list[dict]:
+def search_adzuna(
+    title: str,
+    location: str,
+    pages: int = 4,
+    date_posted: str = "pastWeek",
+    *,
+    app_id: str | None = None,
+    app_key: str | None = None,
+) -> list[dict]:
     """
     Adzuna has excellent US coverage including solo founders, SMBs, and enterprises.
     Sign up free at: https://developer.adzuna.com/
     Free tier: 250 calls/day.
 
+    Phase 2 BYOK: `app_id` / `app_key` are passed explicitly from the
+    request handler; the `os.environ` fallback is preserved for CLI /
+    pytest callers.
+
     FIX: 'what_phrase' param used for exact phrase match in Adzuna API.
     """
-    app_id  = os.environ.get("ADZUNA_APP_ID", "")
-    app_key = os.environ.get("ADZUNA_APP_KEY", "")
+    if app_id is None:
+        app_id = os.environ.get("ADZUNA_APP_ID", "")
+    if app_key is None:
+        app_key = os.environ.get("ADZUNA_APP_KEY", "")
     if not app_id or not app_key:
-        logger.info("  [adzuna] ADZUNA_APP_ID/KEY not set — skipping (sign up free at developer.adzuna.com)")
+        logger.info("  [adzuna] ADZUNA_APP_ID/KEY not provided — skipping (sign up free at developer.adzuna.com)")
         return []
 
     jobs = []
@@ -1258,14 +1286,27 @@ def search_remotive(title: str) -> list[dict]:
 
 # ── 5. USAJobs (free, government) ────────────────────────────────────────────
 
-def search_usajobs(title: str, location: str, date_posted: str = "pastWeek") -> list[dict]:
+def search_usajobs(
+    title: str,
+    location: str,
+    date_posted: str = "pastWeek",
+    *,
+    api_key: str | None = None,
+    email: str | None = None,
+) -> list[dict]:
     """
     Official US federal government job portal.
     Sign up free at: https://developer.usajobs.gov/
     Or works without a key with reduced rate limits.
+
+    Phase 2 BYOK: `api_key` / `email` are passed explicitly from the
+    request handler; the `os.environ` fallback is preserved for CLI /
+    pytest callers. A neutral User-Agent is used if no email is provided.
     """
-    email   = os.environ.get("USAJOBS_EMAIL", "jobpilot@example.com")
-    api_key = os.environ.get("USAJOBS_API_KEY", "")
+    if email is None:
+        email = os.environ.get("USAJOBS_EMAIL", "") or "jobpilot@example.com"
+    if api_key is None:
+        api_key = os.environ.get("USAJOBS_API_KEY", "")
 
     hdrs = {"Host": "data.usajobs.gov", "User-Agent": email}
     if api_key:
@@ -1486,10 +1527,22 @@ def _search_cache_evict(now: float) -> None:
         for k, _ in ordered[: len(_SEARCH_CACHE) - _SEARCH_CACHE_MAX + 1]:
             _SEARCH_CACHE.pop(k, None)
 
-def search_all_platforms(title: str, location: str = "United States", seniority: str = "any", date_posted: str = "pastWeek") -> list[dict]:
+def search_all_platforms(
+    title: str,
+    location: str = "United States",
+    seniority: str = "any",
+    date_posted: str = "pastWeek",
+    *,
+    creds: JobSearchCreds | None = None,
+) -> list[dict]:
     """
     Search all real job APIs and return deduplicated US + remote results.
     Covers FAANG, Fortune 500, mid-market, startups, and solo companies.
+
+    Phase 2 BYOK: `creds` carries per-user job-board credentials resolved
+    on the request thread (since `flask.g` doesn't propagate across the
+    ThreadPoolExecutor below). When None, each scraper falls back to its
+    own `os.environ.*` read for CLI / pytest convenience.
 
     Filtering pipeline (in order):
       1. US/Remote location filter      — drop non-US jobs
@@ -1507,12 +1560,20 @@ def search_all_platforms(title: str, location: str = "United States", seniority:
     logger.info("[scraper] Searching: '%s' in '%s'", title, location)
     all_jobs: list[dict] = []
 
+    # Resolve credentials once on the request thread; closures below capture
+    # the strings (not flask.g) so they're safe to use inside the pool.
+    _rapidapi   = creds.rapidapi_key   if creds else None
+    _adzuna_id  = creds.adzuna_app_id  if creds else None
+    _adzuna_key = creds.adzuna_app_key if creds else None
+    _usa_key    = creds.usajobs_key    if creds else None
+    _usa_email  = creds.usajobs_email  if creds else None
+
     scrapers = [
-        lambda: search_jsearch(title, location, max_results=100, date_posted=date_posted),
-        lambda: search_adzuna(title, location, pages=4, date_posted=date_posted),
+        lambda: search_jsearch(title, location, max_results=100, date_posted=date_posted, api_key=_rapidapi),
+        lambda: search_adzuna(title, location, pages=4, date_posted=date_posted, app_id=_adzuna_id, app_key=_adzuna_key),
         lambda: search_themuse(title, location, pages=4),
         lambda: search_remotive(title),
-        lambda: search_usajobs(title, location, date_posted=date_posted),
+        lambda: search_usajobs(title, location, date_posted=date_posted, api_key=_usa_key, email=_usa_email),
         lambda: search_arbeitnow(title),
     ]
 

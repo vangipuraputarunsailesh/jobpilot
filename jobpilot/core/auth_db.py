@@ -1,15 +1,27 @@
 """
-auth_db.py — Email + password authentication for JobPilot
-Uses SQLite for user storage, pbkdf2_sha256 for passwords, JWT for sessions.
+auth_db.py — JWT session helpers + resume storage for JobPilot.
+
+Phase 1 of the BYOK + Google Drive refactor: email/password registration
+and login have been removed. This module no longer hashes passwords,
+creates user rows, or validates credentials — identity is established
+entirely by the Google id_token verified in `routes/auth.py` and baked
+into the JWT we mint here.
+
+What remains:
+  * SQLite-backed resume persistence (slated for replacement by
+    `core/drive_storage.py` in Phase 3).
+  * `create_token` / `decode_token` for issuing + verifying JobPilot JWTs.
+
+The `users` table itself is kept (the resume columns hang off it) and is
+opportunistically populated by `save_user_resume`. Phase 4 will drop the
+table and rename this module to `core/jwt_session.py`.
 """
 
 import os
-import re
 import sqlite3
 import jwt
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from passlib.context import CryptContext
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -18,7 +30,6 @@ ALGORITHM   = "HS256"
 TOKEN_HOURS = 24 * 7   # token valid for 7 days
 
 DB_PATH  = Path(__file__).parent.parent / "users.db"
-pwd_ctx  = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 # ── DB setup ──────────────────────────────────────────────────────────────────
 
@@ -290,59 +301,19 @@ def clear_user_resume(email: str) -> None:
 
 
 def delete_user(email: str) -> bool:
-    """Hard-delete a user row. Returns True if a row was removed."""
+    """Hard-delete a user row + all their resumes. Returns True if a row was
+    removed. Retained as a maintenance utility for the Phase 4 cutover
+    (`JP_WIPE_LEGACY_DB=1`); no live route calls it anymore.
+    """
     email = (email or "").strip().lower()
     if not email:
         return False
     with _conn() as con:
+        con.execute("DELETE FROM user_resumes WHERE email = ?", (email,))
         cur = con.execute("DELETE FROM users WHERE email = ?", (email,))
         con.commit()
         return cur.rowcount > 0
 
-# ── Password helpers ──────────────────────────────────────────────────────────
-
-def hash_password(plain: str) -> str:
-    return pwd_ctx.hash(plain)
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_ctx.verify(plain, hashed)
-
-# ── User CRUD ─────────────────────────────────────────────────────────────────
-
-# Issue #92 — defense-in-depth at the DB layer. Route handlers in
-# routes/auth.py do their own (stricter) validation; this is the safety net
-# for any future caller (admin script, batch import, etc.) that bypasses
-# the route layer.
-_EMAIL_RE_DB = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
-_MIN_PASSWORD_LEN_DB = 6
-
-
-def create_user(email: str, password: str) -> dict:
-    email = (email or "").strip().lower()
-    if not email or len(email) > 254 or not _EMAIL_RE_DB.match(email):
-        raise ValueError("Invalid email")
-    if not isinstance(password, str) or len(password) < _MIN_PASSWORD_LEN_DB:
-        raise ValueError("Password too short")
-    with _conn() as con:
-        try:
-            con.execute(
-                "INSERT INTO users (email, password) VALUES (?, ?)",
-                (email, hash_password(password))
-            )
-            con.commit()
-        except sqlite3.IntegrityError:
-            raise ValueError("Email already registered")
-    return {"email": email}
-
-def get_user(email: str) -> dict | None:
-    email = email.strip().lower()
-    with _conn() as con:
-        row = con.execute(
-            "SELECT id, email, password FROM users WHERE email = ?", (email,)
-        ).fetchone()
-    if not row:
-        return None
-    return {"id": row[0], "email": row[1], "password": row[2]}
 
 # ── JWT ───────────────────────────────────────────────────────────────────────
 
