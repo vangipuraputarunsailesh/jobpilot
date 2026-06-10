@@ -67,6 +67,8 @@ def _substitute_vars(html: str) -> str:
     """Replace `{{ var }}` placeholders with values from env vars."""
     google_client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
     html = html.replace("{{ google_client_id }}", google_client_id)
+    # Strip Jinja comments `{# ... #}` so source-level docs don't ship.
+    html = re.sub(r"{#.*?#}", "", html, flags=re.DOTALL)
     # Strip any remaining `{{ ... }}` so dangling expressions don't render.
     html = re.sub(r"{{\s*[^}]+\s*}}", "", html)
     return html
@@ -121,6 +123,18 @@ def render(child_template: str, out_name: str) -> None:
 
     # 5. Rewrite absolute paths for static hosting
     merged = _apply_text_rewrites(merged)
+
+    # 6. Fail fast if any unprocessed Jinja tag survived. The stdlib stripper
+    #    only knows about `{% extends %}`, `{% block %}`, `{# comment #}`,
+    #    and `{{ var }}`; anything else (`{% if %}`, `{% for %}`,
+    #    `{% include %}`, custom filters, etc.) would silently leak into the
+    #    static HTML. Fail the build so contributors notice immediately.
+    leak = re.search(r"{[%{#]", merged)
+    if leak:
+        snippet = merged[max(0, leak.start() - 40) : leak.end() + 60]
+        raise SystemExit(
+            f"Unprocessed Jinja tag in {out_name} near: {snippet!r}"
+        )
 
     out = DOCS / out_name
     out.parent.mkdir(parents=True, exist_ok=True)

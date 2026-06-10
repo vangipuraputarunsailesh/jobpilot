@@ -690,6 +690,8 @@ function initGoogleSignIn() {
     // No Google client ID configured — surface a clear message since Google
     // is now the only sign-in path. Admins debugging the deploy see the
     // env var name; everyone else sees the high-level message.
+    // Ops shortcut: append ?debug=1 to the URL to force the admin-facing
+    // diagnostic copy (safe in prod — no secrets are exposed).
     const isDebug = /[?&]debug=1\b/.test(window.location.search);
     if (container) {
       container.style.display = 'block';
