@@ -763,18 +763,28 @@ function googleSignIn() {
   });
 }
 
-// Step 1 — identity. The GIS One-Tap / button hands us a signed id_token,
-// which the server verifies and exchanges for a JobPilot JWT.
+// Step 1 — identity. The GIS One-Tap / button hands us a signed id_token
+// (`response.credential`). Post-Flask we decode it in-browser and use the
+// `email` + `sub` claims directly; the credential itself is stored as our
+// session token so any same-origin client-side gate that reads `jp_token`
+// still has something non-empty to check.
 async function handleGoogleCredential(response) {
   try {
-    const r = await fetch('/api/auth/google', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({credential: response.credential}),
-    });
-    const d = await r.json();
-    if (!r.ok) { showAuthError(d.detail || 'Google sign-in failed'); return; }
-    setLoginSession(d.token, d.email);
+    const cred = response && response.credential;
+    if (!cred) { showAuthError('Google sign-in returned no credential.'); return; }
+    // Decode the JWT payload (middle segment, base64url). We do NOT verify the
+    // signature — there's no backend to verify it against and the credential
+    // is only used as a client-side session marker. All sensitive operations
+    // (Anthropic, Drive, job-board APIs) authenticate against their own
+    // providers with BYOK keys held in the browser.
+    const parts = cred.split('.');
+    if (parts.length !== 3) { showAuthError('Malformed Google credential.'); return; }
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64.length % 4 === 0 ? b64 : b64 + '='.repeat(4 - (b64.length % 4));
+    const payload = JSON.parse(atob(pad));
+    const email = (payload && payload.email) || '';
+    if (!email) { showAuthError('Google credential is missing an email claim.'); return; }
+    setLoginSession(cred, email);
     // Step 2 — ask for the Drive-scoped access_token. We MUST request it
     // before redirecting to /app, otherwise the user lands without the
     // ability to read/write their resume folder. `prompt: 'consent'` is
@@ -783,13 +793,16 @@ async function handleGoogleCredential(response) {
     requestGoogleAccessToken({ prompt: 'consent' })
       .then(() => { window.location.href = '/app'; })
       .catch(err => {
-        // Even if the user denies Drive, they still have a valid JobPilot
-        // JWT — we let them into /app where the in-app banner will explain
-        // their resumes won't sync to Drive until they re-grant access.
+        // Even if the user denies Drive, they still have a valid session —
+        // we let them into /app where the in-app banner will explain their
+        // resumes won't sync to Drive until they re-grant access.
         console.warn('Drive scope not granted:', err);
         window.location.href = '/app';
       });
-  } catch { showAuthError('Google sign-in failed. Please try again.'); }
+  } catch (e) {
+    console.warn('handleGoogleCredential failed:', e);
+    showAuthError('Google sign-in failed. Please try again.');
+  }
 }
 
 // Request a Drive-scoped OAuth access_token via GIS Token Client.
@@ -832,10 +845,19 @@ async function enterDemoMode() {
   const btns = document.querySelectorAll('.ln-cta-demo, .auth-demo-btn');
   btns.forEach(b => { b.disabled = true; b.textContent = 'Loading demo…'; });
   try {
-    const r = await fetch('/api/auth/demo', { method: 'POST' });
-    const d = await r.json();
-    if (!r.ok) { showAuthError(d.detail || 'Demo unavailable'); return; }
-    setLoginSession(d.token, d.email, { demo: true });
+    // No backend post-Phase-7 — synthesize a client-only demo token. It
+    // exists solely to satisfy the same-origin session check in app.js +
+    // the index.html IIFE; demo users do not call Anthropic / Drive / the
+    // Cloudflare Worker (those paths short-circuit on `jp_demo === '1'`).
+    let rand = '';
+    try {
+      const arr = new Uint8Array(24);
+      crypto.getRandomValues(arr);
+      rand = Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
+    } catch (_) {
+      rand = String(Date.now()) + Math.random().toString(36).slice(2);
+    }
+    setLoginSession('demo.' + rand, 'demo@jobpilot.app', { demo: true });
     // Demo users do not get a Drive token — their data lives in localStorage
     // only. Wipe any stale gtoken from a prior real-account session.
     try {
@@ -843,8 +865,10 @@ async function enterDemoMode() {
       localStorage.removeItem('jp_gtoken_expiry');
     } catch (_) {}
     window.location.href = '/app';
-  } catch { showAuthError('Demo unavailable. Please try again.'); }
-  finally { btns.forEach(b => { b.disabled = false; }); }
+  } catch (e) {
+    console.warn('enterDemoMode failed:', e);
+    showAuthError('Demo unavailable. Please try again.');
+  } finally { btns.forEach(b => { b.disabled = false; }); }
 }
 
 // Try to initialize Google button after GSI library loads

@@ -90,6 +90,8 @@ _TEXT_REWRITES: list[tuple[str, str]] = [
     # Inline-script navigation
     ("window.location.href = '/app'", "window.location.href = 'app.html'"),
     ('window.location.href = "/app"', 'window.location.href = "app.html"'),
+    ("window.location.replace('/app')", "window.location.replace('app.html')"),
+    ('window.location.replace("/app")', 'window.location.replace("app.html")'),
     ("window.location.replace('/')", "window.location.replace('index.html')"),
     ('window.location.replace("/")', 'window.location.replace("index.html")'),
 ]
