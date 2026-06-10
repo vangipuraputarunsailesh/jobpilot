@@ -10,9 +10,7 @@ What it does:
   3. Rewrites absolute `/static/*` and `/app`, `/`, `/terms`, `/privacy`
      references so they work from a static directory hosted at
      `<user>.github.io/<repo>/`.
-  4. Injects `window.JOBPILOT_API_BASE` (pointing at the Railway-hosted Flask
-     server by default) so the demo path / fallback /api/jobs still works.
-  5. Copies jobpilot/static/ → docs/static/.
+  4. Copies jobpilot/static/ → docs/static/.
 
 Usage:
     python scripts/build_pages.py
@@ -21,8 +19,6 @@ Env vars (optional):
     GOOGLE_CLIENT_ID    — substituted into the `{{ google_client_id }}` slot
                           on the landing page. If empty, the GSI button stays
                           hidden and only "Try Demo" is reachable.
-    JOBPILOT_API_BASE   — base URL for the Flask backend (default:
-                          https://www.jobspilot.site).
 
 This script is intentionally pure-Python stdlib (no Jinja2 dep) so it runs
 on a clean GitHub Actions runner without any pip install.
@@ -30,7 +26,6 @@ on a clean GitHub Actions runner without any pip install.
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
@@ -41,8 +36,6 @@ TPL_DIR = ROOT / "jobpilot" / "templates"
 STATIC_SRC = ROOT / "jobpilot" / "static"
 DOCS = ROOT / "docs"
 STATIC_DST = DOCS / "static"
-
-DEFAULT_API_BASE = "https://www.jobspilot.site"
 
 # Regex for Jinja block tags. Non-greedy + DOTALL so a block can span many
 # lines but cannot accidentally swallow the next block's endblock.
@@ -108,20 +101,6 @@ def _apply_text_rewrites(html: str) -> str:
     return html
 
 
-def _inject_api_base(html: str) -> str:
-    """Inject `window.JOBPILOT_API_BASE` before app.js so /api/* calls hit
-    the Railway-hosted Flask backend (used by demo mode + the Phase 5
-    job-search Flask fallback)."""
-    api_base = os.environ.get("JOBPILOT_API_BASE", DEFAULT_API_BASE)
-    injection = (
-        f"<script>window.JOBPILOT_API_BASE={json.dumps(api_base)};</script>\n"
-    )
-    needle = '<script src="static/js/app.js"></script>'
-    if needle in html:
-        html = html.replace(needle, injection + needle)
-    return html
-
-
 def render(child_template: str, out_name: str) -> None:
     base = (TPL_DIR / "base.html").read_text(encoding="utf-8")
     child = (TPL_DIR / child_template).read_text(encoding="utf-8")
@@ -140,9 +119,6 @@ def render(child_template: str, out_name: str) -> None:
 
     # 5. Rewrite absolute paths for static hosting
     merged = _apply_text_rewrites(merged)
-
-    # 6. Wire the API base override
-    merged = _inject_api_base(merged)
 
     out = DOCS / out_name
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,0 @@
-__pycache__
-*.pyc
-*.pyo
-logs/
-generated/
-users.db
-venv/

@@ -47,10 +47,6 @@ jobs:
           # substituted into the GSI button. Otherwise the button stays
           # hidden and only "Try Demo" is reachable on the landing page.
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          # Override via a repo `Variables` entry of the same name. Default
-          # points at the existing Railway-hosted Flask backend so the
-          # Phase 5 Flask fallback + demo mode keep working.
-          JOBPILOT_API_BASE: ${{ vars.JOBPILOT_API_BASE }}
         run: python scripts/build_pages.py
 
       - name: Upload artifact
