@@ -3,8 +3,8 @@
 // Phase 4 — Client-side resume file parser (.pdf / .docx / .txt).
 //
 // Replaces server's `/api/upload-resume` (which used pypdf + pdfplumber +
-// python-docx) for non-demo users. Demo users still hit the server so the
-// shared demo flow works without forcing them to load 1 MB of PDF.js.
+// python-docx). The static deploy has no backend — all parsing happens in
+// the browser via pdf.js + mammoth.js.
 //
 // Exposed on `window.parseResumeFile(file)` → Promise<{text, filename, source}>.
 //
@@ -17,11 +17,6 @@
 
   const MAX_BYTES = 5 * 1024 * 1024; // matches server RESUME_MAX_BYTES default
 
-  function _isDemo() {
-    try { return localStorage.getItem("jp_demo") === "1"; }
-    catch (_) { return false; }
-  }
-
   function _sanitizeFilename(name) {
     if (!name) return "resume";
     // Strip any path components.
@@ -32,23 +27,6 @@
     const safeStem = stem.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80) || "resume";
     const safeExt = ext.toLowerCase().replace(/[^a-z0-9.]/g, "");
     return safeStem + safeExt;
-  }
-
-  async function _serverParse(file) {
-    const fd = new FormData();
-    fd.append("file", file);
-    // Reuse authHeaders() but strip Content-Type so the browser sets the
-    // multipart boundary itself.
-    const headers = window.authHeaders ? window.authHeaders() : {};
-    delete headers["Content-Type"];
-    const r = await fetch(`${window.API || ""}/api/upload-resume`, {
-      method: "POST",
-      headers: headers,
-      body: fd,
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
-    return { text: j.text || "", filename: j.filename || file.name, source: "server" };
   }
 
   async function _parseTxt(file) {
@@ -100,21 +78,10 @@
       throw new Error(`File too large (max ${Math.round(MAX_BYTES / 1024 / 1024)} MB)`);
     }
 
-    // Demo users go through server — keeps demo flow & quota intact.
-    if (_isDemo()) {
-      return _serverParse(file);
-    }
-
     const name = (file.name || "").toLowerCase();
-    try {
-      if (name.endsWith(".txt"))  return await _parseTxt(file);
-      if (name.endsWith(".pdf"))  return await _parsePdf(file);
-      if (name.endsWith(".docx")) return await _parseDocx(file);
-    } catch (e) {
-      console.warn("[resume-parser] Client parse failed, falling back to server:", e);
-      // Fall through to server as last resort.
-      return _serverParse(file);
-    }
+    if (name.endsWith(".txt"))  return await _parseTxt(file);
+    if (name.endsWith(".pdf"))  return await _parsePdf(file);
+    if (name.endsWith(".docx")) return await _parseDocx(file);
     throw new Error("Unsupported file type. Use .pdf, .docx, or .txt");
   }
 

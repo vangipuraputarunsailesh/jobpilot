@@ -2,10 +2,9 @@
 //
 // Phase 4 — Client-side resume exporter (PDF / DOCX / TXT).
 //
-// Replaces server's `/api/download` for non-demo users. Visual drift vs the
-// server's WeasyPrint output is accepted per the Phase 4 plan — the goal
-// is to get JobPilot off Anthropic+Python entirely so it can host on a
-// static CDN later (Phase 6).
+// Replaces server's `/api/download`. Visual drift vs the server's WeasyPrint
+// output is accepted per the Phase 4 plan — the static deploy has no Python
+// backend and renders everything in the browser via jsPDF + docx.js.
 //
 // Exposed on window:
 //   downloadResumeText(content, filename)
@@ -19,11 +18,6 @@
 
 (function () {
   "use strict";
-
-  function _isDemo() {
-    try { return localStorage.getItem("jp_demo") === "1"; }
-    catch (_) { return false; }
-  }
 
   function _saveBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
@@ -40,30 +34,6 @@
     if (!name) name = "resume";
     const lower = name.toLowerCase();
     return lower.endsWith(ext) ? name : name + ext;
-  }
-
-  // ---- Demo fallback: server `/api/download` -------------------------------
-
-  async function _serverDownload(content, filename, format, opts) {
-    const headers = window.authHeaders ? window.authHeaders() : { "Content-Type": "application/json" };
-    const r = await fetch(`${window.API || ""}/api/download`, {
-      method: "POST",
-      headers: headers,
-      body: JSON.stringify({
-        content: content,
-        filename: filename,
-        format: format,
-        fit_pages: (opts && opts.fitPages) || null,
-      }),
-    });
-    if (!r.ok) {
-      const t = await r.text().catch(() => "");
-      throw new Error(t || `HTTP ${r.status}`);
-    }
-    const blob = await r.blob();
-    const cd = r.headers.get("content-disposition") || "";
-    const m = cd.match(/filename="?([^";]+)"?/i);
-    _saveBlob(blob, m ? m[1] : filename);
   }
 
   // ---- Plain text -----------------------------------------------------------
@@ -290,26 +260,9 @@
   async function downloadResume(content, filename, format, opts) {
     format = (format || "pdf").toLowerCase();
 
-    // Demo users use the server (matches old behavior).
-    if (_isDemo()) {
-      return _serverDownload(content, filename, format, opts);
-    }
-
     if (format === "txt") return downloadResumeText(content, filename);
-    if (format === "pdf") {
-      try { return downloadResumePdf(content, filename, opts); }
-      catch (e) {
-        console.warn("[export] PDF generation failed, falling back to server:", e);
-        return _serverDownload(content, filename, format, opts);
-      }
-    }
-    if (format === "docx") {
-      try { return await downloadResumeDocx(content, filename); }
-      catch (e) {
-        console.warn("[export] DOCX generation failed, falling back to server:", e);
-        return _serverDownload(content, filename, format, opts);
-      }
-    }
+    if (format === "pdf") return downloadResumePdf(content, filename, opts);
+    if (format === "docx") return await downloadResumeDocx(content, filename);
     throw new Error(`Unknown format: ${format}`);
   }
 

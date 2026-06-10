@@ -3,11 +3,10 @@
 // Phase 4 — Client-side Claude (Anthropic) AI engine.
 //
 // Ports the prompts and parsing logic from `jobpilot/core/ai_engine.py` into
-// the browser. Real users hit `https://api.anthropic.com/v1/messages`
+// the browser. All users hit `https://api.anthropic.com/v1/messages`
 // directly with their BYOK key (the `anthropic-dangerous-direct-browser-access`
-// header is required for CORS). Demo users (no BYOK key) fall back to the
-// Flask server's `/api/...` routes which still use the server's env key
-// under the existing demo rate limit.
+// header is required for CORS). Users without a BYOK key see a Settings nudge
+// — the static deploy has no Flask backend to proxy requests through.
 //
 // Exposed on `window.*` so app.js (loaded after this) can call them:
 //   aiScoreAts(resumeText, jobDescription, finalCheck=false)
@@ -33,14 +32,6 @@
   const DEFAULT_MODEL = "claude-sonnet-4-5";
   const CHAT_HISTORY_MAX_MESSAGES = 8;
 
-  // Demo mode detection — when the user has no BYOK Anthropic key, we
-  // route through the Flask server which still has its env key and rate
-  // limiter for the shared demo account.
-  function _isDemo() {
-    try { return localStorage.getItem("jp_demo") === "1"; }
-    catch (_) { return false; }
-  }
-
   // BYOK key + model are read out of the in-memory cache populated by
   // `app.js` (Phase 2 BYOK module). We don't import — we just peek at
   // the `_byokHeaders()` output via `window.authHeaders()`.
@@ -56,12 +47,10 @@
     }
   }
 
-  // Should this call go direct to Anthropic (real user with key) or via
-  // the Flask demo fallback (demo user OR real user with no key yet —
-  // the server will return `byok_required` in the latter case which the
-  // existing `handleByokRequired` shim already routes to Settings).
+  // Should this call go direct to Anthropic? True iff the user has a BYOK
+  // key in their browser. Demo or no-key users fall through to the banner
+  // shim below which nudges them to Settings.
   function _useDirect() {
-    if (_isDemo()) return false;
     const { key } = _byokAnthropic();
     return !!key;
   }
@@ -102,6 +91,9 @@
     }
     const j = await r.json();
     const block = (j.content && j.content[0]) || {};
+    // Bump the local usage counter rendered by app.js#refreshUsage(). Wrap
+    // in try/catch so any storage error never breaks the AI call itself.
+    try { if (typeof window.bumpUsage === "function") window.bumpUsage("claude_calls"); } catch (_) {}
     return (block.text || "").trim();
   }
 
@@ -319,21 +311,32 @@ A keyword match is valid if ANY of these are true:
 When in doubt → count as a match and flag it.
 `;
 
-  // ---- Demo fallback --------------------------------------------------------
+  // ---- No-key shim ----------------------------------------------------------
 
-  // For demo users (or any user without an Anthropic key), proxy through
-  // Flask. This keeps the demo flow working for free without a paid key.
-  async function _demoFallback(path, payload) {
-    const r = await fetch(`${window.API || ""}${path}`, {
-      method: "POST",
-      headers: window.authHeaders ? window.authHeaders() : { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok && !j.byok_required) {
-      throw new Error(j.detail || `HTTP ${r.status}`);
+  // The static deploy has no Flask backend, so when a user calls an AI
+  // function without a BYOK Anthropic key we surface a toast + open
+  // Settings and throw — each call site already has a try/catch that
+  // degrades gracefully (returns the original text, score=0, etc).
+  let _byokNudgeShownAt = 0;
+  async function _demoFallback(_path, _payload) {
+    const now = Date.now();
+    // Throttle the toast+modal to once every 8 s so a screen full of
+    // bullets being improved doesn't open Settings five times.
+    if (now - _byokNudgeShownAt > 8000) {
+      _byokNudgeShownAt = now;
+      try {
+        if (typeof window.showToast === "function") {
+          window.showToast(
+            "AI requires an Anthropic API key. Open Settings to add one.",
+            "error",
+          );
+        }
+        if (typeof window.openSettingsModal === "function") {
+          setTimeout(() => { try { window.openSettingsModal(); } catch (_) {} }, 250);
+        }
+      } catch (_) {}
     }
-    return j;
+    throw new Error("ai_unavailable_no_key");
   }
 
   // ---- Public: scoreAts -----------------------------------------------------

@@ -209,19 +209,75 @@ function byokClear() {
   _byokPlain = {};
 }
 
-// Calls /api/byok/test?provider=… so the Settings modal "Test" buttons
-// can validate a key BEFORE saving. The candidate keys are injected as
-// per-provider headers WITHOUT touching the persistent cache.
+// Tests a candidate API key directly against the provider so the Settings
+// modal "Test" buttons can validate a key BEFORE saving. All probes run
+// in the browser — the static site has no backend to proxy through.
 async function byokTestProvider(provider, candidateHeaders) {
-  const base = { "Content-Type": "application/json" };
-  const t = getToken();
-  if (t) base["Authorization"] = `Bearer ${t}`;
-  Object.assign(base, candidateHeaders || {});
-  const r = await fetch(`${API}/api/byok/test?provider=${encodeURIComponent(provider)}`,
-                        { headers: base });
-  let body = {};
-  try { body = await r.json(); } catch (_) {}
-  return { ok: r.ok && body.ok === true, detail: body.detail || `HTTP ${r.status}`, status: r.status };
+  const h = candidateHeaders || {};
+  try {
+    if (provider === "anthropic") {
+      const key = h["X-Anthropic-Key"];
+      const model = h["X-Claude-Model"] || "claude-sonnet-4-5";
+      if (!key) return { ok: false, detail: "Missing key", status: 0 };
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1,
+          messages: [{ role: "user", content: "ping" }],
+        }),
+      });
+      let body = {};
+      try { body = await r.json(); } catch (_) {}
+      const detail = r.ok
+        ? "OK"
+        : (body && body.error && body.error.message) || `HTTP ${r.status}`;
+      return { ok: r.ok, detail, status: r.status };
+    }
+    if (provider === "jsearch") {
+      const key = h["X-RapidAPI-Key"];
+      if (!key) return { ok: false, detail: "Missing key", status: 0 };
+      const r = await fetch(
+        "https://jsearch.p.rapidapi.com/search?query=test&page=1&num_pages=1",
+        { headers: { "X-RapidAPI-Key": key, "X-RapidAPI-Host": "jsearch.p.rapidapi.com" } },
+      );
+      return { ok: r.ok, detail: r.ok ? "OK" : `HTTP ${r.status}`, status: r.status };
+    }
+    if (provider === "adzuna") {
+      const id = h["X-Adzuna-App-Id"];
+      const key = h["X-Adzuna-App-Key"];
+      if (!id || !key) return { ok: false, detail: "Missing id/key", status: 0 };
+      const r = await fetch(
+        `https://api.adzuna.com/v1/api/jobs/us/categories?app_id=${encodeURIComponent(id)}&app_key=${encodeURIComponent(key)}`,
+      );
+      return { ok: r.ok, detail: r.ok ? "OK" : `HTTP ${r.status}`, status: r.status };
+    }
+    if (provider === "usajobs") {
+      const email = h["X-USAJobs-Email"];
+      const key = h["X-USAJobs-Key"];
+      if (!email || !key) return { ok: false, detail: "Missing email/key", status: 0 };
+      const r = await fetch(
+        "https://data.usajobs.gov/api/codelist/agencysubelements",
+        {
+          headers: {
+            "Host": "data.usajobs.gov",
+            "User-Agent": email,
+            "Authorization-Key": key,
+          },
+        },
+      );
+      return { ok: r.ok, detail: r.ok ? "OK" : `HTTP ${r.status}`, status: r.status };
+    }
+    return { ok: false, detail: "Unknown provider", status: 0 };
+  } catch (e) {
+    return { ok: false, detail: "Network: " + ((e && e.message) || e), status: 0 };
+  }
 }
 
 // ── Settings modal (Phase 2 BYOK) ────────────────────────────────────────
@@ -1328,27 +1384,20 @@ document.addEventListener("keydown", (e) => {
 
 async function deleteMyAccount() {
   const ok = await appConfirm(
-    "Permanently delete your JobPilot account and saved resume? This cannot be undone.",
-    "Delete account",
+    "Clear all JobPilot data from this browser? This wipes your saved resume, BYOK keys, and login session. Your Google account is not affected.",
+    "Clear local data",
   );
   if (!ok) return;
+  // Static deploy — nothing to delete server-side. We wipe the browser:
+  //   • BYOK vault (encrypted keys + in-memory cache)
+  //   • stored resume text/name
+  //   • login session (token + email)
+  try { byokClear(); } catch (_) {}
+  try { clearStoredResume(); } catch (_) {}
   try {
-    const tok = getToken();
-    const r = await fetch(`${API}/api/me`, {
-      method: "DELETE",
-      headers: tok ? { "Authorization": `Bearer ${tok}` } : {},
-    });
-    if (!r.ok) {
-      let msg = "Account deletion failed";
-      try { const e = await r.json(); msg = e.detail || msg; } catch (_) {}
-      throw new Error(msg);
-    }
-    showToast("Account deleted", "success");
-  } catch (e) {
-    showToast(e.message || "Could not delete account", "error");
-    return;
-  }
-  clearStoredResume();
+    if (typeof sessionHistory !== "undefined") sessionHistory.length = 0;
+  } catch (_) {}
+  showToast("Local data cleared", "success");
   logout({ silent: true });
 }
 
@@ -1521,73 +1570,54 @@ async function refreshUsage() {
   const grid = document.getElementById("usage-grid");
   if (!grid) return;
   try {
-    const r = await fetch(`${API}/api/usage`, { headers: authHeaders() });
-    const d = await r.json();
-    const u = d.usage;
-    const l = d.limits;
-    const jsPercent = l.jsearch.monthly_limit
-      ? Math.round((l.jsearch.used / l.jsearch.monthly_limit) * 100) : 0;
-    const azPercent = l.adzuna.daily_limit
-      ? Math.round((l.adzuna.used / l.adzuna.daily_limit) * 100) : 0;
+    const raw = localStorage.getItem("jp_usage_v1") || "{}";
+    const u = JSON.parse(raw) || {};
+    const n = (k) => Number(u[k] || 0);
 
     grid.innerHTML = `
       <div class="usage-section">
-        <div class="usage-section-title">Job Search APIs</div>
-        <div class="usage-row">
-          <div class="usage-label">JSearch (RapidAPI)</div>
-          <div class="usage-bar-wrap">
-            <div class="usage-bar" style="width:${jsPercent}%;background:${jsPercent>80?'var(--red)':jsPercent>50?'var(--amber)':'var(--green)'}"></div>
-          </div>
-          <div class="usage-nums">${l.jsearch.used} / ${l.jsearch.monthly_limit || "—"} <span class="usage-period">/ month</span></div>
-        </div>
-        <div class="usage-sub">${l.jsearch.searches_left} searches remaining this month</div>
-        <div class="usage-row" style="margin-top:8px">
-          <div class="usage-label">Adzuna</div>
-          <div class="usage-bar-wrap">
-            <div class="usage-bar" style="width:${azPercent}%;background:${azPercent>80?'var(--red)':azPercent>50?'var(--amber)':'var(--green)'}"></div>
-          </div>
-          <div class="usage-nums">${l.adzuna.used} / ${l.adzuna.daily_limit || "—"} <span class="usage-period">/ day</span></div>
-        </div>
-        <div class="usage-sub">${l.adzuna.searches_left} searches remaining today</div>
-      </div>
-      <div class="usage-section">
         <div class="usage-section-title">Claude AI (Anthropic)</div>
         <div class="usage-stat-row">
-          <div class="usage-stat"><div class="usage-stat-num">${u.claude_calls}</div><div class="usage-stat-label">Total AI calls</div></div>
-          <div class="usage-stat"><div class="usage-stat-num">${u.total_tailors}</div><div class="usage-stat-label">Tailors</div></div>
-          <div class="usage-stat"><div class="usage-stat-num">${u.total_ats_scores}</div><div class="usage-stat-label">ATS scores</div></div>
-          <div class="usage-stat"><div class="usage-stat-num">${u.total_ai_chats}</div><div class="usage-stat-label">AI chats</div></div>
+          <div class="usage-stat"><div class="usage-stat-num">${n("claude_calls")}</div><div class="usage-stat-label">Total AI calls</div></div>
+          <div class="usage-stat"><div class="usage-stat-num">${n("total_tailors")}</div><div class="usage-stat-label">Tailors</div></div>
+          <div class="usage-stat"><div class="usage-stat-num">${n("total_ats_scores")}</div><div class="usage-stat-label">ATS scores</div></div>
+          <div class="usage-stat"><div class="usage-stat-num">${n("total_ai_chats")}</div><div class="usage-stat-label">AI chats</div></div>
         </div>
       </div>
       <div class="usage-section">
         <div class="usage-section-title">Session Activity</div>
         <div class="usage-stat-row">
-          <div class="usage-stat"><div class="usage-stat-num">${u.total_searches}</div><div class="usage-stat-label">Searches</div></div>
+          <div class="usage-stat"><div class="usage-stat-num">${n("total_searches")}</div><div class="usage-stat-label">Searches</div></div>
         </div>
+      </div>
+      <div class="usage-section">
+        <div class="usage-section-title">Job Search Providers</div>
+        <div class="usage-sub">Quotas are tracked by each provider directly. Open your JSearch / Adzuna / USAJobs dashboard to see remaining calls.</div>
       </div>`;
-  } catch (e) {
+  } catch (_) {
     grid.innerHTML = `<div style="color:var(--red);font-size:11px">Could not load usage data</div>`;
   }
 }
 
+// Local usage counter — incremented from ai.js after each successful AI call.
+// Stored in localStorage as `jp_usage_v1` so it survives reloads (and stays
+// purely client-side — no telemetry leaves the browser).
+function bumpUsage(kind) {
+  if (!kind) return;
+  try {
+    const u = JSON.parse(localStorage.getItem("jp_usage_v1") || "{}") || {};
+    u[kind] = Number(u[kind] || 0) + 1;
+    localStorage.setItem("jp_usage_v1", JSON.stringify(u));
+  } catch (_) {}
+}
+
 // ── Health check ──────────────────────────────────────────────────────────────
+// Static deploy — there's no Flask /api/health to ping. We hide the dot.
 async function checkHealth() {
   const dot = document.getElementById("health-dot");
-  try {
-    const r = await fetch(`${API}/api/health`);
-    const d = await r.json();
-    dot.classList.add(d.api_key_set ? "ok" : "err");
-    dot.title = d.api_key_set
-      ? `Connected · ${d.resume_count} resume(s) in folder`
-      : "ANTHROPIC_API_KEY not set in .env";
-    if (!d.api_key_set) showToast("Set ANTHROPIC_API_KEY in .env file", "error");
-
-    // Show active sources in sidebar
-    if (d.sources) renderApiStatus(d.sources);
-  } catch {
-    dot.classList.add("err");
-    dot.title = "Server not running";
-  }
+  if (dot) dot.style.display = "none";
+  const section = document.getElementById("api-status-section");
+  if (section) section.style.display = "none";
 }
 
 function renderApiStatus(_sources) {
@@ -1645,40 +1675,40 @@ async function searchJobs() {
   showSearching(title, location);
 
   try {
-    // Phase 5: prefer the Cloudflare Worker job-search path when the user
-    // has configured a Worker URL in Settings AND we're not running in
-    // demo mode (demo users still hit the Flask /api/jobs endpoint because
-    // the Worker can't auth to JSearch / Adzuna / USAJobs without their
-    // BYOK keys). If the Worker call throws or returns zero jobs because
-    // it's not configured, fall back to the legacy Flask path so the
-    // currently-deployed Railway server keeps working unchanged.
+    // Static deploy — every job search goes through the user's Cloudflare
+    // Worker (proxy/worker.js) using their BYOK provider keys. No backend
+    // fallback exists; if the Worker URL is missing or the call fails, we
+    // surface a clear error and nudge the user into Settings.
     const workerUrl = (_byokPlain && _byokPlain.cf_worker_url) || "";
-    const isDemo    = localStorage.getItem("jp_demo") === "1";
     let data        = null;
 
-    if (workerUrl && !isDemo && typeof window.searchJobsViaWorker === "function") {
-      try {
-        data = await window.searchJobsViaWorker({
-          title, location, seniority,
-          datePosted: date_posted,
-          workerUrl,
-        });
-      } catch (workerErr) {
-        if (workerErr && workerErr.name === "AbortError") throw workerErr;
-        console.warn("[jobs] Worker search failed, falling back to /api/jobs", workerErr);
-        data = null;
-      }
+    if (!workerUrl) {
+      showToast("Cloudflare Worker URL not set. Open Settings → Job search.", "error");
+      setTimeout(openSettingsModal, 250);
+      return;
+    }
+    if (typeof window.searchJobsViaWorker !== "function") {
+      showToast("Job search module failed to load. Refresh the page.", "error");
+      return;
     }
 
-    if (!data) {
-      const r    = await fetch(`${API}/api/jobs`, {
-        method:  "POST",
-        headers: authHeaders(),
-        body:    JSON.stringify({ title, location, seniority, date_posted }),
-        signal:  searchAbortController.signal,
+    try {
+      data = await window.searchJobsViaWorker({
+        title, location, seniority,
+        datePosted: date_posted,
+        workerUrl,
       });
-      data = await r.json();
+    } catch (workerErr) {
+      if (workerErr && workerErr.name === "AbortError") throw workerErr;
+      console.warn("[jobs] Worker search failed", workerErr);
+      showToast(
+        "Job search via Worker failed: " + ((workerErr && workerErr.message) || workerErr),
+        "error",
+      );
+      return;
     }
+
+    bumpUsage("total_searches");
     allJobs    = data.jobs || [];
 
     const sourceList = data.sources || [];
@@ -1955,19 +1985,9 @@ async function fetchJD() {
     if (currentTab === "jd") renderTabBody();
     return;
   }
-  try {
-    const r = await fetch(`${API}/api/jd`, {
-      method:  "POST",
-      headers: authHeaders(),
-      body:    JSON.stringify({ url: j.url, description: j.description }),
-    });
-    const d = await r.json();
-    const desc = (d.description || "").trim();
-    // Only use fetched description if it has meaningful content
-    st.jdText = desc.length > 200 ? desc : "__PASTE_NEEDED__";
-  } catch {
-    st.jdText = "__PASTE_NEEDED__";
-  }
+  // Static deploy — no Flask backend to scrape the job page. Surface the
+  // paste box so the user can drop the description in manually.
+  st.jdText = "__PASTE_NEEDED__";
   if (currentTab === "jd") renderTabBody();
 }
 
@@ -2903,39 +2923,8 @@ async function downloadResume(fmt = "pdf", fitPages = 0) {
   const downloadName = `${(selectedJob.company || "resume").replace(/\s+/g,"_")}_${(selectedJob.title||"").replace(/\s+/g,"_")}_tailored.${fmt}`;
 
   try {
-    // Demo users fall through to the server (export.js handles that internally).
-    const isDemo = (typeof localStorage !== "undefined" && localStorage.getItem("jp_demo") === "1");
-
-    if (isDemo) {
-      // Server path: preserves WeasyPrint styling for the shared demo flow.
-      const r = await fetch(`${API}/api/download`, {
-        method: "POST", headers: authHeaders(),
-        body: JSON.stringify({
-          content:   st.tailoredText,
-          filename:  st.resumeName || "resume",
-          format:    fmt,
-          fit_pages: fitPages,
-        }),
-      });
-      if (!r.ok) throw new Error("Download failed");
-      const renderer = (r.headers.get("X-PDF-Renderer") || "").toLowerCase();
-      const blob = await r.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement("a");
-      a.href     = url;
-      a.download = downloadName;
-      a.click();
-      URL.revokeObjectURL(url);
-      logSession("download", `Downloaded ${fmt.toUpperCase()}${fitPages ? ` (${fitPages}-page)` : ""} — ${selectedJob.company || ""}`);
-      if (fmt === "pdf" && renderer === "reportlab") {
-        showToast("PDF rendered with the ReportLab fallback — styling may differ from the preview.", "error");
-      } else {
-        showToast("Resume downloaded!", "success");
-      }
-      return;
-    }
-
-    // Real users: client-side render via jsPDF / docx.js (Phase 4).
+    // Static deploy — every user renders client-side via jsPDF / docx.js
+    // (Phase 4 helpers exposed by export.js on `window`).
     if (fmt === "pdf") {
       if (typeof downloadResumePdf !== "function") throw new Error("PDF exporter not loaded");
       downloadResumePdf(st.tailoredText, downloadName, { fitPages: fitPages > 0 ? fitPages : null });
