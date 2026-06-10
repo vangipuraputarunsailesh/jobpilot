@@ -1,10 +1,10 @@
-// jobpilot/static/js/jobs.js — Phase 5 client-side job search
+// jobpilot/static/js/jobs.js — client-side job search
 //
-// Calls the Cloudflare Worker (proxy/worker.js) for each provider in
-// parallel, normalizes responses into the canonical
-// {id, title, company, location, posted, salary, url, source, description, type}
-// shape, then runs the same 5-stage filter pipeline as the legacy
-// Python `search_all_platforms` in jobpilot/core/job_scraper.py:
+// Calls the user's Cloudflare Worker (proxy/worker.js) for each provider
+// in parallel using their BYOK keys, normalizes responses into the
+// canonical {id, title, company, location, posted, salary, url, source,
+// description, type} shape, then runs the 5-stage filter pipeline that
+// previously lived in the Python `search_all_platforms`:
 //
 //   1. US / Remote location filter
 //   2. Non-empty title guard
@@ -13,13 +13,15 @@
 //   5. Date-posted window filter
 //   6. Deduplicate by (title, company)
 //
-// Single entry point: window.searchJobsViaWorker({title, location, seniority,
-//   datePosted, workerUrl}) -> Promise<{jobs, count, sources, title, location}>.
+// Single entry point:
+//   window.searchJobsViaWorker({title, location, seniority, datePosted, workerUrl})
+//     → Promise<{jobs, count, sources, title, location}>
 //
-// If `workerUrl` is missing or the call throws, the caller (app.js) is
-// expected to fall back to the legacy Flask /api/jobs endpoint — that
-// fallback is wired in searchJobs() inside app.js, not here, so this
-// module stays pure-IIFE with no app.js dependency.
+// `workerUrl` is required — there is no backend fallback. If the user has
+// not configured their Worker URL in Settings, the caller (app.js) is
+// expected to show a "Configure Worker" prompt and never reach this
+// function. If the call throws, the caller surfaces the error verbatim;
+// it does NOT retry against any server route (there is none).
 
 (function () {
   "use strict";

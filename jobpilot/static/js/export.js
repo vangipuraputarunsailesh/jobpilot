@@ -1,10 +1,12 @@
 // jobpilot/static/js/export.js
 //
-// Phase 4 — Client-side resume exporter (PDF / DOCX / TXT).
+// Browser-side resume exporter (PDF / DOCX / TXT). This is the only export
+// path — the static GitHub Pages deploy has no backend, so there is no
+// server WeasyPrint fallback for any user.
 //
-// Replaces server's `/api/download`. Visual drift vs the server's WeasyPrint
-// output is accepted per the Phase 4 plan — the static deploy has no Python
-// backend and renders everything in the browser via jsPDF + docx.js.
+// All three formats render in the browser via jsPDF + docx.js. The output
+// will not be byte-identical to legacy WeasyPrint renders (different font
+// metrics, slightly different line-wrapping) but is visually close.
 //
 // Exposed on window:
 //   downloadResumeText(content, filename)

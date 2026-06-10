@@ -1,8 +1,9 @@
 name: Deploy to GitHub Pages
 
-# Build the static `docs/` artifact via scripts/build_pages.py and publish
-# it to GitHub Pages. The Flask backend on Railway is unaffected — this
-# workflow only ships the browser-side frontend.
+# Builds the static site (scripts/build_pages.py) and deploys it to
+# GitHub Pages. This is the only deploy surface — there is no separate
+# backend. The companion Cloudflare Worker (proxy/) is deployed
+# independently via `wrangler deploy`, not by this workflow.
 
 on:
   push:

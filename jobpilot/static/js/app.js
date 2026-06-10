@@ -1023,9 +1023,10 @@ async function handleWelcomeResumeFile(input) {
   if (status) { status.textContent = "Reading your resume…"; status.classList.remove("error"); }
   if (btn) btn.disabled = true;
   try {
-    // 1) Parse the file (client-side via pdf.js/mammoth.js for real users;
-    //    demo users still hit the server). Phase 4 moves parsing out of
-    //    Flask entirely — the server route is demo-only now.
+    // 1) Parse the file fully in the browser via pdf.js / mammoth.js
+    //    (resume-parser.js). There is no server upload path on the static
+    //    deploy — if the parser module hasn't loaded yet we surface the
+    //    error to the user instead of silently falling through.
     if (typeof parseResumeFile !== "function") {
       throw new Error("Resume parser not loaded yet");
     }
@@ -1675,10 +1676,10 @@ async function searchJobs() {
   showSearching(title, location);
 
   try {
-    // Static deploy — every job search goes through the user's Cloudflare
-    // Worker (proxy/worker.js) using their BYOK provider keys. No backend
-    // fallback exists; if the Worker URL is missing or the call fails, we
-    // surface a clear error and nudge the user into Settings.
+    // Every job search goes through the user's Cloudflare Worker
+    // (proxy/worker.js) using their BYOK provider keys. There is no
+    // backend fallback — if the Worker URL is missing or the call
+    // fails, we surface a clear error and open Settings.
     const workerUrl = (_byokPlain && _byokPlain.cf_worker_url) || "";
     let data        = null;
 

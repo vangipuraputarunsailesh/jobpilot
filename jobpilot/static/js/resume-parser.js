@@ -1,10 +1,14 @@
 // jobpilot/static/js/resume-parser.js
 //
-// Phase 4 — Client-side resume file parser (.pdf / .docx / .txt).
+// Browser-side resume file parser (.pdf / .docx / .txt). This is the only
+// parse path — the static GitHub Pages deploy has no backend, so there is
+// no server `/api/upload-resume` fallback for any user.
 //
-// Replaces server's `/api/upload-resume` (which used pypdf + pdfplumber +
-// python-docx). The static deploy has no backend — all parsing happens in
-// the browser via pdf.js + mammoth.js.
+//   - PDF  → pdf.js (text-layer extraction, page-by-page)
+//   - DOCX → mammoth.js (raw text)
+//   - TXT  → File.text()
+//
+// File size is capped at MAX_BYTES (5 MB) before any parsing happens.
 //
 // Exposed on `window.parseResumeFile(file)` → Promise<{text, filename, source}>.
 //

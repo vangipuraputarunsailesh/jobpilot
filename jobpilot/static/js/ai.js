@@ -1,12 +1,21 @@
 // jobpilot/static/js/ai.js
 //
-// Phase 4 — Client-side Claude (Anthropic) AI engine.
+// Browser-side Claude (Anthropic) AI engine. This is the only AI path —
+// the static GitHub Pages deploy has no backend, so there is no proxy and
+// no server fallback.
 //
-// Ports the prompts and parsing logic from `jobpilot/core/ai_engine.py` into
-// the browser. All users hit `https://api.anthropic.com/v1/messages`
-// directly with their BYOK key (the `anthropic-dangerous-direct-browser-access`
-// header is required for CORS). Users without a BYOK key see a Settings nudge
-// — the static deploy has no Flask backend to proxy requests through.
+// Flow:
+//   1. User stores an Anthropic API key in the BYOK vault (Settings → AI).
+//   2. authHeaders() reads the key out of the in-memory cache and surfaces
+//      it as `X-Anthropic-Key`; this module reads that and calls
+//      `https://api.anthropic.com/v1/messages` directly from the browser.
+//      The `anthropic-dangerous-direct-browser-access: true` header opts
+//      into Anthropic's browser-CORS endpoint.
+//   3. No key → `_demoFallback()` shows a throttled toast ("AI requires an
+//      Anthropic API key") and opens Settings, then throws so callers can
+//      degrade gracefully.
+//   4. Every successful call bumps `window.bumpUsage('claude_calls')`, which
+//      writes to `localStorage.jp_usage_v1` for the Settings → API Usage panel.
 //
 // Exposed on `window.*` so app.js (loaded after this) can call them:
 //   aiScoreAts(resumeText, jobDescription, finalCheck=false)
@@ -15,12 +24,13 @@
 //   aiApplyChatInstruction(opts)
 //   aiGenerateResume(description, jobTitle, jobDescription)
 //
-// Each function returns a Promise resolving to the same shape the legacy
-// server routes returned (so the call sites in app.js need minimal change).
+// Each function returns a Promise resolving to the same shape the original
+// Flask routes used to return (kept for compatibility — the call sites in
+// app.js were not rewritten when Flask was retired).
 //
-// NOTE: the prompts must stay byte-for-byte identical to the Python ones in
-// `ai_engine.py` — that's the whole point of Phase 4 (Token-by-token output
-// should match for a fixed prompt + temperature, per the plan).
+// NOTE: the prompts must stay byte-for-byte identical to the historical
+// Python ones — token-by-token output is expected to match for a fixed
+// prompt + temperature, so do not edit prompt text on a whim.
 
 (function () {
   "use strict";
