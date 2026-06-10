@@ -1,18 +1,28 @@
 /**
- * app.js  —  JobPilot Enterprise Frontend
+ * app.js  —  JobPilot static-site frontend (Phase 1–5)
  *
- * Key changes from v2:
- *  - Free-text job title input (no preset dropdown)
- *  - Resume upload/generate AFTER selecting a job (not upfront in sidebar)
- *  - Fully open-ended AI chat with conversation history
- *  - Source-aware stat bar
- *  - Platform pills removed — source shown on each job card after results arrive
+ * JobPilot is a static GitHub Pages app. There is no backend, no `/api/*`
+ * surface, and no server-side state. All sensitive work happens in the
+ * browser, against the user's own provider credentials.
+ *
+ * Subsystems handled in this file:
+ *   - Auth: Google Identity Services only. The ID token is decoded
+ *     client-side for display name + email; we never call a backend to
+ *     verify it (we have no backend to verify it against).
+ *   - BYOK vault wiring. The actual AES-GCM crypto lives in byok.js;
+ *     this file binds it to the Settings UI and the per-provider key tests.
+ *   - Settings UI: providers, key tests, API Usage panel
+ *     (reads localStorage.jp_usage_v1, written by ai.js + jobs.js).
+ *   - Job-search orchestration. The Cloudflare Worker URL (saved in the
+ *     BYOK vault as `cf_worker_url`) is the sole remote endpoint; the
+ *     actual fetch + results rendering lives in jobs.js.
+ *   - Tailor / Score / Chat plumbing. The real Anthropic calls live in
+ *     ai.js; this file only wires the buttons.
+ *   - Drive resume import/export (delegated to drive.js).
+ *   - Resume parsing (delegated to resume-parser.js, pdf.js + mammoth.js).
+ *   - Export to PDF/DOCX (delegated to export.js, jsPDF + docx.js).
+ *   - Toasts, modals, hash-route handling, theme.
  */
-
-// API base. Defaults to same-origin. Override for local dev pointing at a
-// remote backend by setting `window.JOBPILOT_API_BASE` in an inline <script>
-// before app.js loads, e.g. <script>window.JOBPILOT_API_BASE='http://localhost:5000'</script>.
-const API = (typeof window !== 'undefined' && window.JOBPILOT_API_BASE) || "";
 const LAYOUT_STORAGE_KEY = "jobpilot-layout-widths";
 
 // ── Auth ──────────────────────────────────────────────────────────────────────

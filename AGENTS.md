@@ -7,12 +7,12 @@
 
 ## 1. Project at a glance
 
-- **App:** [jobpilot/](jobpilot/) — Flask backend + Jinja templates + vanilla JS frontend.
-- **Source of truth for outstanding work:** [REPO_ISSUES_REPORT.md](REPO_ISSUES_REPORT.md).
+- **App:** A static single-page web app, source in [jobpilot/templates/](jobpilot/templates/) + [jobpilot/static/](jobpilot/static/), built into [docs/](docs/) by [scripts/build_pages.py](scripts/build_pages.py) (stdlib-only Jinja stripper) and served from GitHub Pages.
 - **Live deployment:** <https://www.jobspilot.site>.
-- **Custom domain:** `www.jobspilot.site` is the canonical URL (CNAME-mapped to the Railway service).
-- **Container build context:** repo root, e.g. `docker build -f jobpilot/Dockerfile .`.
-- **Production process manager:** Railway runs the container’s `CMD` (no `startCommand` override).
+- **Custom domain:** `www.jobspilot.site` is the canonical URL (the [CNAME](CNAME) file pins it; DNS points at GitHub Pages).
+- **Deploy automation:** [.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml) re-runs `scripts/build_pages.py` and publishes `docs/` on every push to `master`.
+- **Job-search proxy:** [proxy/worker.js](proxy/worker.js) — a stateless Cloudflare Worker. Each user pastes their own Worker URL into the in-app BYOK vault (`cf_worker_url`).
+- **Outstanding work:** GitHub Issues on this repo. There is no in-repo issues report.
 
 ---
 
@@ -20,27 +20,24 @@
 
 ### 2.1 Owner attribution
 
-- **Every fix made through this assistant/account is attributed to `Rajesh`** in [REPO_ISSUES_REPORT.md](REPO_ISSUES_REPORT.md).
-- Do **not** use `Implementation`, `Copilot`, `AI`, model names, or generic placeholders in the `Owner` column or Change Log.
-- The only allowed values in the `Owner` column today are: `Rajesh`, `Tarun`, `Review`, or `—` (unassigned).
+- Fixes committed through this assistant/account are authored as `Unigalactix <kodagantir295@gmail.com>` and that author identity stands in for `Rajesh` in any human-readable status note.
+- When a commit message references an issue, prefer GitHub's auto-close syntax (`Closes #N`) on the first issue and an explicit `gh issue close` for the rest in the same batch.
+- Do not credit `Implementation`, `Copilot`, `AI`, or any model name in commit messages or issue comments.
 
-### 2.2 The issues report is updated, never recreated
+### 2.2 Issues live on GitHub, not in the repo
 
-- [REPO_ISSUES_REPORT.md](REPO_ISSUES_REPORT.md) is the single source of truth for outstanding work.
-- **Never delete, rename, or recreate** this file. Always edit it in place.
-- When you close an issue:
-  1. Flip its `Status` to `✅ Fixed` and set `Owner = Rajesh`.
-  2. Refresh the Analyst Note with a one-line description of the fix and the new line refs.
-  3. Add a row to the **Change Log** describing the change, listing affected issue numbers and touched files.
-  4. Update the **Severity Roll-up**, **Status Roll-up**, and **Contribution Tracker** counts.
-- Do not introduce a parallel tracker (CSV, JSON, GitHub Project, etc.) without explicit instruction.
+- Outstanding work lives in GitHub Issues. Agents file issues; contributors self-assign and close them.
+- **Do not** recreate the retired `REPO_ISSUES_REPORT.md` / `REPO_ISSUES_REPORT.xlsx`, and do not introduce a parallel tracker (CSV, JSON, GitHub Project, etc.) without explicit instruction.
+- When you ship a fix:
+  1. Reference the issue in the commit message (`Closes #N` on the first; `gh issue close N --reason completed --comment "Fixed in <sha>."` for any additional issues in the same batch).
+  2. After push, verify the affected issues moved to `Closed`.
 
 ### 2.3 Scope discipline
 
 - Only change code that the request asks for, or that is strictly required to implement the request.
 - **Do not** add docstrings, comments, type annotations, refactors, or "improvements" to code you did not modify for the task.
 - **Do not** introduce new dependencies, frameworks, or build tools without an explicit request.
-- **Do not** delete user files, markdown reports, runtime artifacts, or git history as a shortcut.
+- **Do not** delete user files, runtime artifacts, or git history as a shortcut.
 
 ### 2.4 Risk classification before editing
 
@@ -49,80 +46,78 @@ Before touching code, classify the change:
 | Class | Examples | Allowed without confirmation? |
 |---|---|---|
 | **Trivial** | Typo fix, dead-code removal, single-line guard, log message | ✅ Yes |
-| **Low-risk** | Add input validation, swap `print` → `logger`, escape HTML on a known surface | ✅ Yes |
-| **Medium-risk** | Change a public function signature, alter auth flow, modify DB schema | ⚠️ Ask first |
-| **Destructive** | Delete files, drop tables, force-push, `--no-verify`, rewrite history | 🚫 Always ask first |
-
-When fixing items from `REPO_ISSUES_REPORT.md`, **prefer Trivial / Low-risk Mediums first**.
+| **Low-risk** | Add input validation, escape HTML on a known surface, fix a broken link | ✅ Yes |
+| **Medium-risk** | Change a public function signature, alter auth flow, change BYOK vault layout | ⚠️ Ask first |
+| **Destructive** | Force-push, `--no-verify`, rewrite history, delete tracked user data | 🚫 Always ask first |
 
 ### 2.5 Security non-negotiables
 
-- Do not commit secrets. `.env` is git-ignored — keep it that way.
-- Treat any new external HTTP call as untrusted: validate the URL scheme and block private/loopback ranges (Issue #63 is still open — do not regress it).
+- Do not commit secrets. `.env` and `*.env*` are git-ignored — keep it that way.
+- Google Identity Services is the only auth path. The Google ID token is decoded client-side for display name + email; never trust an unsigned JWT as a backend-style authz claim (we have no backend).
+- BYOK provider keys live in the browser only, AES-GCM-encrypted in `localStorage` under `jp_byok_v1`. The vault key is derived from the signed-in Google email + a user-supplied passphrase via PBKDF2-SHA-256 (200K iters). Never log, exfiltrate, or persist either input.
+- All BYOK-credentialed HTTP calls go **direct browser → provider** (Anthropic, Google Drive) or **direct browser → user's own Cloudflare Worker** (job search). No JobPilot-owned server sits in the middle.
 - Sanitize anything that gets interpolated into `innerHTML`. Use the existing `escHtml(...)` helper in [jobpilot/static/js/app.js](jobpilot/static/js/app.js).
-- Sanitize filenames at the route boundary before they hit `Path(...)` — pattern already established in [jobpilot/routes/resume.py](jobpilot/routes/resume.py).
-- Never bypass the JWT auth guard. The guard is in [jobpilot/app.py](jobpilot/app.py) (`_auth_guard`).
 
 ### 2.6 Environment & config
 
-- `app.py` is the **single** authoritative `load_dotenv` caller. Do not re-add `load_dotenv` in submodules (Issue #10).
-- New env vars MUST be added to `jobpilot/.env.example` with a one-line comment explaining their purpose.
-- Tunable limits should be env-overridable (see `RESUME_MAX_BYTES`, `RESUME_DESCRIPTION_MAX_CHARS`, `CLAUDE_MODEL` for the established pattern).
+- The only build-time env var is `GOOGLE_CLIENT_ID`, baked into the static build by [scripts/build_pages.py](scripts/build_pages.py). It is exposed in the rendered HTML; do not put anything secret there.
+- The Cloudflare Worker URL and all provider API keys are **runtime** values supplied by the user through the in-app Settings panel and stored in the BYOK vault. Never hard-code them.
 
 ### 2.7 Logging
 
-- Use `logging.getLogger("jobpilot")` everywhere. The configured `RotatingFileHandler` in [jobpilot/app.py](jobpilot/app.py) is the destination.
-- **Do not add new `print()` calls** for diagnostics. Existing `print()` calls are tracked under issues #12 / #13 / #14 and will be migrated as part of the reliability sprint.
+- Use `console.warn` / `console.error` in browser code. There are no server logs.
+- Do not add `console.log` calls that include BYOK keys, the Google ID token, raw resume text, or job-description bodies.
 
 ### 2.8 Frontend
 
 - All new dynamic HTML insertions must escape user data via `escHtml(...)`.
-- Do not split [jobpilot/static/css/style.css](jobpilot/static/css/style.css) or [jobpilot/static/js/app.js](jobpilot/static/js/app.js) without introducing a build tool first (#44 / #45 are intentionally `🚫 Won't Fix` until that lands).
+- Do not split [jobpilot/static/css/style.css](jobpilot/static/css/style.css) or [jobpilot/static/js/app.js](jobpilot/static/js/app.js) without introducing a build tool first.
 - The favicon at [jobpilot/static/favicon.svg](jobpilot/static/favicon.svg) is the canonical brand mark — keep the teal gradient (`#14b8a6 → #0d9488`) and `JP` wordmark consistent if you replace it.
+- After editing anything under [jobpilot/templates/](jobpilot/templates/) or [jobpilot/static/](jobpilot/static/), rebuild [docs/](docs/) by running `python scripts/build_pages.py` so the static deploy stays in sync.
 
 ### 2.9 Documentation
 
-- The user-facing entry point is [README.md](README.md). Keep the **Live Site** badge/link pointing at <https://www.jobspilot.site> in sync with reality.
-- Do **not** create new ad-hoc Markdown reports to document changes. Status updates belong in [REPO_ISSUES_REPORT.md](REPO_ISSUES_REPORT.md). Architectural notes belong in [README.md](README.md).
+- The user-facing entry point is [README.md](README.md). Keep the **Live Site** link pointing at <https://www.jobspilot.site> in sync with reality.
+- Do **not** create new ad-hoc Markdown status reports. Status updates belong on the relevant GitHub issue or PR.
 
 ---
 
 ## 3. Standard workflow for an agent
 
-1. **Read** the user request and the relevant section of [REPO_ISSUES_REPORT.md](REPO_ISSUES_REPORT.md).
+1. **Read** the user request and the linked GitHub issue(s).
 2. **Plan** the smallest change that satisfies the request. Classify per §2.4.
 3. **Read the target files** before editing. Never edit blind.
 4. **Make the change.** Keep diffs minimal; do not reformat untouched code.
 5. **Run** `get_errors` (or the equivalent LSP check) on every file you touched.
-6. **Update** [REPO_ISSUES_REPORT.md](REPO_ISSUES_REPORT.md):
-   - Flip affected rows to `✅ Fixed`, owner `Rajesh`, refreshed Analyst Note.
-   - Add a Change Log entry.
-   - Recompute the Severity Roll-up / Status Roll-up / Contribution Tracker.
-7. **Reply** with a short summary that links to the touched files (workspace-relative paths, no backticks around file links).
+6. **Rebuild** [docs/](docs/) if any template or static asset changed.
+7. **Commit + push.** Use `Closes #N` for the first issue in the batch; close the rest with `gh issue close` and reference the commit SHA.
+8. **Reply** with a short summary that links to the touched files (workspace-relative paths, no backticks around file links).
 
 ---
 
 ## 4. What's intentionally out of scope
 
-- The chat-parser bug (#9) and broad `except Exception` audit (#20) require careful semantic review — **ask before touching**.
-- Migrations away from SQLite (#23, #24), introducing Redis/postgres, or replacing the in-memory usage counter (#22) are explicitly multi-step infra changes — **ask before touching**.
-- The 3 🔴 Critical and 4 🟠 High security findings (#1, #2, #3, #4, #17, #30) are the next planned sprint — they will be done deliberately, with fail-fast guards and tests, not as drive-by edits.
-- Splitting `style.css` / `app.js` (#44, #45) is `🚫 Won't Fix` until a bundler is introduced.
+- Reintroducing a server (Flask, FastAPI, Express, etc.) — the static-site cutover is deliberate. Anything that needs a real backend should go into the user's own Cloudflare Worker via [proxy/](proxy/).
+- Adding a build tool (webpack, Vite, esbuild, etc.) — the stdlib-only [scripts/build_pages.py](scripts/build_pages.py) is intentional.
+- Replacing Google Identity Services with email/password or GitHub OAuth (both removed in Phase 1).
+- Splitting [jobpilot/static/css/style.css](jobpilot/static/css/style.css) or [jobpilot/static/js/app.js](jobpilot/static/js/app.js) until a bundler is introduced.
 
 ---
 
-## 5. Quick reference — owner attribution example
+## 5. Quick reference — commit + close pattern
 
-When you fix issue #N from this account, the resulting row should look like:
+When you fix issues `#A`, `#B`, `#C` in a single batch:
 
-```markdown
-| N | 🟡 | [path/to/file.py](path/to/file.py#L10-L20) | Original finding text. | ✅ Fixed | Rajesh | One-line description of what changed and why it's safe. |
+```pwsh
+git add -A
+git commit -m "Fix A, B, C: short summary" -m "Closes #A #B #C"
+git push origin master
+$sha = git rev-parse HEAD
+foreach ($n in B, C) {
+  gh issue close $n --repo vangipuraputarunsailesh/jobpilot --reason completed --comment "Fixed in $sha."
+}
 ```
 
-…and the matching Change Log entry:
+(Only the first issue (`#A`) auto-closes from the commit message; the rest need an explicit `gh issue close`.)
 
-```markdown
-| YYYY-MM-DD | Short imperative description of the change. | #N | [path/to/file.py](path/to/file.py) | Rajesh |
-```
-
-That's it. Keep diffs small, attribution honest, and the report current.
+That's it. Keep diffs small, attribution honest, and the issues current.
