@@ -1,0 +1,9 @@
+name = "jobpilot-proxy"
+main = "worker.js"
+compatibility_date = "2024-09-23"
+
+# Tighten this to your GitHub Pages origin before going live, e.g.
+#   ALLOW_ORIGINS = "https://<username>.github.io,https://www.jobspilot.site"
+# Comma-separated list. Use "*" only during local development.
+[vars]
+ALLOW_ORIGINS = "*"

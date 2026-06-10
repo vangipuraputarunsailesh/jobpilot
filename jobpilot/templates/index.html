@@ -1,0 +1,570 @@
+{% extends "base.html" %}
+{% block title %}JobPilot — AI Job Search{% endblock %}
+
+{% block head %}
+<script>
+  // Sliding-TTL login session (7 days for real accounts, 24h for demo).
+  // Stored entirely in localStorage so the session survives tab close /
+  // browser restart but is wiped by "Clear browsing data" or by the
+  // expiry timestamp (jp_session_expiry) elapsing. Mirrors the helpers
+  // defined in landing.html and static/js/app.js — keep all three in sync.
+  (function () {
+    var token  = localStorage.getItem('jp_token');
+    var expiry = parseInt(localStorage.getItem('jp_session_expiry') || '0', 10);
+    var isDemo = localStorage.getItem('jp_demo') === '1';
+    var TTL    = isDemo ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000;
+    if (!token || !expiry || Date.now() >= expiry) {
+      localStorage.removeItem('jp_token');
+      localStorage.removeItem('jp_email');
+      localStorage.removeItem('jp_demo');
+      localStorage.removeItem('jp_session_expiry');
+      // Phase 1: also wipe Google Drive access_token + expiry so a stale
+      // gtoken can never leak across sessions.
+      localStorage.removeItem('jp_gtoken');
+      localStorage.removeItem('jp_gtoken_expiry');
+      sessionStorage.removeItem('jp_session_active'); // legacy key
+      window.location.replace('/');
+      return;
+    }
+    // Sliding refresh — bump expiry forward on every authenticated page load.
+    localStorage.setItem('jp_session_expiry', String(Date.now() + TTL));
+  })();
+</script>
+{% endblock %}
+
+{% block body %}
+<!-- DEMO BANNER (shown only for demo/guest users) -->
+<div class="demo-banner" id="demo-banner" style="display:none">
+  <span>👋 You're in <strong>Demo Mode</strong> — exploring JobPilot as a guest.</span>
+  <a href="/" class="demo-banner-sign-up">Create free account →</a>
+</div>
+
+<!-- TOP BAR -->
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" width="16" height="16">
+        <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+      </svg>
+    </div>
+    <span class="brand-name">JobPilot</span>
+    <span class="brand-sub">AI · Real jobs from every US company</span>
+  </div>
+  <div class="topbar-right">
+    <label class="theme-switch" title="Toggle theme">
+      <span class="theme-switch-label">Theme</span>
+      <select id="theme-select" class="theme-select">
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+    <div class="live-chip"><div class="live-dot"></div>Live</div>
+    <div id="source-chip" class="source-chip" style="display:none"></div>
+    <div class="health-indicator" id="health-dot" title="Checking connection…" onclick="toggleUsagePanel()"></div>
+    <button id="resume-library-btn" class="topbar-action-btn" type="button"
+            style="display:none" onclick="openResumeLibrary()"
+            title="Manage your saved resumes">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+              stroke="currentColor" stroke-width="1.8"/>
+        <polyline points="14,2 14,8 20,8" stroke="currentColor" stroke-width="1.8"/>
+      </svg>
+      <span>Resumes</span>
+      <span id="resume-library-count" class="topbar-action-badge" style="display:none">0</span>
+    </button>
+    <button id="byok-settings-btn" class="topbar-action-btn" type="button"
+            style="display:none" onclick="openSettingsModal()"
+            title="Add your own Anthropic / job-board API keys (stored encrypted in your browser)">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+              stroke="currentColor" stroke-width="1.6"/>
+      </svg>
+      <span>Settings</span>
+    </button>
+    <span id="topbar-user" class="topbar-user" style="display:none"></span>
+    <button id="logout-btn" class="logout-btn" style="display:none" onclick="logout()">Sign out</button>
+  </div>
+</header>
+
+<!-- USAGE PANEL -->
+<div class="usage-panel" id="usage-panel" style="display:none">
+  <div class="usage-title">API Usage</div>
+  <div class="usage-grid" id="usage-grid">Loading…</div>
+  <div class="usage-note">Counters reset on server restart</div>
+</div>
+
+<!-- MAIN 3-PANEL LAYOUT -->
+<div class="layout" id="app-layout">
+
+  <!-- LEFT: SEARCH SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+
+      <div class="sidebar-section">
+        <div class="s-label">Job title / keyword</div>
+        <input class="ctrl-input" id="job-title-input"
+               placeholder="e.g. Software Engineer, Data Analyst…"
+               onkeydown="if(event.key==='Enter') searchJobs()"/>
+        <div class="s-hint">Any title or keyword — exact search</div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="s-label">Location</div>
+        <input class="ctrl-input" id="location-input"
+               value="United States"
+               placeholder="City, State or Remote"/>
+        <div class="s-hint">e.g. Seattle WA · Remote</div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="s-label">Seniority level</div>
+        <select class="ctrl-select" id="seniority-input">
+          <option value="any">Any level</option>
+          <option value="entry">Entry / Junior</option>
+          <option value="mid">Mid level</option>
+          <option value="senior">Senior</option>
+          <option value="lead">Staff / Principal / Lead</option>
+        </select>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="s-label">Date posted</div>
+        <select class="ctrl-select" id="date-posted-input">
+          <option value="past24Hours">Last 24 hours</option>
+          <option value="pastWeek" selected>Last 7 days</option>
+          <option value="pastMonth">Last 30 days</option>
+        </select>
+      </div>
+
+      <div class="sidebar-section api-status-section" id="api-status-section" style="display:none">
+        <div class="s-label">Active sources</div>
+        <div class="api-status-list" id="api-status-list"></div>
+      </div>
+
+      <button class="search-btn" id="search-btn" onclick="searchJobs()">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <circle cx="6" cy="6" r="4.5" stroke="#fff" stroke-width="1.8"/>
+          <line x1="9.5" y1="9.5" x2="13" y2="13" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+        <span id="search-btn-text">Find jobs now</span>
+      </button>
+
+      <div class="sidebar-footer">
+        <div class="footer-note">FAANG, Fortune 500, startups — updated daily.</div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="panel-resizer" data-resize="left" role="separator" aria-orientation="vertical" tabindex="0"></div>
+
+  <!-- MIDDLE: JOB LIST -->
+  <main class="mid">
+    <div class="mid-top">
+      <div class="mid-count" id="mid-count">Enter a job title and search</div>
+      <div class="sort-tabs">
+        <button class="sort-tab active" onclick="sortJobs('newest', this)">Newest</button>
+        <button class="sort-tab" onclick="sortJobs('salary', this)">Salary</button>
+        <button class="sort-tab" onclick="sortJobs('company', this)">Company</button>
+      </div>
+    </div>
+
+    <div class="job-scroll" id="job-list">
+      <div class="empty-state">
+        <div class="empty-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+            <circle cx="11" cy="11" r="8" stroke="var(--text3)" stroke-width="1.5"/>
+            <path d="m21 21-4.35-4.35" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="empty-title">No jobs yet</div>
+        <div class="empty-sub">Type any job title and click "Find jobs now" to search across millions of US companies.</div>
+      </div>
+    </div>
+
+    <div class="stat-bar">
+      <div class="stat"><div class="stat-v" id="stat-total">—</div><div class="stat-l">Total</div></div>
+      <div class="stat"><div class="stat-v" id="stat-sources">—</div><div class="stat-l">Sources</div></div>
+      <div class="stat"><div class="stat-v" id="stat-scored">0</div><div class="stat-l">Scored</div></div>
+    </div>
+  </main>
+
+  <div class="panel-resizer" data-resize="right" role="separator" aria-orientation="vertical" tabindex="0"></div>
+
+  <!-- RIGHT: JOB DETAIL / RESUME PANEL -->
+  <aside class="right-panel" id="right-panel">
+    <div class="rp-empty" id="rp-empty">
+      <div class="empty-icon">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="var(--text3)" stroke-width="1.5"/>
+          <polyline points="14,2 14,8 20,8" stroke="var(--text3)" stroke-width="1.5"/>
+          <line x1="16" y1="13" x2="8" y2="13" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="16" y1="17" x2="8" y2="17" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="empty-title">Select a job</div>
+      <div class="empty-sub">Click any job to read the description, tailor your resume with AI, check your ATS score, and apply.</div>
+    </div>
+    <div id="rp-content" style="display:none; flex-direction:column; height:100%; overflow:hidden;"></div>
+  </aside>
+
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- Hidden file input -->
+<input type="file" id="resume-file-input" accept=".pdf,.docx,.txt" style="display:none" onchange="handleResumeFile(this)"/>
+<input type="file" id="welcome-resume-file-input" accept=".pdf,.docx,.txt" style="display:none" onchange="handleWelcomeResumeFile(this)"/>
+<input type="file" id="library-resume-file-input" accept=".pdf,.docx,.txt" style="display:none" onchange="handleLibraryResumeFile(this)"/>
+
+<!-- RESUME LIBRARY MODAL -->
+<div class="library-overlay" id="library-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="library-title">
+  <div class="library-modal">
+    <div class="library-head">
+      <h2 class="library-title" id="library-title">Your resume library</h2>
+      <button class="library-close" type="button" onclick="closeResumeLibrary()" aria-label="Close">×</button>
+    </div>
+    <p class="library-sub">Save multiple resumes — base + tailored variants — and pick which one JobPilot uses for new searches.</p>
+    <div class="library-actions">
+      <button class="library-upload-btn" type="button"
+              onclick="document.getElementById('library-resume-file-input').click()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="margin-right:6px;vertical-align:-2px">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <polyline points="17,8 12,3 7,8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        Upload new resume
+      </button>
+      <span class="library-cap" id="library-cap"></span>
+    </div>
+    <div class="library-status" id="library-status"></div>
+    <div class="library-list" id="library-list">
+      <div class="library-empty">Loading your saved resumes…</div>
+    </div>
+  </div>
+</div>
+
+<!-- BYOK (Bring Your Own Key) SETTINGS MODAL -->
+<div class="byok-overlay" id="byok-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="byok-title">
+  <div class="byok-modal">
+    <div class="byok-head">
+      <h2 class="byok-title" id="byok-title">API keys &amp; Settings</h2>
+      <button class="byok-close" type="button" onclick="closeSettingsModal()" aria-label="Close">×</button>
+    </div>
+    <p class="byok-sub">
+      JobPilot calls Anthropic Claude (for AI features) and a few job boards on your behalf.
+      Paste your own keys below — they're encrypted with AES-GCM in this browser only and
+      <strong>never sent to JobPilot's server</strong>, only forwarded to each upstream API.
+    </p>
+
+    <!-- Anthropic (required) -->
+    <div class="byok-section">
+      <div class="byok-row-head">
+        <label class="byok-label" for="byok-anthropic">
+          Anthropic API key <span class="byok-req">required for AI features</span>
+        </label>
+        <a class="byok-help" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Get one →</a>
+      </div>
+      <input id="byok-anthropic" type="password" autocomplete="off" spellcheck="false"
+             class="byok-input" placeholder="sk-ant-…"/>
+      <div class="byok-row-foot">
+        <input id="byok-claude-model" type="text" autocomplete="off" spellcheck="false"
+               class="byok-input byok-input-small" placeholder="Model (optional, e.g. claude-sonnet-4-5)"/>
+        <button type="button" class="byok-test-btn" onclick="byokTestFromForm('anthropic')">Test</button>
+      </div>
+      <div id="byok-status-anthropic" class="byok-status"></div>
+    </div>
+
+    <!-- RapidAPI / JSearch -->
+    <div class="byok-section">
+      <div class="byok-row-head">
+        <label class="byok-label" for="byok-rapidapi">
+          RapidAPI key <span class="byok-opt">optional — unlocks JSearch (LinkedIn / Indeed / Glassdoor / ZipRecruiter)</span>
+        </label>
+        <a class="byok-help" href="https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch" target="_blank" rel="noopener">Get one →</a>
+      </div>
+      <div class="byok-row-foot">
+        <input id="byok-rapidapi" type="password" autocomplete="off" spellcheck="false"
+               class="byok-input" placeholder="RapidAPI key"/>
+        <button type="button" class="byok-test-btn" onclick="byokTestFromForm('jsearch')">Test</button>
+      </div>
+      <div id="byok-status-jsearch" class="byok-status"></div>
+    </div>
+
+    <!-- Adzuna -->
+    <div class="byok-section">
+      <div class="byok-row-head">
+        <label class="byok-label" for="byok-adzuna-id">
+          Adzuna credentials <span class="byok-opt">optional — solo founders, SMBs, enterprises</span>
+        </label>
+        <a class="byok-help" href="https://developer.adzuna.com/" target="_blank" rel="noopener">Get one →</a>
+      </div>
+      <input id="byok-adzuna-id" type="text" autocomplete="off" spellcheck="false"
+             class="byok-input" placeholder="App ID"/>
+      <div class="byok-row-foot">
+        <input id="byok-adzuna-key" type="password" autocomplete="off" spellcheck="false"
+               class="byok-input" placeholder="App key"/>
+        <button type="button" class="byok-test-btn" onclick="byokTestFromForm('adzuna')">Test</button>
+      </div>
+      <div id="byok-status-adzuna" class="byok-status"></div>
+    </div>
+
+    <!-- USAJobs -->
+    <div class="byok-section">
+      <div class="byok-row-head">
+        <label class="byok-label" for="byok-usajobs-email">
+          USAJobs credentials <span class="byok-opt">optional — federal jobs</span>
+        </label>
+        <a class="byok-help" href="https://developer.usajobs.gov/" target="_blank" rel="noopener">Get one →</a>
+      </div>
+      <input id="byok-usajobs-email" type="email" autocomplete="off" spellcheck="false"
+             class="byok-input" placeholder="Email registered with usajobs.gov"/>
+      <div class="byok-row-foot">
+        <input id="byok-usajobs-key" type="password" autocomplete="off" spellcheck="false"
+               class="byok-input" placeholder="USAJobs API key"/>
+        <button type="button" class="byok-test-btn" onclick="byokTestFromForm('usajobs')">Test</button>
+      </div>
+      <div id="byok-status-usajobs" class="byok-status"></div>
+    </div>
+
+    <!-- Cloudflare Worker URL (Phase 5 — job-search proxy) -->
+    <div class="byok-section">
+      <div class="byok-row-head">
+        <label class="byok-label" for="byok-cf-worker-url">
+          Cloudflare Worker URL <span class="byok-opt">optional — needed for the GitHub Pages build of JobPilot</span>
+        </label>
+        <a class="byok-help" href="https://github.com/Unigalactix/jobpilot/tree/master/proxy" target="_blank" rel="noopener">Deploy →</a>
+      </div>
+      <input id="byok-cf-worker-url" type="url" autocomplete="off" spellcheck="false"
+             class="byok-input" placeholder="https://jobpilot-proxy.your-subdomain.workers.dev"/>
+      <div id="byok-status-cf-worker" class="byok-status"></div>
+    </div>
+
+    <div class="byok-footer">
+      <div id="byok-save-status" class="byok-save-status"></div>
+      <div class="byok-footer-actions">
+        <button type="button" class="byok-cancel-btn" onclick="closeSettingsModal()">Cancel</button>
+        <button type="button" id="byok-save-btn" class="byok-save-btn" onclick="byokSaveFromForm()">Save keys</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .topbar-action-btn{display:inline-flex;align-items:center;gap:6px;background:var(--bg2,#f1f5f9);
+    color:var(--text1,#0f172a);border:1px solid var(--border1,#e2e8f0);
+    padding:6px 12px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;
+    transition:background .12s ease, transform .12s ease;}
+  .topbar-action-btn:hover{background:var(--bg3,#e2e8f0);transform:translateY(-1px);}
+  .topbar-action-badge{display:inline-flex;align-items:center;justify-content:center;
+    min-width:18px;height:18px;padding:0 5px;border-radius:9px;font-size:11px;font-weight:700;
+    background:linear-gradient(135deg,#14b8a6,#0d9488);color:#fff;}
+
+  .library-overlay{position:fixed;inset:0;background:rgba(8,15,28,.62);backdrop-filter:blur(4px);
+    display:flex;align-items:center;justify-content:center;z-index:9100;padding:20px;animation:wmFade .18s ease-out;}
+  .library-modal{background:var(--bg1,#fff);color:var(--text1,#0f172a);border:1px solid var(--border1,#e5e7eb);
+    border-radius:16px;padding:24px 26px;max-width:680px;width:100%;
+    max-height:min(82vh, 720px);display:flex;flex-direction:column;
+    box-shadow:0 20px 60px rgba(0,0,0,.25);animation:wmPop .22s cubic-bezier(.2,.9,.3,1.2);}
+  .library-head{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  .library-title{font-size:20px;margin:0;font-weight:700;letter-spacing:-0.01em;}
+  .library-close{background:none;border:0;font-size:24px;line-height:1;color:var(--text3,#94a3b8);
+    cursor:pointer;padding:0 6px;border-radius:6px;}
+  .library-close:hover{color:var(--text1,#0f172a);background:var(--bg2,#f1f5f9);}
+  .library-sub{font-size:13px;color:var(--text2,#475569);margin:6px 0 16px;line-height:1.5;}
+  .library-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;}
+  .library-upload-btn{background:linear-gradient(135deg,#14b8a6,#0d9488);color:#fff;border:0;
+    padding:9px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;
+    box-shadow:0 3px 10px rgba(20,184,166,.30);}
+  .library-upload-btn:hover{transform:translateY(-1px);}
+  .library-upload-btn:disabled{opacity:.7;cursor:wait;}
+  .library-cap{font-size:12px;color:var(--text3,#94a3b8);}
+  .library-status{font-size:13px;min-height:18px;color:var(--text2,#475569);margin-bottom:8px;}
+  .library-status.error{color:#dc2626;}
+  .library-list{overflow-y:auto;flex:1;border:1px solid var(--border1,#e5e7eb);border-radius:10px;
+    background:var(--bg2,#f8fafc);}
+  .library-empty{padding:30px 20px;text-align:center;color:var(--text3,#94a3b8);font-size:13px;}
+  .library-item{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;
+    border-bottom:1px solid var(--border1,#e5e7eb);}
+  .library-item:last-child{border-bottom:0;}
+  .library-item-main{flex:1;min-width:0;}
+  .library-item-name{font-size:14px;font-weight:600;color:var(--text1,#0f172a);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .library-item-meta{font-size:11px;color:var(--text3,#94a3b8);margin-top:2px;
+    display:flex;gap:8px;flex-wrap:wrap;}
+  .library-item-preview{font-size:12px;color:var(--text2,#475569);margin-top:6px;
+    overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+  .library-badge{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;
+    padding:2px 6px;border-radius:4px;letter-spacing:.04em;}
+  .library-badge.active{background:#14b8a6;color:#fff;}
+  .library-badge.tailored{background:#a855f7;color:#fff;}
+  .library-badge.generated{background:#3b82f6;color:#fff;}
+  .library-badge.upload{background:var(--bg3,#e2e8f0);color:var(--text2,#475569);}
+  .library-badge.manual{background:var(--bg3,#e2e8f0);color:var(--text2,#475569);}
+  .library-item-actions{display:flex;flex-direction:column;gap:4px;flex-shrink:0;}
+  .library-act-btn{font-size:11px;padding:5px 10px;border-radius:6px;border:1px solid var(--border1,#e2e8f0);
+    background:var(--bg1,#fff);color:var(--text1,#0f172a);cursor:pointer;font-weight:500;
+    transition:background .1s ease;}
+  .library-act-btn:hover{background:var(--bg2,#f1f5f9);}
+  .library-act-btn.primary{background:#14b8a6;color:#fff;border-color:#14b8a6;}
+  .library-act-btn.primary:hover{background:#0d9488;}
+  .library-act-btn.danger{color:#dc2626;border-color:#fecaca;}
+  .library-act-btn.danger:hover{background:#fef2f2;}
+  .library-act-btn:disabled{opacity:.5;cursor:not-allowed;}
+
+  /* Save-tailored-to-library button shown after a successful tailor */
+  .save-to-library-bar{display:flex;align-items:center;justify-content:space-between;
+    gap:12px;background:linear-gradient(135deg,rgba(20,184,166,.08),rgba(13,148,136,.06));
+    border:1px solid rgba(20,184,166,.35);border-radius:10px;padding:10px 14px;margin:10px 0;}
+  .save-to-library-bar .stl-msg{font-size:13px;color:var(--text1,#0f172a);}
+  .save-to-library-bar .stl-msg b{color:#0d9488;}
+  .save-to-library-bar button{background:#14b8a6;color:#fff;border:0;padding:7px 14px;
+    border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;}
+  .save-to-library-bar button:hover{background:#0d9488;}
+  .save-to-library-bar button:disabled{opacity:.7;cursor:wait;}
+  .save-to-library-bar.saved{background:rgba(20,184,166,.12);}
+  .save-to-library-bar.saved button{background:#94a3b8;cursor:default;}
+
+  /* BYOK (Bring Your Own Key) — Settings modal */
+  .byok-overlay{position:fixed;inset:0;background:rgba(8,15,28,.62);backdrop-filter:blur(4px);
+    display:flex;align-items:center;justify-content:center;z-index:9200;padding:20px;animation:wmFade .18s ease-out;}
+  .byok-modal{background:var(--bg1,#fff);color:var(--text1,#0f172a);border:1px solid var(--border1,#e5e7eb);
+    border-radius:16px;padding:24px 26px;max-width:640px;width:100%;
+    max-height:min(88vh,820px);display:flex;flex-direction:column;overflow-y:auto;
+    box-shadow:0 20px 60px rgba(0,0,0,.25);animation:wmPop .22s cubic-bezier(.2,.9,.3,1.2);}
+  .byok-head{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  .byok-title{font-size:20px;margin:0;font-weight:700;letter-spacing:-0.01em;}
+  .byok-close{background:none;border:0;font-size:24px;line-height:1;color:var(--text3,#94a3b8);
+    cursor:pointer;padding:0 6px;border-radius:6px;}
+  .byok-close:hover{color:var(--text1,#0f172a);background:var(--bg2,#f1f5f9);}
+  .byok-sub{font-size:13px;color:var(--text2,#475569);margin:6px 0 18px;line-height:1.55;}
+  .byok-sub strong{color:var(--text1,#0f172a);}
+  .byok-section{border:1px solid var(--border1,#e5e7eb);border-radius:10px;
+    padding:12px 14px;margin-bottom:12px;background:var(--bg2,#f8fafc);}
+  .byok-row-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap;}
+  .byok-label{font-size:13px;font-weight:600;color:var(--text1,#0f172a);}
+  .byok-req{font-size:11px;font-weight:500;color:#dc2626;margin-left:6px;}
+  .byok-opt{font-size:11px;font-weight:400;color:var(--text3,#94a3b8);margin-left:6px;}
+  .byok-help{font-size:11px;color:#0d9488;text-decoration:none;}
+  .byok-help:hover{text-decoration:underline;}
+  .byok-input{width:100%;padding:8px 10px;border:1px solid var(--border1,#e2e8f0);
+    border-radius:7px;font-size:13px;background:var(--bg1,#fff);color:var(--text1,#0f172a);
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;margin-top:4px;}
+  .byok-input:focus{outline:2px solid #14b8a6;outline-offset:-1px;border-color:transparent;}
+  .byok-input-small{flex:1;}
+  .byok-row-foot{display:flex;gap:8px;align-items:stretch;margin-top:6px;}
+  .byok-row-foot .byok-input{margin-top:0;}
+  .byok-test-btn{flex-shrink:0;background:var(--bg1,#fff);color:var(--text1,#0f172a);
+    border:1px solid var(--border1,#e2e8f0);padding:8px 14px;border-radius:7px;
+    font-size:12px;font-weight:600;cursor:pointer;}
+  .byok-test-btn:hover{background:var(--bg3,#e2e8f0);}
+  .byok-status{font-size:12px;margin-top:6px;min-height:16px;color:var(--text3,#94a3b8);}
+  .byok-status.ok{color:#0d9488;}
+  .byok-status.fail{color:#dc2626;}
+  .byok-status.pending{color:var(--text2,#475569);}
+  .byok-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    margin-top:14px;padding-top:14px;border-top:1px solid var(--border1,#e5e7eb);flex-wrap:wrap;}
+  .byok-save-status{font-size:12px;color:var(--text2,#475569);flex:1;min-width:200px;}
+  .byok-save-status.ok{color:#0d9488;}
+  .byok-save-status.fail{color:#dc2626;}
+  .byok-save-status.pending{color:var(--text2,#475569);}
+  .byok-footer-actions{display:flex;gap:8px;}
+  .byok-cancel-btn{background:var(--bg2,#f1f5f9);color:var(--text1,#0f172a);
+    border:1px solid var(--border1,#e2e8f0);padding:8px 16px;border-radius:8px;
+    font-size:13px;font-weight:500;cursor:pointer;}
+  .byok-cancel-btn:hover{background:var(--bg3,#e2e8f0);}
+  .byok-save-btn{background:linear-gradient(135deg,#14b8a6,#0d9488);color:#fff;border:0;
+    padding:8px 18px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;
+    box-shadow:0 3px 10px rgba(20,184,166,.30);}
+  .byok-save-btn:hover{transform:translateY(-1px);}
+  .byok-save-btn:disabled{opacity:.7;cursor:wait;transform:none;}
+</style>
+
+<!-- WELCOME / RESUME-FIRST MODAL -->
+<div class="welcome-overlay" id="welcome-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+  <div class="welcome-modal">
+    <div class="welcome-icon">
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.6"/>
+        <polyline points="14,2 14,8 20,8" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M12 18v-6M9 15l3-3 3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h2 class="welcome-title" id="welcome-title">Welcome to JobPilot</h2>
+    <p class="welcome-sub">Upload your resume once and JobPilot will tailor it for every job you scrape.</p>
+    <button class="welcome-cta" id="welcome-upload-btn" onclick="document.getElementById('welcome-resume-file-input').click()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style="margin-right:6px;vertical-align:-2px">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <polyline points="17,8 12,3 7,8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      Upload Resume
+    </button>
+    <div class="welcome-hint">PDF, DOCX, or TXT &nbsp;·&nbsp; max 10 MB</div>
+    <div class="welcome-status" id="welcome-status"></div>
+    <button class="welcome-skip" onclick="dismissWelcomeModal()">Skip for now</button>
+  </div>
+</div>
+
+<style>
+  .welcome-overlay{position:fixed;inset:0;background:rgba(8,15,28,.62);backdrop-filter:blur(4px);
+    display:flex;align-items:center;justify-content:center;z-index:9000;padding:20px;animation:wmFade .18s ease-out;}
+  @keyframes wmFade{from{opacity:0}to{opacity:1}}
+  .welcome-modal{background:var(--bg1,#fff);color:var(--text1,#0f172a);border:1px solid var(--border1,#e5e7eb);
+    border-radius:16px;padding:32px 28px;max-width:440px;width:100%;text-align:center;
+    box-shadow:0 20px 60px rgba(0,0,0,.25);animation:wmPop .22s cubic-bezier(.2,.9,.3,1.2);}
+  @keyframes wmPop{from{transform:translateY(8px) scale(.97);opacity:.5}to{transform:none;opacity:1}}
+  .welcome-icon{width:64px;height:64px;margin:0 auto 14px;border-radius:16px;
+    background:linear-gradient(135deg,#14b8a6,#0d9488);color:#fff;display:flex;align-items:center;justify-content:center;}
+  .welcome-title{font-size:22px;margin:0 0 6px;font-weight:700;letter-spacing:-0.01em;}
+  .welcome-sub{font-size:14px;color:var(--text2,#475569);margin:0 0 22px;line-height:1.5;}
+  .welcome-cta{background:linear-gradient(135deg,#14b8a6,#0d9488);color:#fff;border:0;
+    padding:12px 22px;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;
+    box-shadow:0 4px 14px rgba(20,184,166,.35);transition:transform .12s ease, box-shadow .12s ease;}
+  .welcome-cta:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(20,184,166,.45);}
+  .welcome-cta:disabled{opacity:.7;cursor:wait;}
+  .welcome-hint{font-size:12px;color:var(--text3,#94a3b8);margin-top:10px;}
+  .welcome-status{font-size:13px;margin-top:14px;min-height:18px;color:var(--text2,#475569);}
+  .welcome-status.error{color:#dc2626;}
+  .welcome-skip{background:none;border:0;color:var(--text3,#94a3b8);font-size:12px;
+    margin-top:18px;cursor:pointer;text-decoration:underline;}
+  .welcome-skip:hover{color:var(--text2,#475569);}
+
+  /* "Start Job Scraping" pulse on the search button when a resume has just been uploaded */
+  .search-btn.scrape-ready{animation:scrapePulse 1.4s ease-in-out 3;
+    box-shadow:0 0 0 0 rgba(20,184,166,.55);}
+  @keyframes scrapePulse{
+    0%{box-shadow:0 0 0 0 rgba(20,184,166,.55);}
+    70%{box-shadow:0 0 0 14px rgba(20,184,166,0);}
+    100%{box-shadow:0 0 0 0 rgba(20,184,166,0);}
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+<!-- Phase 4 CDNs: browser-side resume parse + export. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.2.2/docx.umd.min.js"></script>
+
+<!-- Phase 3: client-side Google Drive resume storage. -->
+<!-- Phase 4: client-side Anthropic + parse + export modules. -->
+<!-- Phase 5: client-side job search via Cloudflare Worker proxy. -->
+<!-- All of these MUST load before app.js so their window.* exports exist. -->
+<script src="/static/js/drive.js"></script>
+<script src="/static/js/ai.js"></script>
+<script src="/static/js/resume-parser.js"></script>
+<script src="/static/js/export.js"></script>
+<script src="/static/js/jobs.js"></script>
+<script src="/static/js/app.js"></script>
+{% endblock %}

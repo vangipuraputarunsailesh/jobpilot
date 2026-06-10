@@ -1,0 +1,8 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "jobpilot/Dockerfile"
+
+# No startCommand here on purpose: defer to the Dockerfile CMD so there's a
+# single source of truth. Override only if Railway-specific behavior is needed.
+[deploy]
+restartPolicyType = "always"

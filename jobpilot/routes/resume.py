@@ -1,0 +1,353 @@
+"""
+routes/resume.py — Resume & AI Blueprint for JobPilot Flask app.
+Handles upload, generate, score, tailor, improve, chat, certs, answer, download.
+"""
+import io
+import os
+import re
+import logging
+from pathlib import Path
+
+from flask import Blueprint, request, jsonify, send_file, current_app, g
+
+from core.ai_engine import (
+    score_ats, tailor_resume, improve_line,
+    answer_screening_question, apply_chat_instruction,
+    suggest_certifications, generate_resume,
+)
+from core.resume_reader import (
+    get_resume_list, save_tailored_docx,
+    save_tailored_resume, save_tailored_pdf,
+    read_resume_bytes,
+)
+from core.auth_db import save_user_resume
+from core.byok import require_api_key, get_api_key
+
+resume_bp = Blueprint("resume", __name__)
+logger = logging.getLogger("jobpilot")
+
+
+def _resolve_anthropic():
+    """Phase 2 BYOK helper. Reads `X-Anthropic-Key` (+ optional
+    `X-Claude-Model`) for the current request and stashes them on
+    `flask.g` for `core.ai_engine._resolve_key_and_model()` to pick up.
+
+    Returns `None` on success, or a Flask error tuple `(json, status)`
+    that the caller must propagate.
+    """
+    email = getattr(g, "email", None)
+    key, err = require_api_key(
+        "X-Anthropic-Key", "ANTHROPIC_API_KEY", email=email
+    )
+    if err:
+        return jsonify(err[0]), err[1]
+    g.anthropic_key = key
+    g.claude_model = (
+        get_api_key("X-Claude-Model", "CLAUDE_MODEL", email=email) or ""
+    )
+    return None
+
+
+# Phase 4 — Claude / parse / export routes are demo-only.
+# Real users do all of this in the browser (static/js/ai.js,
+# resume-parser.js, export.js). Returning 410 instead of 404 keeps
+# legacy clients from silently treating this as a routing bug.
+DEMO_EMAIL = "demo@jobpilot.app"
+
+
+def _demo_only_guard():
+    """Block non-demo users from the legacy server route with a 410.
+
+    Returns ``None`` when the caller may proceed, or a Flask error tuple
+    ``(jsonify(...), 410)`` that the caller must propagate.
+    """
+    email = getattr(g, "email", None)
+    if email != DEMO_EMAIL:
+        return jsonify({
+            "detail": (
+                "This endpoint is demo-only. Real users run AI and resume "
+                "parse/export in the browser via static/js/ai.js, "
+                "resume-parser.js, and export.js (Phase 4)."
+            ),
+        }), 410
+    return None
+
+
+# Issue #52 — hard cap on uploaded resume size to prevent memory exhaustion
+# from oversized PDFs/DOCX. Tunable via env var RESUME_MAX_BYTES.
+MAX_RESUME_BYTES = int(os.environ.get("RESUME_MAX_BYTES", str(5 * 1024 * 1024)))  # 5 MB
+
+# Issue #53 — bound the free-text resume description sent to Claude so a
+# single request can't drive arbitrary token cost.
+MAX_DESCRIPTION_CHARS = int(os.environ.get("RESUME_DESCRIPTION_MAX_CHARS", "8000"))
+
+
+@resume_bp.post("/api/upload-resume")
+def upload_resume():
+    err = _demo_only_guard()
+    if err:
+        return err
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"detail": "No file provided"}), 400
+    ext = Path(f.filename).suffix.lower()
+    if ext not in (".pdf", ".docx", ".txt"):
+        return jsonify({"detail": "Supported formats: .pdf, .docx, .txt"}), 400
+    content = f.read()
+    if len(content) > MAX_RESUME_BYTES:
+        return jsonify({
+            "detail": f"File too large. Max size is {MAX_RESUME_BYTES // (1024 * 1024)} MB."
+        }), 413
+    # Issue #67 — delegate to the shared parser so this route and
+    # ``core.resume_reader.read_resume`` cannot drift apart.
+    try:
+        text = read_resume_bytes(content, ext)
+    except Exception as e:
+        logger.error("Resume parse error (%s): %s", ext, e, exc_info=True)
+        return jsonify({"detail": f"Could not read the {ext} file."}), 500
+    if not text.strip():
+        return jsonify({"detail": "Could not extract text. Try a .txt or .docx version."}), 422
+    text_clean = text.strip()
+    # Persist server-side so the resume survives logout / device switch.
+    # Best-effort: failures here must not block the upload response.
+    email = getattr(g, "email", None)
+    if email:
+        try:
+            save_user_resume(email, text_clean, f.filename)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("RESUME PERSIST FAILED | %s | %s", email, e)
+    return jsonify({"text": text_clean, "filename": f.filename})
+
+
+@resume_bp.post("/api/generate-resume")
+def generate_resume_endpoint():
+    err = _demo_only_guard()
+    if err:
+        return err
+    err = _resolve_anthropic()
+    if err:
+        return err
+    _usage = current_app.config["USAGE"]
+    _usage["claude_calls"] += 1
+    data = request.get_json(silent=True) or {}
+    description = data.get("description", "").strip()
+    if not description:
+        return jsonify({"detail": "Description is required"}), 400
+    # Issue #53 — bound the description length to control Claude cost/latency.
+    if len(description) > MAX_DESCRIPTION_CHARS:
+        return jsonify({
+            "detail": f"Description too long. Max {MAX_DESCRIPTION_CHARS} characters."
+        }), 413
+    result = generate_resume(
+        user_description=description,
+        job_title=data.get("job_title", ""),
+        job_description=data.get("job_description", ""),
+    )
+    # Issue #90 — generate_resume now returns a dict so the caller can warn the
+    # user when their inputs were clipped before being sent to Claude.
+    if not result or not result.get("resume"):
+        return jsonify({"detail": "Resume generation failed — check ANTHROPIC_API_KEY"}), 500
+    payload = {"resume": result["resume"]}
+    if result.get("truncation_warning"):
+        payload["truncation_warning"] = result["truncation_warning"]
+    return jsonify(payload)
+
+
+@resume_bp.post("/api/score")
+def score():
+    err = _demo_only_guard()
+    if err:
+        return err
+    err = _resolve_anthropic()
+    if err:
+        return err
+    _usage = current_app.config["USAGE"]
+    data = request.get_json(silent=True) or {}
+    resume_text = data.get("resume_text", "").strip()
+    description = data.get("description", "").strip()
+    if not resume_text:
+        return jsonify({"detail": "Resume text is required"}), 400
+    if not description:
+        return jsonify({"detail": "Job description is required"}), 400
+    _usage["total_ats_scores"] += 1
+    _usage["claude_calls"]     += 1
+    logger.info("ATS SCORE | requested")
+    try:
+        result = score_ats(resume_text, description, compact_mode=not data.get("final_check", False))
+        logger.info(f"ATS SCORE | score={result.get('score')} verdict={result.get('verdict')}")
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"ATS SCORE ERROR | {e}", exc_info=True)
+        return jsonify({"detail": "ATS scoring failed. Please try again."}), 500
+
+
+@resume_bp.post("/api/tailor")
+def tailor():
+    err = _demo_only_guard()
+    if err:
+        return err
+    err = _resolve_anthropic()
+    if err:
+        return err
+    _usage = current_app.config["USAGE"]
+    data = request.get_json(silent=True) or {}
+    resume_text = data.get("resume_text", "").strip()
+    description = data.get("description", "").strip()
+    if not resume_text:
+        return jsonify({"detail": "Resume text is required"}), 400
+    if not description:
+        return jsonify({"detail": "Job description is required"}), 400
+    _usage["total_tailors"] += 1
+    _usage["claude_calls"]  += 1
+    job_title = data.get("job_title", "")
+    company   = data.get("company", "")
+    logger.info(f"TAILOR | job='{job_title}' company='{company}'")
+    try:
+        result = tailor_resume(resume_text, description, job_title, company)
+        logger.info("TAILOR DONE")
+        payload = {
+            "tailored":    result["resume"],
+            "report":      result.get("report", ""),
+            "jd_analysis": result.get("jd_analysis", ""),
+            "audit":       result.get("audit", ""),
+        }
+        # Issue #90 — forward the truncation warning so the UI can banner it.
+        if result.get("truncation_warning"):
+            payload["truncation_warning"] = result["truncation_warning"]
+        return jsonify(payload)
+    except Exception as e:
+        logger.error(f"TAILOR ERROR | {e}", exc_info=True)
+        return jsonify({"detail": "Resume tailoring failed. Please try again."}), 500
+
+
+@resume_bp.post("/api/improve-line")
+def improve():
+    err = _demo_only_guard()
+    if err:
+        return err
+    err = _resolve_anthropic()
+    if err:
+        return err
+    _usage = current_app.config["USAGE"]
+    data = request.get_json(silent=True) or {}
+    line = data.get("line", "")
+    if not line:
+        return jsonify({"detail": "No line provided"}), 400
+    _usage["claude_calls"] += 1
+    return jsonify({"improved": improve_line(line, data.get("description", ""), data.get("job_title", ""))})
+
+
+@resume_bp.post("/api/chat-instruction")
+def chat_instruction():
+    err = _demo_only_guard()
+    if err:
+        return err
+    err = _resolve_anthropic()
+    if err:
+        return err
+    _usage = current_app.config["USAGE"]
+    data = request.get_json(silent=True) or {}
+    instruction = data.get("instruction", "").strip()
+    resume_text  = data.get("resume_text", "").strip()
+    if not instruction:
+        return jsonify({"detail": "Instruction required"}), 400
+    if not resume_text:
+        return jsonify({"detail": "Resume text required"}), 400
+    _usage["total_ai_chats"] += 1
+    _usage["claude_calls"]   += 1
+    version = data.get("version", 1)
+    result = apply_chat_instruction(
+        instruction=instruction,
+        resume_text=resume_text,
+        description=data.get("description", ""),
+        job_title=data.get("job_title", ""),
+        company=data.get("company", ""),
+        chat_history=data.get("chat_history", []),
+        version=version,
+        original_resume=data.get("original_resume", ""),
+    )
+    return jsonify({
+        "updated_resume": result["resume"],
+        "explanation":    result["explanation"],
+        "resume_changed": result.get("resume_changed", True),
+        "version":        result.get("version", version),
+        # Issue #90 — surface input clipping back to the chat UI.
+        "truncation_warning": result.get("truncation_warning", ""),
+    })
+
+
+@resume_bp.post("/api/suggest-certs")
+def suggest_certs():
+    err = _resolve_anthropic()
+    if err:
+        return err
+    _usage = current_app.config["USAGE"]
+    data = request.get_json(silent=True) or {}
+    _usage["claude_calls"] += 1
+    return jsonify(suggest_certifications(
+        resume_text=data.get("resume_text", ""),
+        description=data.get("description", ""),
+        job_title=data.get("job_title", ""),
+        company=data.get("company", ""),
+    ))
+
+
+@resume_bp.post("/api/answer")
+def answer():
+    err = _resolve_anthropic()
+    if err:
+        return err
+    _usage = current_app.config["USAGE"]
+    data = request.get_json(silent=True) or {}
+    _usage["claude_calls"] += 1
+    # Issue #90 — answer_screening_question now returns a dict so the caller
+    # can warn the user when inputs were clipped before being sent to Claude.
+    result = answer_screening_question(
+        data.get("question", ""),
+        data.get("resume_text", ""),
+        data.get("description", ""),
+    )
+    payload = {"answer": result["answer"]}
+    if result.get("truncation_warning"):
+        payload["truncation_warning"] = result["truncation_warning"]
+    return jsonify(payload)
+
+
+@resume_bp.post("/api/download")
+def download():
+    err = _demo_only_guard()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    content = data.get("content", "")
+    if not content:
+        return jsonify({"detail": "No content to download"}), 400
+    # Sanitize filename: strip directory components and limit to alphanumeric/dash/underscore
+    raw_name  = data.get("filename", "resume")
+    safe_stem = re.sub(r"[^A-Za-z0-9_\-]", "_", Path(os.path.basename(raw_name)).stem) or "resume"
+    fmt       = data.get("format", "pdf")
+    fit_pages = data.get("fit_pages", 0)
+
+    try:
+        if fmt == "docx":
+            path = save_tailored_docx(safe_stem, content)
+            return send_file(
+                path,
+                mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                as_attachment=True,
+                download_name=Path(path).name,
+            )
+        if fmt == "pdf":
+            # Issue #91 — save_tailored_pdf now returns the renderer that
+            # actually produced the bytes so we can advertise the WeasyPrint
+            # → ReportLab fallback to the client via a response header.
+            path, renderer = save_tailored_pdf(safe_stem, content, max_pages=fit_pages)
+            response = send_file(path, mimetype="application/pdf",
+                                 as_attachment=True, download_name=Path(path).name)
+            response.headers["X-PDF-Renderer"] = renderer
+            return response
+        path = save_tailored_resume(safe_stem, content)
+        return send_file(path, mimetype="text/plain",
+                         as_attachment=True, download_name=Path(path).name)
+    except ValueError:
+        return jsonify({"detail": "Invalid filename or download failed."}), 400

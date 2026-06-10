@@ -1,0 +1,4 @@
+# Dev-only dependencies (Issue #30 / #31).
+# Install with:  pip install -r requirements-dev.txt
+-r jobpilot/requirements.txt
+pytest>=8.0

@@ -1,0 +1,867 @@
+{% extends "base.html" %}
+{% block title %}JobPilot — AI-Powered Job Search{% endblock %}
+
+{% block body %}
+<!-- ── Landing page ─────────────────────────────────────────────────── -->
+<div class="landing-root" id="landing-root">
+
+  <!-- NAV -->
+  <nav class="ln-nav">
+    <div class="ln-brand">
+      <div class="ln-logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" width="18" height="18">
+          <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+        </svg>
+      </div>
+      <span class="ln-logo-text">JobPilot</span>
+    </div>
+    <div class="ln-nav-actions">
+      <button class="ln-btn-ghost" onclick="openAuth()">Sign in</button>
+      <button class="ln-btn-primary" onclick="openAuth()">Get started free</button>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="ln-hero">
+    <div class="ln-hero-content">
+      <div class="ln-badge">✦ Bring Your Own Keys · Resume Stays in Your Drive · 100% Open Source</div>
+      <h1 class="ln-headline">
+        Your AI job copilot,<br>
+        <span class="ln-headline-accent">on your own keys</span>
+      </h1>
+      <p class="ln-subheadline">
+        JobPilot is a BYOK (Bring Your Own Key) app. Sign in with Google, paste your Anthropic
+        and job-board keys in Settings, and search → tailor → score → export — all running
+        directly in your browser. Your resume lives in your own Google Drive. We store nothing.
+      </p>
+      <div class="ln-hero-cta">
+        <button class="ln-cta-primary" onclick="openAuth()">
+          Sign in &amp; set up keys
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+            <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/>
+          </svg>
+        </button>
+        <a class="ln-cta-ghost" href="#setup">See what you'll need →</a>
+        <button class="ln-cta-demo" onclick="enterDemoMode()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>
+          </svg>
+          Try Demo (shared keys)
+        </button>
+        <a class="ln-cta-live" href="https://github.com/vangipuraputarunsailesh/jobpilot" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
+            <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2.13c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.71.08-.71 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.19-3.08-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.05 11.05 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.63 1.59.23 2.76.11 3.05.74.8 1.19 1.82 1.19 3.08 0 4.42-2.69 5.4-5.25 5.68.41.36.78 1.06.78 2.15v3.18c0 .31.21.67.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/>
+          </svg>
+          View source on GitHub
+        </a>
+      </div>
+      <p class="ln-hero-note">✓ Free demo with shared keys &nbsp;·&nbsp; ✓ Pay providers directly (no markup) &nbsp;·&nbsp; ✓ 5-min setup</p>
+    </div>
+
+    <!-- Feature cards -->
+    <div class="ln-features">
+      <div class="ln-feat-card">
+        <div class="ln-feat-icon ln-feat-icon--blue">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+        </div>
+        <div class="ln-feat-title">Smart Job Search</div>
+        <div class="ln-feat-desc">Searches JSearch, Adzuna, The Muse, Remotive, Arbeitnow, and USAJobs simultaneously.</div>
+      </div>
+      <div class="ln-feat-card">
+        <div class="ln-feat-icon ln-feat-icon--teal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+        </div>
+        <div class="ln-feat-title">AI Resume Tailoring</div>
+        <div class="ln-feat-desc">Claude AI rewrites your resume for each specific job description you apply to.</div>
+      </div>
+      <div class="ln-feat-card">
+        <div class="ln-feat-icon ln-feat-icon--purple">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+        </div>
+        <div class="ln-feat-title">ATS Score Checker</div>
+        <div class="ln-feat-desc">See how your resume scores against ATS systems before you submit your application.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATS STRIP -->
+  <section class="ln-stats-section">
+    <div class="ln-stats-inner">
+      <div class="ln-stat-item">
+        <div class="ln-stat-number">6</div>
+        <div class="ln-stat-label">Job boards, one search</div>
+      </div>
+      <div class="ln-stat-divider"></div>
+      <div class="ln-stat-item">
+        <div class="ln-stat-number">$0</div>
+        <div class="ln-stat-label">Server fees — pay APIs directly</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOW IT WORKS -->
+  <section class="ln-how-section">
+    <div class="ln-section-inner">
+      <div class="ln-section-label">How it works</div>
+      <h2 class="ln-section-headline">Up and running in <span class="ln-headline-accent">3 quick steps</span></h2>
+      <div class="ln-steps">
+        <div class="ln-step">
+          <div class="ln-step-number">01</div>
+          <div class="ln-step-icon ln-feat-icon--blue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+              <path d="M22 11v-1a10 10 0 1 0-4 7.95M22 4 12 14.01l-3-3"/>
+            </svg>
+          </div>
+          <h3 class="ln-step-title">Sign in with Google</h3>
+          <p class="ln-step-desc">One click. We request only the <code>drive.appdata</code> + <code>drive.file</code> scopes — a private app folder JobPilot can't see anything else in. Your resume gets saved there, not on our server.</p>
+        </div>
+        <div class="ln-step-connector">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="24" height="24">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+        </div>
+        <div class="ln-step">
+          <div class="ln-step-number">02</div>
+          <div class="ln-step-icon ln-feat-icon--teal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+              <path d="M21 2 19 4M3 22l1.83-1.83a4 4 0 0 1 0-5.66l8.34-8.34a4 4 0 0 1 5.66 0l1.66 1.66a4 4 0 0 1 0 5.66l-8.34 8.34a4 4 0 0 1-5.66 0Z"/>
+            </svg>
+          </div>
+          <h3 class="ln-step-title">Paste your API keys in Settings</h3>
+          <p class="ln-step-desc">Open ⚙ Settings and paste your Anthropic key (required for AI) plus any of RapidAPI / Adzuna / USAJobs (optional, free tiers available). Keys are encrypted with AES-GCM in your browser — never sent to our server.</p>
+        </div>
+        <div class="ln-step-connector">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="24" height="24">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+        </div>
+        <div class="ln-step">
+          <div class="ln-step-number">03</div>
+          <div class="ln-step-icon ln-feat-icon--purple">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="22" height="22">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+          </div>
+          <h3 class="ln-step-title">Search, tailor, export</h3>
+          <p class="ln-step-desc">Search 6 job boards in one shot. Tailor your resume to any job in seconds with Claude. Score for ATS, export as PDF or DOCX. Every API call goes browser → provider directly — your data never touches our server.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+<!-- BYOK SETUP — Provider keys you'll need -->
+  <section class="ln-setup-section" id="setup">
+    <div class="ln-section-inner">
+      <div class="ln-section-label">BYOK setup</div>
+      <h2 class="ln-section-headline">The keys you'll <span class="ln-headline-accent">paste in Settings</span></h2>
+      <p class="ln-setup-intro">
+        JobPilot never proxies your API calls. Bring your own provider keys — one required, the rest optional —
+        and the browser talks to each provider directly. All keys live encrypted in your browser's <code>localStorage</code>
+        and (optionally) sync via your Google Drive <code>appDataFolder</code>. Skip any optional provider; the
+        corresponding job board just won't appear in results.
+      </p>
+
+      <div class="ln-setup-grid">
+        <!-- Google -->
+        <a class="ln-setup-card ln-setup-card--required" href="https://accounts.google.com" target="_blank" rel="noopener">
+          <div class="ln-setup-card-head">
+            <div class="ln-setup-card-icon" style="background:linear-gradient(135deg,#4285F4,#34A853)">
+              <svg viewBox="0 0 48 48" width="18" height="18">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+              </svg>
+            </div>
+            <div class="ln-setup-card-title">
+              Google Account
+              <span class="ln-setup-badge ln-setup-badge--required">Required</span>
+            </div>
+          </div>
+          <div class="ln-setup-card-desc">Sign-in + private <code>appDataFolder</code> on your Drive where your resumes are stored. No new account needed.</div>
+          <div class="ln-setup-card-foot">
+            <span class="ln-setup-cost">Free</span>
+            <span class="ln-setup-link">Sign in with Google →</span>
+          </div>
+        </a>
+
+        <!-- Anthropic -->
+        <a class="ln-setup-card ln-setup-card--required" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">
+          <div class="ln-setup-card-head">
+            <div class="ln-setup-card-icon" style="background:linear-gradient(135deg,#D97757,#C2410C)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
+                <path d="M12 2 2 22h4l1.5-4h9L18 22h4L12 2zm-3 12 3-8 3 8H9z"/>
+              </svg>
+            </div>
+            <div class="ln-setup-card-title">
+              Anthropic Claude
+              <span class="ln-setup-badge ln-setup-badge--required">Required for AI</span>
+            </div>
+          </div>
+          <div class="ln-setup-card-desc">Powers resume tailoring, ATS scoring, chat editor, and resume generation. Header sent: <code>x-api-key</code>.</div>
+          <div class="ln-setup-card-foot">
+            <span class="ln-setup-cost">$5 free credit · ~$0.01/tailor</span>
+            <span class="ln-setup-link">Get API key →</span>
+          </div>
+        </a>
+
+        <!-- RapidAPI / JSearch -->
+        <a class="ln-setup-card" href="https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch" target="_blank" rel="noopener">
+          <div class="ln-setup-card-head">
+            <div class="ln-setup-card-icon" style="background:linear-gradient(135deg,#0EA5E9,#0369A1)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+            </div>
+            <div class="ln-setup-card-title">
+              RapidAPI / JSearch
+              <span class="ln-setup-badge">Optional</span>
+            </div>
+          </div>
+          <div class="ln-setup-card-desc">Unlocks LinkedIn + Indeed + ZipRecruiter + Glassdoor results. Header sent: <code>X-RapidAPI-Key</code>.</div>
+          <div class="ln-setup-card-foot">
+            <span class="ln-setup-cost">Free 150 req/mo</span>
+            <span class="ln-setup-link">Subscribe to free tier →</span>
+          </div>
+        </a>
+
+        <!-- Adzuna -->
+        <a class="ln-setup-card" href="https://developer.adzuna.com/signup" target="_blank" rel="noopener">
+          <div class="ln-setup-card-head">
+            <div class="ln-setup-card-icon" style="background:linear-gradient(135deg,#A78BFA,#7C3AED)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
+                <rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+              </svg>
+            </div>
+            <div class="ln-setup-card-title">
+              Adzuna
+              <span class="ln-setup-badge">Optional</span>
+            </div>
+          </div>
+          <div class="ln-setup-card-desc">Adds 1M+ aggregated job postings (employer + agency). Headers: <code>X-Adzuna-App-Id</code> + <code>X-Adzuna-App-Key</code>.</div>
+          <div class="ln-setup-card-foot">
+            <span class="ln-setup-cost">Free 1k req/mo</span>
+            <span class="ln-setup-link">Register app →</span>
+          </div>
+        </a>
+
+        <!-- USAJobs -->
+        <a class="ln-setup-card" href="https://developer.usajobs.gov/APIRequest/Index" target="_blank" rel="noopener">
+          <div class="ln-setup-card-head">
+            <div class="ln-setup-card-icon" style="background:linear-gradient(135deg,#3B82F6,#1D4ED8)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
+                <path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1M9 13h1M9 17h1M14 9h1M14 13h1M14 17h1"/>
+              </svg>
+            </div>
+            <div class="ln-setup-card-title">
+              USAJobs
+              <span class="ln-setup-badge">Optional</span>
+            </div>
+          </div>
+          <div class="ln-setup-card-desc">All US federal-government job postings. Headers: <code>X-USAJobs-Email</code> + <code>X-USAJobs-Key</code>.</div>
+          <div class="ln-setup-card-foot">
+            <span class="ln-setup-cost">Free · no rate limit</span>
+            <span class="ln-setup-link">Request API key →</span>
+          </div>
+        </a>
+
+        <!-- Cloudflare Worker -->
+        <a class="ln-setup-card" href="https://github.com/vangipuraputarunsailesh/jobpilot/tree/master/proxy" target="_blank" rel="noopener">
+          <div class="ln-setup-card-head">
+            <div class="ln-setup-card-icon" style="background:linear-gradient(135deg,#F97316,#C2410C)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
+                <path d="M3 12h4l3-9 4 18 3-9h4"/>
+              </svg>
+            </div>
+            <div class="ln-setup-card-title">
+              Cloudflare Worker
+              <span class="ln-setup-badge">Optional</span>
+            </div>
+          </div>
+          <div class="ln-setup-card-desc">Stateless CORS proxy so the browser can call JSearch / Adzuna / USAJobs without CORS errors. One <code>wrangler deploy</code>, copy the URL into Settings, done.</div>
+          <div class="ln-setup-card-foot">
+            <span class="ln-setup-cost">Free 100k req/day</span>
+            <span class="ln-setup-link">Deploy from /proxy →</span>
+          </div>
+        </a>
+      </div>
+
+      <div class="ln-setup-foot">
+        <strong>No keys?</strong> Click <em>Try Demo</em> above to explore with shared rate-limited keys on the JobPilot demo instance.
+      </div>
+    </div>
+  </section>
+
+  <!-- EXTRA FEATURES GRID -->
+  <section class="ln-extra-features-section">
+    <div class="ln-section-inner">
+      <div class="ln-section-label">Why BYOK</div>
+      <h2 class="ln-section-headline">No lock-in, <span class="ln-headline-accent">no middleman</span></h2>
+      <div class="ln-extra-features">
+        <div class="ln-extra-feat">
+          <div class="ln-extra-feat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <div>
+            <div class="ln-extra-feat-title">Your data, your Drive</div>
+            <div class="ln-extra-feat-desc">Resumes are written straight to your private Google Drive <code>appDataFolder</code>. JobPilot's server has zero copy.</div>
+          </div>
+        </div>
+        <div class="ln-extra-feat">
+          <div class="ln-extra-feat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+          </div>
+          <div>
+            <div class="ln-extra-feat-title">Works on any device</div>
+            <div class="ln-extra-feat-desc">Fully responsive desktop / tablet / mobile. Keys roam via Drive sync — sign in anywhere, everything's there.</div>
+          </div>
+        </div>
+        <div class="ln-extra-feat">
+          <div class="ln-extra-feat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <div>
+            <div class="ln-extra-feat-title">Live job listings</div>
+            <div class="ln-extra-feat-desc">Every search hits providers in real time — no stale cached database. Filter by date posted, seniority, US/remote.</div>
+          </div>
+        </div>
+        <div class="ln-extra-feat">
+          <div class="ln-extra-feat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+            </svg>
+          </div>
+          <div>
+            <div class="ln-extra-feat-title">PDF &amp; DOCX export</div>
+            <div class="ln-extra-feat-desc">Browser-side jsPDF + docx.js render your tailored resume offline. No server round-trip on download.</div>
+          </div>
+        </div>
+        <div class="ln-extra-feat">
+          <div class="ln-extra-feat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+              <path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/>
+            </svg>
+          </div>
+          <div>
+            <div class="ln-extra-feat-title">100% open source</div>
+            <div class="ln-extra-feat-desc">Audit every line on GitHub, fork it, or self-host the Cloudflare Worker proxy in 60 seconds. No black boxes.</div>
+          </div>
+        </div>
+        <div class="ln-extra-feat">
+          <div class="ln-extra-feat-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </div>
+          <div>
+            <div class="ln-extra-feat-title">Keys encrypted at rest</div>
+            <div class="ln-extra-feat-desc">Your provider keys are stored AES-GCM-encrypted in browser <code>localStorage</code>, never logged, never proxied.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- JOB SOURCES STRIP -->
+  <section class="ln-sources-section">
+    <div class="ln-section-inner">
+      <div class="ln-section-label">Job sources searched in one shot</div>
+      <div class="ln-sources-grid">
+        <div class="ln-source-badge" title="Needs RapidAPI key (free tier)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          JSearch <span class="ln-source-tag">RapidAPI</span>
+        </div>
+        <div class="ln-source-badge" title="Needs Adzuna App ID + Key (free tier)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Adzuna <span class="ln-source-tag">Adzuna API</span>
+        </div>
+        <div class="ln-source-badge" title="No key needed">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          The Muse <span class="ln-source-tag ln-source-tag--free">No key</span>
+        </div>
+        <div class="ln-source-badge" title="No key needed">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Remotive <span class="ln-source-tag ln-source-tag--free">No key</span>
+        </div>
+        <div class="ln-source-badge" title="No key needed">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          Arbeitnow <span class="ln-source-tag ln-source-tag--free">No key</span>
+        </div>
+        <div class="ln-source-badge" title="Needs USAJobs Email + Key (free)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          USAJobs <span class="ln-source-tag">USAJobs API</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TESTIMONIALS -->
+  <section class="ln-testimonials-section">
+    <div class="ln-section-inner">
+      <div class="ln-section-label">What people say</div>
+      <h2 class="ln-section-headline">Trusted by <span class="ln-headline-accent">job seekers</span> everywhere</h2>
+      <div class="ln-testimonials">
+        <div class="ln-testimonial">
+          <div class="ln-testimonial-stars">★★★★★</div>
+          <p class="ln-testimonial-text">"JobPilot cut my job search time in half. The AI resume tailoring is absolutely incredible — I went from 5% callback rate to over 30%."</p>
+          <div class="ln-testimonial-author">
+            <div class="ln-testimonial-avatar" style="background:linear-gradient(135deg,#14b8a6,#0ea5e9)">AS</div>
+            <div>
+              <div class="ln-testimonial-name">Aisha S.</div>
+              <div class="ln-testimonial-role">Software Engineer, hired at Stripe</div>
+            </div>
+          </div>
+        </div>
+        <div class="ln-testimonial">
+          <div class="ln-testimonial-stars">★★★★★</div>
+          <p class="ln-testimonial-text">"I used to spend 3 hours per application rewriting my resume. With JobPilot it takes 10 minutes and the results are way better."</p>
+          <div class="ln-testimonial-author">
+            <div class="ln-testimonial-avatar" style="background:linear-gradient(135deg,#a78bfa,#ec4899)">MK</div>
+            <div>
+              <div class="ln-testimonial-name">Marcus K.</div>
+              <div class="ln-testimonial-role">Product Manager, hired at Notion</div>
+            </div>
+          </div>
+        </div>
+        <div class="ln-testimonial">
+          <div class="ln-testimonial-stars">★★★★★</div>
+          <p class="ln-testimonial-text">"The ATS score feature alone is worth it. I had no idea my resume was failing keyword checks. Fixed in minutes, got 3 interviews the same week."</p>
+          <div class="ln-testimonial-author">
+            <div class="ln-testimonial-avatar" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">PL</div>
+            <div>
+              <div class="ln-testimonial-name">Priya L.</div>
+              <div class="ln-testimonial-role">Data Analyst, hired at Airbnb</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FINAL CTA -->
+  <section class="ln-final-cta-section">
+    <div class="ln-final-cta-inner">
+      <h2 class="ln-final-cta-headline">Ready to set up<br><span class="ln-headline-accent">your own copilot?</span></h2>
+      <p class="ln-final-cta-sub">Sign in with Google, grab the keys above, paste them into Settings, and start tailoring. No subscription. No data lock-in. Cancel by clearing your browser cache.</p>
+      <button class="ln-cta-primary" onclick="openAuth()">
+        Sign in &amp; start setup
+        <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
+          <path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/>
+        </svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="ln-footer">
+    <div class="ln-footer-inner">
+      <div class="ln-brand">
+        <div class="ln-logo-icon" style="width:28px;height:28px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" width="14" height="14">
+            <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+          </svg>
+        </div>
+        <span class="ln-logo-text" style="font-size:15px">JobPilot</span>
+      </div>
+      <p class="ln-footer-copy">© <span id="ln-footer-year">2026</span> JobPilot · BYOK AI job copilot · <a href="https://github.com/vangipuraputarunsailesh/jobpilot" target="_blank" rel="noopener">Open source on GitHub</a></p>
+      <div class="ln-footer-links">
+        <a href="#setup">Setup guide</a>
+        <a href="#" onclick="event.preventDefault();openAuth()">Sign in</a>
+        <a href="#" onclick="event.preventDefault();enterDemoMode()">Try demo</a>
+      </div>
+    </div>
+  </footer>
+
+</div>
+
+<!-- ── Auth overlay ─────────────────────────────────────────────────── -->
+<div class="auth-overlay" id="auth-overlay" style="display:none" onclick="overlayClickClose(event)">
+  <div class="auth-modal" role="dialog" aria-modal="true" aria-label="Sign in to JobPilot">
+
+    <!-- Left panel -->
+    <div class="auth-left">
+      <div class="auth-left-brand">
+        <div class="ln-logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" width="18" height="18">
+            <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+          </svg>
+        </div>
+        <span class="ln-logo-text">JobPilot</span>
+      </div>
+      <h2 class="auth-left-headline">Your AI<br><span>career co-pilot</span></h2>
+      <p class="auth-left-sub">A BYOK app: you sign in with Google, paste your provider keys in Settings, and your data stays on your own Drive.</p>
+      <ul class="auth-left-perks">
+        <li>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          Resume saved to your Google Drive
+        </li>
+        <li>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          AI calls go browser → Anthropic directly
+        </li>
+        <li>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          API keys encrypted in localStorage
+        </li>
+        <li>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          Export as PDF or DOCX in-browser
+        </li>
+        <li>
+          <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          100% open source on GitHub
+        </li>
+      </ul>
+      <div class="auth-left-social-proof">
+        <div class="auth-sp-avatars">
+          <div class="auth-sp-avatar" style="background:linear-gradient(135deg,#14b8a6,#0ea5e9)">AS</div>
+          <div class="auth-sp-avatar" style="background:linear-gradient(135deg,#a78bfa,#ec4899)">MK</div>
+          <div class="auth-sp-avatar" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">PL</div>
+        </div>
+        <div class="auth-sp-text">Trusted by job seekers everywhere</div>
+      </div>
+    </div>
+
+    <!-- Right panel: Google Sign-In + Demo (Phase 1 BYOK refactor) -->
+    <!-- Email/password registration + GitHub OAuth removed. Google is the
+         only identity provider; the Drive-scoped access_token is fetched
+         client-side immediately after the id_token callback succeeds. -->
+    <div class="auth-right">
+      <button class="auth-close" onclick="closeAuth()" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+          <path d="M18 6 6 18M6 6l12 12"/>
+        </svg>
+      </button>
+
+      <div class="auth-right-header">
+        <h3 class="auth-right-title">Sign in to JobPilot</h3>
+        <p class="auth-right-sub">Continue with Google — then paste your Anthropic key in ⚙ Settings to start tailoring.</p>
+      </div>
+
+      <div id="auth-error" class="auth-error" style="display:none"></div>
+
+      <!-- Google Sign-In button rendered here -->
+      <div id="google-signin-container" class="auth-google-container"></div>
+
+      <!-- Fallback button shown when Google GSI is unavailable or not configured -->
+      <button class="auth-google-btn" id="auth-google-fallback-btn" onclick="googleSignIn()" style="display:none">
+        <svg viewBox="0 0 48 48" width="18" height="18">
+          <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Continue with Google
+      </button>
+
+      <div id="g_id_onload"
+           data-client_id="{{ google_client_id }}"
+           data-callback="handleGoogleCredential"
+           data-auto_prompt="false"
+           style="display:none"></div>
+
+      <div class="auth-demo-divider"><span>or</span></div>
+
+      <button class="auth-demo-btn" onclick="enterDemoMode()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>
+        </svg>
+        Try Demo — no sign-up required
+      </button>
+
+      <p class="auth-terms">By continuing you agree to JobPilot's
+        <a href="/terms">Terms</a> &amp; <a href="/privacy">Privacy Policy</a>.
+        We request access only to a private app-specific folder in your Drive
+        — JobPilot cannot see any of your other files.</p>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+// Render the current year dynamically into the footer copyright
+(function () {
+  var y = document.getElementById('ln-footer-year');
+  if (y) y.textContent = new Date().getFullYear();
+  // Mark every decorative SVG inside the landing page as aria-hidden so
+  // screen readers skip them (icons inside buttons already convey meaning).
+  document.querySelectorAll('.landing-root svg').forEach(function (s) {
+    if (!s.hasAttribute('aria-label') && !s.hasAttribute('role')) {
+      s.setAttribute('aria-hidden', 'true');
+      s.setAttribute('focusable', 'false');
+    }
+  });
+})();
+
+// ── Sliding-TTL login session helpers ───────────────────────────────────
+// localStorage-only so the session survives tab close / browser restart.
+// `jp_session_expiry` (ms-since-epoch) drives auto-logout; cleared by
+// browser "Clear site data" or explicit sign-out. Real accounts get 7
+// days; demo accounts 24 hours. Mirrored in static/js/app.js and
+// templates/index.html — keep all three in sync.
+const SESSION_TTL_MS      = 7 * 24 * 60 * 60 * 1000;
+const DEMO_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+function _sessionTtl() {
+  return localStorage.getItem('jp_demo') === '1' ? DEMO_SESSION_TTL_MS : SESSION_TTL_MS;
+}
+function setLoginSession(token, email, opts) {
+  localStorage.setItem('jp_token', token);
+  localStorage.setItem('jp_email', email);
+  if (opts && opts.demo) localStorage.setItem('jp_demo', '1');
+  localStorage.setItem('jp_session_expiry', String(Date.now() + _sessionTtl()));
+  // Purge legacy sessionStorage marker from prior design.
+  sessionStorage.removeItem('jp_session_active');
+}
+function isLoginSessionValid() {
+  if (!localStorage.getItem('jp_token')) return false;
+  const expiry = parseInt(localStorage.getItem('jp_session_expiry') || '0', 10);
+  return !!expiry && Date.now() < expiry;
+}
+
+// Redirect if already logged in (with a still-valid TTL).
+if (isLoginSessionValid()) {
+  window.location.replace('/app');
+} else if (localStorage.getItem('jp_token')) {
+  // Stale token from an expired session — purge so the landing page
+  // doesn't keep the user in a half-authenticated state.
+  localStorage.removeItem('jp_token');
+  localStorage.removeItem('jp_email');
+  localStorage.removeItem('jp_demo');
+  localStorage.removeItem('jp_session_expiry');
+  sessionStorage.removeItem('jp_session_active');
+}
+
+let _googleInitialized = false;
+let _gisTokenClient = null;
+
+// Scopes we request alongside identity. `drive.appdata` gives JobPilot a
+// hidden, sandboxed folder in the user's Drive (`appDataFolder`); `drive.file`
+// lets us read/write any file we explicitly create or that the user picks
+// via the Drive picker. We never request `drive` (full Drive) — the consent
+// screen and our Settings copy both make that clear.
+const GOOGLE_OAUTH_SCOPES = [
+  'openid', 'email', 'profile',
+  'https://www.googleapis.com/auth/drive.appdata',
+  'https://www.googleapis.com/auth/drive.file',
+].join(' ');
+
+function openAuth() {
+  document.getElementById('auth-overlay').style.display = 'flex';
+  document.getElementById('auth-error').style.display = 'none';
+  // slight delay to allow modal to appear, then render Google button
+  setTimeout(initGoogleSignIn, 100);
+}
+function closeAuth() {
+  document.getElementById('auth-overlay').style.display = 'none';
+}
+function overlayClickClose(e) {
+  if (e.target === document.getElementById('auth-overlay')) closeAuth();
+}
+function showAuthError(msg) {
+  const el = document.getElementById('auth-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+/* ── Google Sign-In ─────────────────────────────────────────── */
+function initGoogleSignIn() {
+  const clientIdEl = document.getElementById('g_id_onload');
+  const clientId = clientIdEl && clientIdEl.dataset.client_id;
+  const container = document.getElementById('google-signin-container');
+  const fallbackBtn = document.getElementById('auth-google-fallback-btn');
+
+  if (!clientId) {
+    // No Google client ID configured — surface a clear message since Google
+    // is now the only sign-in path. Admins debugging the deploy see the
+    // env var name; everyone else sees the high-level message.
+    const isDebug = /[?&]debug=1\b/.test(window.location.search);
+    if (container) {
+      container.style.display = 'block';
+      container.innerHTML = isDebug
+        ? '<div style="font-size:12px;color:#888;text-align:center;padding:10px;border:1px dashed #ccc;border-radius:6px">Google Sign-In not configured — set <code>GOOGLE_CLIENT_ID</code></div>'
+        : '<div style="font-size:13px;color:#a00;text-align:center;padding:10px;border:1px dashed #f3c2c2;border-radius:6px;background:#fff5f5">Sign-in is temporarily unavailable. Try Demo below or check back soon.</div>';
+    }
+    if (fallbackBtn) fallbackBtn.style.display = 'none';
+    return;
+  }
+
+  if (typeof google === 'undefined' || !google.accounts || !google.accounts.id) {
+    // GSI library hasn't loaded yet — show fallback button
+    if (container) container.style.display = 'none';
+    if (fallbackBtn) fallbackBtn.style.display = 'flex';
+    return;
+  }
+
+  if (_googleInitialized && container && container.querySelector('iframe')) {
+    // Already rendered — nothing more to do
+    if (container) container.style.display = 'block';
+    if (fallbackBtn) fallbackBtn.style.display = 'none';
+    return;
+  }
+
+  try {
+    google.accounts.id.initialize({
+      client_id: clientId,
+      callback: handleGoogleCredential,
+      cancel_on_tap_outside: false,
+    });
+
+    if (container) {
+      container.innerHTML = '';
+      container.style.display = 'block';
+      google.accounts.id.renderButton(container, {
+        theme: 'filled_black',
+        size: 'large',
+        width: container.offsetWidth || 340,
+        text: 'continue_with',
+        shape: 'rectangular',
+        logo_alignment: 'left',
+      });
+      _googleInitialized = true;
+    }
+    if (fallbackBtn) fallbackBtn.style.display = 'none';
+  } catch (e) {
+    console.warn('Google Sign-In init error:', e);
+    if (container) container.style.display = 'none';
+    if (fallbackBtn) fallbackBtn.style.display = 'flex';
+  }
+}
+
+// Fallback: prompt-based sign-in (used when renderButton is unavailable)
+function googleSignIn() {
+  const clientId = document.getElementById('g_id_onload').dataset.client_id;
+  if (!clientId) {
+    showAuthError('Google Sign-In is not configured on this deployment.');
+    return;
+  }
+  if (typeof google === 'undefined' || !google.accounts) {
+    showAuthError('Google library failed to load. Refresh and try again.');
+    return;
+  }
+  google.accounts.id.initialize({ client_id: clientId, callback: handleGoogleCredential });
+  google.accounts.id.prompt(notification => {
+    if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+      showAuthError('Google sign-in popup was blocked. Please allow popups for this site.');
+    }
+  });
+}
+
+// Step 1 — identity. The GIS One-Tap / button hands us a signed id_token,
+// which the server verifies and exchanges for a JobPilot JWT.
+async function handleGoogleCredential(response) {
+  try {
+    const r = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({credential: response.credential}),
+    });
+    const d = await r.json();
+    if (!r.ok) { showAuthError(d.detail || 'Google sign-in failed'); return; }
+    setLoginSession(d.token, d.email);
+    // Step 2 — ask for the Drive-scoped access_token. We MUST request it
+    // before redirecting to /app, otherwise the user lands without the
+    // ability to read/write their resume folder. `prompt: 'consent'` is
+    // used here so the user sees the Drive scope on their first sign-in;
+    // subsequent silent refreshes (in app.js) pass `prompt: ''`.
+    requestGoogleAccessToken({ prompt: 'consent' })
+      .then(() => { window.location.href = '/app'; })
+      .catch(err => {
+        // Even if the user denies Drive, they still have a valid JobPilot
+        // JWT — we let them into /app where the in-app banner will explain
+        // their resumes won't sync to Drive until they re-grant access.
+        console.warn('Drive scope not granted:', err);
+        window.location.href = '/app';
+      });
+  } catch { showAuthError('Google sign-in failed. Please try again.'); }
+}
+
+// Request a Drive-scoped OAuth access_token via GIS Token Client.
+// Stores it in localStorage as `jp_gtoken` (+ `jp_gtoken_expiry` ms).
+// Returns a Promise that resolves with the token string.
+function requestGoogleAccessToken(opts) {
+  return new Promise(function (resolve, reject) {
+    const clientId = document.getElementById('g_id_onload').dataset.client_id;
+    if (!clientId) { reject(new Error('GOOGLE_CLIENT_ID not configured')); return; }
+    if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
+      reject(new Error('GIS library not loaded')); return;
+    }
+    if (!_gisTokenClient) {
+      _gisTokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: GOOGLE_OAUTH_SCOPES,
+        callback: function (resp) {
+          if (resp && resp.access_token) {
+            try {
+              localStorage.setItem('jp_gtoken', resp.access_token);
+              const expiresIn = parseInt(resp.expires_in || '3600', 10);
+              localStorage.setItem('jp_gtoken_expiry', String(Date.now() + (expiresIn * 1000)));
+            } catch (_) { /* localStorage disabled */ }
+            resolve(resp.access_token);
+          } else {
+            reject(new Error((resp && resp.error) || 'No access_token returned'));
+          }
+        },
+        error_callback: function (err) { reject(err || new Error('Token request failed')); },
+      });
+    }
+    try {
+      _gisTokenClient.requestAccessToken({ prompt: (opts && opts.prompt) || '' });
+    } catch (e) { reject(e); }
+  });
+}
+
+/* ── Demo / Guest mode ──────────────────────────────────────── */
+async function enterDemoMode() {
+  const btns = document.querySelectorAll('.ln-cta-demo, .auth-demo-btn');
+  btns.forEach(b => { b.disabled = true; b.textContent = 'Loading demo…'; });
+  try {
+    const r = await fetch('/api/auth/demo', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) { showAuthError(d.detail || 'Demo unavailable'); return; }
+    setLoginSession(d.token, d.email, { demo: true });
+    // Demo users do not get a Drive token — their data lives in localStorage
+    // only. Wipe any stale gtoken from a prior real-account session.
+    try {
+      localStorage.removeItem('jp_gtoken');
+      localStorage.removeItem('jp_gtoken_expiry');
+    } catch (_) {}
+    window.location.href = '/app';
+  } catch { showAuthError('Demo unavailable. Please try again.'); }
+  finally { btns.forEach(b => { b.disabled = false; }); }
+}
+
+// Try to initialize Google button after GSI library loads
+window.addEventListener('load', function() {
+  // Pre-render the Google button once the GSI script finishes loading
+  if (document.getElementById('g_id_onload').dataset.client_id) {
+    const MAX_GSI_POLL_ATTEMPTS = 30;  // ~6 seconds total
+    const GSI_POLL_INTERVAL_MS  = 200;
+    let attempts = 0;
+    const poller = setInterval(function() {
+      if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+        clearInterval(poller);
+        initGoogleSignIn();
+      }
+      if (++attempts > MAX_GSI_POLL_ATTEMPTS) clearInterval(poller);
+    }, GSI_POLL_INTERVAL_MS);
+  }
+});
+</script>
+{% endblock %}

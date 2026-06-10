@@ -1,0 +1,71 @@
+name: Deploy to GitHub Pages
+
+# Build the static `docs/` artifact via scripts/build_pages.py and publish
+# it to GitHub Pages. The Flask backend on Railway is unaffected — this
+# workflow only ships the browser-side frontend.
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "jobpilot/templates/**"
+      - "jobpilot/static/**"
+      - "scripts/build_pages.py"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment per branch. In-progress runs are NOT
+# cancelled so the live site is never half-deployed.
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build static site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build docs/ from templates
+        env:
+          # If a repo secret named GOOGLE_CLIENT_ID is defined, it is
+          # substituted into the GSI button. Otherwise the button stays
+          # hidden and only "Try Demo" is reachable on the landing page.
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          # Override via a repo `Variables` entry of the same name. Default
+          # points at the existing Railway-hosted Flask backend so the
+          # Phase 5 Flask fallback + demo mode keep working.
+          JOBPILOT_API_BASE: ${{ vars.JOBPILOT_API_BASE }}
+        run: python scripts/build_pages.py
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

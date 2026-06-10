@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+
+# Environment
+.env
+*.env
+
+# Runtime data
+*.db
+*.log
+*.tar
+
+# IDE
+.vscode/
+.idea/
+
+# Railway / Docker artifacts
+jobpilot/blobs/
+jobpilot/index.json
+jobpilot/manifest.json
+jobpilot/oci-layout
+
+# App runtime dirs
+jobpilot/generated/
+jobpilot/logs/
+jobpilot/resumes/
+
+# Claude Code
+.claude/
+
+# Local deploy secrets (used by scripts/sync-secrets.ps1)
+scripts/.env.deploy
+
+# GitHub Pages build artifact (rebuilt by .github/workflows/deploy-pages.yml
+# on every push that touches templates/ or static/ — keeping it out of git
+# avoids noisy diffs on every template tweak).
+docs/
+
