@@ -14,6 +14,10 @@ on:
       - "scripts/build_pages.py"
       - "scripts/test-ai.cjs"
       - "scripts/test_build_pages.py"
+      - "scripts/test-jobs.cjs"
+      - "scripts/test-companion.cjs"
+      - "scripts/test-drive.cjs"
+      - "companion/**"
       - ".github/workflows/deploy-pages.yml"
   workflow_dispatch: {}
 
@@ -41,8 +45,8 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Test AI providers and settings
-        run: node --test scripts/test-ai.cjs
+      - name: Test providers, search and browser companion
+        run: node --test scripts/test-ai.cjs scripts/test-jobs.cjs scripts/test-companion.cjs scripts/test-drive.cjs
 
       - name: Setup Python
         uses: actions/setup-python@v5

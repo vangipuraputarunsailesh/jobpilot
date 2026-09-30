@@ -13,11 +13,18 @@
     </a>
     <div class="ln-nav-links">
       <a href="#how-it-works">How it works</a>
+      <a href="#for-starters">For Starters</a>
+      <a href="#agent-guide">Agent guide · BETA</a>
       <a href="#career-guides">Career guides</a>
       <a href="#developers">Our developers</a>
     </div>
     <div class="ln-nav-actions">
-      <button class="ln-btn-primary" onclick="openAuth()">Sign in <span aria-hidden="true">↗</span></button>
+      <label class="ln-theme-control">Theme
+        <select data-theme-select aria-label="Site theme">
+          <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
+        </select>
+      </label>
+      <button class="ln-btn-primary" data-workspace-entry onclick="openAuth()">Sign in <span aria-hidden="true">↗</span></button>
     </div>
   </nav>
 
@@ -36,6 +43,7 @@
         — one manageable step at a time.
       </p>
       <div class="ln-hero-cta">
+        <a class="ln-cta-demo" href="#for-starters">Find official career pages — free</a>
         <button class="ln-cta-primary" onclick="openAuth()">
           Set up my workspace
           <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16">
@@ -87,8 +95,8 @@
             <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
           </svg>
         </div>
-        <h2 class="ln-feat-title">A thoughtful final check</h2>
-        <p class="ln-feat-desc">Check alignment with a job description, then export PDF or DOCX. AI scores are guidance, not hiring predictions.</p>
+        <h2 class="ln-feat-title">Review-first Agent mode · BETA</h2>
+        <p class="ln-feat-desc">Your selected AI model recommends one of exactly three fixed resumes you choose, with fit rationale and gaps. No automatic rewriting or submission. <a href="#agent-guide">See setup and limits</a>.</p>
       </div>
     </div>
   </section>
@@ -107,7 +115,7 @@
             </svg>
           </div>
           <h3 class="ln-step-title">Sign in with Google</h3>
-          <p class="ln-step-desc">Use your Google account and review the Drive permissions. Resume sync uses an app-specific folder; file access is limited to files the app creates or you explicitly select.</p>
+          <p class="ln-step-desc">Use your Google account and review the Drive permissions. Drive is preferred for resume sync in an app-specific folder. If Drive is unavailable, the resume library can use a browser-local, account-scoped cache instead; it is not synced.</p>
         </div>
         <div class="ln-step-connector">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="24" height="24">
@@ -157,8 +165,8 @@
         <article class="ln-setup-card">
           <span class="ln-setup-badge">For your workspace</span>
           <h3>Google account &amp; browser vault</h3>
-          <p>Sign in with Google for Drive resume sync. API keys are encrypted
-            in this browser. Keep your browser and device secure.</p>
+          <p>Google Drive is preferred for resume storage and sync. If Google client setup, Drive authorization, or network failures prevent access, the library falls back to an account-scoped browser cache capped at 1,000 KB (1,000,000 bytes total). Cached resumes are not synced and can be lost when browser data is cleared.</p>
+          <p>API keys use an email-based encrypted vault in this browser. Keep your browser and device secure; do not treat a shared device as private storage.</p>
         </article>
         <article class="ln-setup-card">
           <span class="ln-setup-badge">For AI features</span>
@@ -179,6 +187,86 @@
         <strong>No JobsPilot-owned API server.</strong> AI requests go to your selected provider;
         job searches go through your own Worker. Your connected services still process the data you send.
       </div>
+    </div>
+  </section>
+
+  <section class="ln-starters-section" id="for-starters" aria-labelledby="starters-title">
+    <div class="ln-section-inner">
+      <div class="ln-section-label">For Starters · No API keys · No sign-in · No payment to JobsPilot</div>
+      <h2 class="ln-section-headline" id="starters-title">Full-time &amp; contract jobs.<br><span class="ln-headline-accent">Start at the official portals.</span></h2>
+      <p class="ln-section-intro">You do not need a budget for AI or APIs to start your search. This free directory links to official career portals for full-time and contract opportunities: no API keys, no sign-in, and no payment to JobsPilot needed. It is not a live jobs feed or an endorsement. Links open another site's career page in a new tab; they do not promise an opening or your eligibility.</p>
+      <div class="ln-directory-tools">
+        <label for="career-search">Find a company or agency
+          <input id="career-search" type="search" placeholder="Try Microsoft, design, or staffing" autocomplete="off" aria-controls="career-directory">
+        </label>
+        <label for="career-group">Show
+          <select id="career-group" aria-controls="career-directory">
+            <option value="all">All career pages</option>
+            <option value="employer">Full-time career portals</option>
+            <option value="staffing">Contract &amp; staffing career portals</option>
+          </select>
+        </label>
+        <button type="button" class="ln-cta-demo" id="career-clear">Clear filters</button>
+      </div>
+      <p class="ln-directory-status" id="career-count" role="status" aria-live="polite">25 official career pages</p>
+      <div id="career-directory">
+        <section class="ln-directory-group" data-career-group="employer" aria-labelledby="employers-title">
+          <h3 id="employers-title">Full-time career portals</h3>
+          <p>MAANGO here means Microsoft, Apple, Amazon, Netflix, Google, and Oracle. Meta and NVIDIA are included too, alongside more technology employers. These portals may also list internships and other role types; filter actual listings for full-time work.</p>
+          <ul class="ln-career-grid">
+            <li data-career-terms="microsoft maango software cloud"><a href="https://careers.microsoft.com/" target="_blank" rel="noopener noreferrer">Microsoft <span>Careers ↗</span></a></li>
+            <li data-career-terms="apple maango hardware design software"><a href="https://www.apple.com/careers/us/" target="_blank" rel="noopener noreferrer">Apple <span>Careers ↗</span></a></li>
+            <li data-career-terms="amazon maango aws cloud operations"><a href="https://www.amazon.jobs/" target="_blank" rel="noopener noreferrer">Amazon <span>Careers ↗</span></a></li>
+            <li data-career-terms="netflix maango entertainment software"><a href="https://jobs.netflix.com/" target="_blank" rel="noopener noreferrer">Netflix <span>Careers ↗</span></a></li>
+            <li data-career-terms="google maango alphabet software cloud"><a href="https://www.google.com/about/careers/applications/" target="_blank" rel="noopener noreferrer">Google <span>Careers ↗</span></a></li>
+            <li data-career-terms="oracle maango database cloud"><a href="https://www.oracle.com/careers/" target="_blank" rel="noopener noreferrer">Oracle <span>Careers ↗</span></a></li>
+            <li data-career-terms="meta facebook software design"><a href="https://www.metacareers.com/" target="_blank" rel="noopener noreferrer">Meta <span>Careers ↗</span></a></li>
+            <li data-career-terms="nvidia hardware ai graphics"><a href="https://www.nvidia.com/en-us/about-nvidia/careers/" target="_blank" rel="noopener noreferrer">NVIDIA <span>Careers ↗</span></a></li>
+            <li data-career-terms="salesforce crm software cloud"><a href="https://www.salesforce.com/company/careers/" target="_blank" rel="noopener noreferrer">Salesforce <span>Careers ↗</span></a></li>
+            <li data-career-terms="adobe design software"><a href="https://careers.adobe.com/us/en/home" target="_blank" rel="noopener noreferrer">Adobe <span>Careers ↗</span></a></li>
+            <li data-career-terms="ibm software consulting cloud"><a href="https://www.ibm.com/careers" target="_blank" rel="noopener noreferrer">IBM <span>Careers ↗</span></a></li>
+            <li data-career-terms="intel hardware semiconductor"><a href="https://jobs.intel.com/" target="_blank" rel="noopener noreferrer">Intel <span>Careers ↗</span></a></li>
+            <li data-career-terms="cisco network software security"><a href="https://careers.cisco.com/global/en" target="_blank" rel="noopener noreferrer">Cisco <span>Careers ↗</span></a></li>
+            <li data-career-terms="amd hardware semiconductor"><a href="https://careers.amd.com/" target="_blank" rel="noopener noreferrer">AMD <span>Careers ↗</span></a></li>
+            <li data-career-terms="servicenow software workflow"><a href="https://careers.servicenow.com/" target="_blank" rel="noopener noreferrer">ServiceNow <span>Careers ↗</span></a></li>
+            <li data-career-terms="workday software hr finance"><a href="https://www.workday.com/en-us/company/careers/overview.html" target="_blank" rel="noopener noreferrer">Workday <span>Careers ↗</span></a></li>
+          </ul>
+        </section>
+        <section class="ln-directory-group" data-career-group="staffing" aria-labelledby="staffing-title">
+          <h3 id="staffing-title">Contract &amp; staffing career portals</h3>
+          <p>Filter actual listings for contract work. These portals may offer a mix of contract, contract-to-hire, and direct-hire roles. Read each listing: an agency is not a guarantee of contract work, sponsorship, placement, or a specific employer.</p>
+          <ul class="ln-career-grid">
+            <li data-career-terms="kforce staffing contract"><a href="https://www.kforce.com/find-work/search-jobs/" target="_blank" rel="noopener noreferrer">Kforce <span>Find work ↗</span></a></li>
+            <li data-career-terms="insight global staffing contract"><a href="https://insightglobal.com/find-a-job/" target="_blank" rel="noopener noreferrer">Insight Global <span>Find work ↗</span></a></li>
+            <li data-career-terms="teksystems staffing contract"><a href="https://www.teksystems.com/en/careers" target="_blank" rel="noopener noreferrer">TEKsystems <span>Find work ↗</span></a></li>
+            <li data-career-terms="robert half staffing contract finance"><a href="https://www.roberthalf.com/us/en/find-jobs" target="_blank" rel="noopener noreferrer">Robert Half <span>Find work ↗</span></a></li>
+            <li data-career-terms="randstad digital staffing contract"><a href="https://www.randstadusa.com/job-seeker/digital/" target="_blank" rel="noopener noreferrer">Randstad Digital <span>Find work ↗</span></a></li>
+            <li data-career-terms="apex systems everforth staffing contract"><a href="https://www.apexsystems.com/careers" target="_blank" rel="noopener noreferrer">Apex Systems <span>Find work ↗</span></a></li>
+            <li data-career-terms="motion recruitment staffing contract"><a href="https://motionrecruitment.com/tech-jobs" target="_blank" rel="noopener noreferrer">Motion Recruitment <span>Find work ↗</span></a></li>
+            <li data-career-terms="hays staffing contract"><a href="https://www.hays.com/" target="_blank" rel="noopener noreferrer">Hays <span>Find work ↗</span></a></li>
+            <li data-career-terms="experis staffing contract"><a href="https://www.experis.com/en/for-job-seekers" target="_blank" rel="noopener noreferrer">Experis <span>Find work ↗</span></a></li>
+          </ul>
+        </section>
+      </div>
+      <p id="career-empty" class="ln-directory-empty" hidden>No career pages match. Try a different name or clear the filters.</p>
+      <aside class="ln-directory-note"><strong>Before you apply</strong><p>This filter searches the directory, not actual vacancies. On the employer or agency site, filter actual roles by location, level, skills, and employment type. Check work authorization, sponsorship, eligibility, and the listing date. Some links start in the US; choose your region. Verify recruiter identity through official channels. Never pay a recruiter to get a job.</p></aside>
+    </div>
+  </section>
+
+  <section class="ln-agent-section" id="agent-guide" aria-labelledby="agent-guide-title">
+    <div class="ln-section-inner">
+      <div class="ln-section-label">Agent mode · BETA · You stay in control</div>
+      <h2 class="ln-section-headline" id="agent-guide-title">Prepare thoughtfully.<br><span class="ln-headline-accent">Review before every send.</span></h2>
+      <p class="ln-section-intro">Agent mode (BETA) is review-first, not an automatic application service. Manually choose jobs for your queue; no job-search Worker is needed for that queue. Your selected AI model recommends a fixed resume. A locally installed companion can help fill supported forms, but only you submit.</p>
+      <ol class="ln-agent-steps">
+        <li><h3>Choose exactly three saved resumes</h3><p>Sign in to your workspace, configure your chosen AI provider and model, and select exactly three user-chosen fixed saved resumes. Drive is preferred, but you can also choose three cached resumes from the account-scoped browser fallback when Drive is unavailable. The cache holds up to 1,000 KB (1,000,000 bytes total), is not synced, and can be lost when browser data is cleared. The model chooses among those three and returns fit rationale and gaps. It does not automatically rewrite any resume. Review its recommendation; AI can be wrong.</p></li>
+        <li><h3>Review and export a private bundle</h3><p>The website prepares an application bundle with the chosen PDF and only the contact details you explicitly supply. The PDF is generated from your frozen saved resume text; original upload formatting is not retained. Download and inspect it, then review the role and contact data before exporting. Model keys stay in the website vault and are not included in the bundle. The bundle contains personal information: keep it private and delete the exported file after import.</p></li>
+        <li><h3>Install the companion locally</h3><p>Download the repository and locate the <a href="https://github.com/vangipuraputarunsailesh/jobpilot/tree/master/companion" target="_blank" rel="noopener noreferrer">companion folder and installation instructions ↗</a>. In Chrome or Edge, open Manage extensions, enable Developer mode, choose Load unpacked, and select that folder. This is a local unpacked extension, not a store installation. Review its permissions and source.</p></li>
+        <li><h3>Import, open the job, and click fill</h3><p>Import your reviewed bundle in the companion. Open a supported top-level Lever or Greenhouse job URL and click fill. Only contact and resume fields are filled; support is not universal and embedded or changed forms may not work. Handle unanswered questions, sign-in, CAPTCHA, and any unsupported fields yourself.</p></li>
+        <li><h3>Check the form and submit yourself</h3><p>The companion never submits automatically. Verify every filled value and the attached PDF, complete remaining questions, and make the final submission manually. A fill result is not proof of application submission and is never an “applied” confirmation.</p></li>
+      </ol>
+      <aside class="ln-directory-note"><strong>20 fill attempts per UTC day, per extension installation</strong><p>Failed and uncertain fills count too. This is a local limit, not a global or cross-device quota, and clearing extension data can reset it. It is not a promise of 20 completed applications.</p></aside>
+      <div class="ln-agent-cta"><a class="ln-cta-primary" href="/app">Open my workspace</a><a href="#for-starters">Just browsing? Start free without AI.</a></div>
     </div>
   </section>
 
@@ -301,7 +389,7 @@
       <div class="ln-footer-links">
         <a href="#setup">Setup guide</a>
         <a href="#career-guides">Career guides</a>
-        <a href="#" onclick="event.preventDefault();openAuth()">Sign in</a>
+        <a href="#" data-workspace-entry onclick="event.preventDefault();openAuth()">Sign in</a>
         <a href="#" onclick="event.preventDefault();enterDemoMode()">Try demo</a>
       </div>
     </div>
@@ -351,9 +439,14 @@
 
       <div class="auth-mobile-brand"><span class="ln-logo-icon" aria-hidden="true">JP</span><span>JobsPilot</span></div>
       <div class="auth-right-header">
+        <label class="ln-theme-control auth-theme-control">Theme
+          <select data-theme-select aria-label="Sign-in theme">
+            <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
+          </select>
+        </label>
         <p class="auth-eyebrow">Your workspace awaits</p>
         <h2 class="auth-right-title" id="auth-title">Welcome to your next step.</h2>
-        <p class="auth-right-sub" id="auth-description">Sign in with Google to connect your Drive and sync your resumes.</p>
+        <p class="auth-right-sub" id="auth-description">Sign in with Google for your workspace. Drive is preferred for resume sync; a limited, unsynced browser cache is available when Drive cannot connect.</p>
       </div>
 
       <div id="auth-error" class="auth-error" role="alert" style="display:none"></div>
@@ -404,6 +497,37 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+(function () {
+  const search = document.getElementById("career-search");
+  const group = document.getElementById("career-group");
+  function filterDirectory() {
+    const query = search.value.trim().toLowerCase();
+    let total = 0;
+    document.querySelectorAll("[data-career-group]").forEach(function (section) {
+      const inGroup = group.value === "all" || section.dataset.careerGroup === group.value;
+      let visible = 0;
+      section.querySelectorAll("[data-career-terms]").forEach(function (item) {
+        item.hidden = !inGroup || !item.dataset.careerTerms.includes(query);
+        if (!item.hidden) visible++;
+      });
+      section.hidden = visible === 0;
+      total += visible;
+    });
+    document.getElementById("career-count").textContent = total + " official career page" + (total === 1 ? "" : "s");
+    document.getElementById("career-empty").hidden = total !== 0;
+  }
+  search.addEventListener("input", filterDirectory);
+  group.addEventListener("change", filterDirectory);
+  document.getElementById("career-clear").addEventListener("click", function () {
+    search.value = "";
+    group.value = "all";
+    filterDirectory();
+    search.focus();
+  });
+  filterDirectory();
+})();
+</script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 // Render the current year dynamically into the footer copyright
@@ -445,9 +569,19 @@ function isLoginSessionValid() {
   return !!expiry && Date.now() < expiry;
 }
 
-// Redirect if already logged in (with a still-valid TTL).
+// Explicit public-content links stay readable even with a valid workspace session.
+const PUBLIC_CONTENT_ANCHORS = new Set([
+  '#for-starters', '#agent-guide', '#career-guides',
+  '#developers', '#setup', '#how-it-works',
+]);
 if (isLoginSessionValid()) {
-  window.location.replace('/app');
+  if (!PUBLIC_CONTENT_ANCHORS.has(window.location.hash)) {
+    window.location.replace('/app');
+  } else {
+    document.querySelectorAll('[data-workspace-entry]').forEach(function (entry) {
+      entry.textContent = 'Open workspace';
+    });
+  }
 } else if (localStorage.getItem('jp_token')) {
   // Stale token from an expired session — purge so the landing page
   // doesn't keep the user in a half-authenticated state.
@@ -475,6 +609,10 @@ const GOOGLE_OAUTH_SCOPES = [
 ].join(' ');
 
 function openAuth() {
+  if (isLoginSessionValid()) {
+    window.location.href = '/app';
+    return;
+  }
   const overlay = document.getElementById('auth-overlay');
   const landing = document.getElementById('landing-root');
   if (overlay.style.display === 'none') {

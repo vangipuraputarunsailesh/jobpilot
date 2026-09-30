@@ -54,6 +54,7 @@ function setLoginSession(token, email, opts) {
   sessionStorage.removeItem("jp_session_active"); // legacy key
 }
 function clearLoginSession() {
+  clearAgentSession();
   localStorage.removeItem("jp_token");
   localStorage.removeItem("jp_email");
   localStorage.removeItem("jp_demo");
@@ -517,6 +518,7 @@ async function byokSaveFromForm() {
     // An empty AI key is allowed so job-search-only users can save settings or remove a key.
     if (config.key) window.aiValidateConfig(config);
     await byokSave(form);
+    invalidateAgentPlan();
     if (st) { st.textContent = "Saved. Keys are encrypted in this browser and never sent to JobsPilot's server."; st.className = "byok-save-status ok"; }
     showToast("Settings saved.", "success");
     closeSettingsModal();
@@ -550,6 +552,7 @@ const GOOGLE_OAUTH_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
 ].join(' ');
 let _gisTokenClient = null;
+let _googleTokenPending = null;
 
 function _gtokenValid() {
   const tok = localStorage.getItem("jp_gtoken");
@@ -563,6 +566,13 @@ function _gtokenValid() {
 // if the user must re-consent (e.g. they revoked Drive access from their
 // Google account). Demo users have no gtoken and this rejects immediately.
 function getGoogleToken() {
+  if (!_googleTokenPending) {
+    _googleTokenPending = _requestGoogleToken().finally(() => { _googleTokenPending = null; });
+  }
+  return _googleTokenPending;
+}
+
+function _requestGoogleToken() {
   return new Promise(function (resolve, reject) {
     if (localStorage.getItem("jp_demo") === "1") {
       reject(new Error("demo-no-drive")); return;
@@ -574,8 +584,7 @@ function getGoogleToken() {
     if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
       reject(new Error("GIS library not loaded")); return;
     }
-    if (!_gisTokenClient) {
-      _gisTokenClient = google.accounts.oauth2.initTokenClient({
+    _gisTokenClient = google.accounts.oauth2.initTokenClient({
         client_id: clientId,
         scope: GOOGLE_OAUTH_SCOPES,
         callback: function (resp) {
@@ -591,8 +600,7 @@ function getGoogleToken() {
           }
         },
         error_callback: function (err) { reject(err || new Error("Token request failed")); },
-      });
-    }
+    });
     // Silent refresh: prompt='' means "only succeed if the user already
     // granted the requested scopes". If they revoked Drive, this rejects
     // and the caller can fall back to a full re-consent flow.
@@ -688,7 +696,9 @@ async function handleGoogleCredential(_response) {
 // Keys mirror the auth session keys (jp_*) so logout can wipe them in one pass.
 const RESUME_TEXT_KEY = "jp_resume_text";
 const RESUME_NAME_KEY = "jp_resume_name";
+let _activeResumeMemory = null;
 function getStoredResume() {
+  if (_activeResumeMemory) return _activeResumeMemory;
   try {
     const text = localStorage.getItem(RESUME_TEXT_KEY) || "";
     const name = localStorage.getItem(RESUME_NAME_KEY) || "";
@@ -696,12 +706,23 @@ function getStoredResume() {
   } catch (_) { return null; }
 }
 function setStoredResume(text, name) {
+  _activeResumeMemory = text ? { text, name: name || "resume" } : null;
   try {
+    const activeId = typeof getActiveResumeId === "function" ? getActiveResumeId() : "";
+    if (/^(local_|demo_)/.test(activeId) || localStorage.getItem("jp_demo") === "1") {
+      localStorage.removeItem(RESUME_TEXT_KEY);
+      localStorage.removeItem(RESUME_NAME_KEY);
+      return;
+    }
     localStorage.setItem(RESUME_TEXT_KEY, text || "");
     localStorage.setItem(RESUME_NAME_KEY, name || "resume");
-  } catch (_) {}
+  } catch (e) {
+    console.warn("Active resume cache could not be persisted");
+    showToast("Resume is available in this tab, but the active browser cache could not be saved.", "error");
+  }
 }
 function clearStoredResume() {
+  _activeResumeMemory = null;
   try {
     localStorage.removeItem(RESUME_TEXT_KEY);
     localStorage.removeItem(RESUME_NAME_KEY);
@@ -1123,10 +1144,13 @@ async function hydrateStoredResumeFromServer() {
     if (!pick) return;
     const text = await getResumeFromDrive(pick.id);
     if (text) {
-      setStoredResume(text, pick.name || "resume");
       if (typeof setActiveResumeId === "function") setActiveResumeId(pick.id);
+      setStoredResume(text, pick.name || "resume");
     }
-  } catch (_) { /* offline / no Drive permission / demo — ignore */ }
+  } catch (e) {
+    console.warn("Resume library hydration failed");
+    showToast("Could not restore your saved resume: " + e.message, "error");
+  } finally { renderResumeStorageStatus(); }
 }
 
 // ── Welcome modal: prompt the user to upload a resume after login ──────────
@@ -1185,18 +1209,12 @@ async function handleWelcomeResumeFile(input) {
     const displayName = d.filename || file.name;
     // 2) Persist to Drive (or demo localStorage). Mark as active so this
     //    resume hydrates on the next page load.
-    let savedId = "";
-    if (typeof saveResumeToDrive === "function") {
-      try {
-        const saved = await saveResumeToDrive(displayName, d.text, "upload");
-        savedId = saved && saved.id;
-        if (savedId && typeof setActiveResumeId === "function") setActiveResumeId(savedId);
-      } catch (driveErr) {
-        console.warn("Drive save failed; resume only in local cache:", driveErr);
-      }
-    }
+    if (typeof saveResumeToDrive !== "function") throw new Error("Resume storage module is not loaded.");
+    const saved = await saveResumeToDrive(displayName, d.text, "upload");
+    if (!saved?.id) throw new Error("Resume storage did not confirm a saved item.");
+    if (typeof setActiveResumeId === "function") setActiveResumeId(saved.id);
     setStoredResume(d.text, displayName);
-    showToast(`Resume saved: ${displayName}`, "success");
+    showToast(`Resume saved${saved.storage === "local" ? " in this browser" : ""}: ${displayName}`, "success");
     dismissWelcomeModal();
     relabelSearchAsScrape({ pulse: true, focus: true });
     renderTopbarResumeChip();
@@ -1206,6 +1224,7 @@ async function handleWelcomeResumeFile(input) {
     if (status) { status.textContent = e.message || "Upload failed"; status.classList.add("error"); }
     showToast(`Upload failed: ${e.message}`, "error");
   } finally {
+    renderResumeStorageStatus();
     if (btn) btn.disabled = false;
     input.value = "";
   }
@@ -1342,7 +1361,7 @@ async function loadResumeLibrary() {
       return;
     }
     const items = await listResumesFromDrive();
-    if (cap) cap.textContent = items.length ? `${items.length} of 20 used` : "";
+    if (cap) cap.textContent = items.length ? `${items.length} saved resume${items.length === 1 ? "" : "s"}` : "";
     if (!items.length) {
       list.innerHTML = `<div class="library-empty">No resumes saved yet. Upload one to get started.</div>`;
       return;
@@ -1350,8 +1369,20 @@ async function loadResumeLibrary() {
     list.innerHTML = items.map(renderLibraryItem).join("");
   } catch (e) {
     list.innerHTML = `<div class="library-empty">Could not load resumes: ${escHtml(e.message || "error")}</div>`;
+  } finally { renderResumeStorageStatus(); }
+}
+
+function renderResumeStorageStatus() {
+  if (typeof window.getResumeStorageStatus !== "function") return;
+  const status = window.getResumeStorageStatus();
+  const text = status.message + (status.limitBytes
+    ? ` Browser library: ${(status.usedBytes / 1000).toFixed(1)} / ${(status.limitBytes / 1000).toFixed(0)} KB.` : "");
+  for (const id of ["library-storage-status", "welcome-storage-status", "agent-storage-status"]) {
+    const element = document.getElementById(id);
+    if (element) element.textContent = text;
   }
 }
+window.addEventListener("jobspilot:resume-storage", renderResumeStorageStatus);
 
 function renderLibraryItem(it) {
   // Drive returns RFC3339 timestamps; demo items use ISO8601. Both parse via
@@ -1361,6 +1392,7 @@ function renderLibraryItem(it) {
   const source = (it.source || "upload").toLowerCase();
   const sourceLabel = source.charAt(0).toUpperCase() + source.slice(1);
   const badges = [
+    `<span class="library-badge upload">${it.storage === "local" ? "This browser" : "Google Drive"}</span>`,
     it.is_active ? `<span class="library-badge active">Active</span>` : "",
     `<span class="library-badge ${escHtml(source)}">${escHtml(sourceLabel)}</span>`,
   ].filter(Boolean).join(" ");
@@ -1473,7 +1505,7 @@ async function handleLibraryResumeFile(input) {
     setStoredResume(d.text, displayName);
     renderTopbarResumeChip();
     relabelSearchAsScrape({ pulse: true });
-    showToast(`Saved: ${displayName}`, "success");
+    showToast(`Saved${saved?.storage === "local" ? " in this browser" : ""}: ${displayName}`, "success");
     if (status) status.textContent = "";
     loadResumeLibrary();
     refreshResumeLibraryCount();
@@ -1481,6 +1513,7 @@ async function handleLibraryResumeFile(input) {
     if (status) { status.textContent = e.message || "Upload failed"; status.classList.add("error"); }
     showToast(e.message || "Upload failed", "error");
   } finally {
+    renderResumeStorageStatus();
     input.value = "";
   }
 }
@@ -1504,9 +1537,10 @@ async function saveTailoredToLibrary(btn) {
     if (typeof saveResumeToDrive !== "function") {
       throw new Error("Drive client not loaded");
     }
-    await saveResumeToDrive(name, st.tailoredText, "tailored");
+    const saved = await saveResumeToDrive(name, st.tailoredText, "tailored");
     st.savedToLibrary = true;
-    showToast("Saved to your resume library", "success");
+    showToast(saved.storage === "local" ? "Saved to your browser resume library (not Drive)" : "Saved to your resume library", "success");
+    renderResumeStorageStatus();
     refreshResumeLibraryCount();
     const bar = document.getElementById("save-to-library-bar");
     if (bar) {
@@ -1539,6 +1573,12 @@ async function deleteMyAccount() {
     "Clear local data",
   );
   if (!ok) return;
+  try {
+    if (typeof window.clearLocalResumeLibrary === "function") await window.clearLocalResumeLibrary();
+  } catch (e) {
+    showToast("Local resume removal failed: " + e.message, "error");
+    return;
+  }
   // Static deploy — nothing to delete server-side. We wipe the browser:
   //   • BYOK vault (encrypted keys + in-memory cache)
   //   • stored resume text/name
@@ -1564,6 +1604,10 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function initThemeControls() {
+  if (window.JobsPilotTheme) {
+    window.JobsPilotTheme.initControls();
+    return;
+  }
   const stored = localStorage.getItem(THEME_STORAGE_KEY);
   const selectedTheme = normalizeThemeKey(stored || DEFAULT_THEME);
   // Migrate any legacy *-pro value persisted by older builds.
@@ -1587,6 +1631,10 @@ function onThemeSelectChange(theme) {
 }
 
 function applyTheme(theme, persist = true) {
+  if (window.JobsPilotTheme) {
+    window.JobsPilotTheme.apply(theme, persist);
+    return;
+  }
   const nextTheme = normalizeThemeKey(theme);
   document.documentElement.setAttribute("data-theme", nextTheme);
   document.body.setAttribute("data-theme", nextTheme);
@@ -1790,7 +1838,6 @@ function renderApiStatus(_sources) {
 function stopSearch() {
   if (searchAbortController) {
     searchAbortController.abort();
-    searchAbortController = null;
   }
 }
 
@@ -1814,7 +1861,8 @@ async function searchJobs() {
 
   // If already searching, stop previous
   if (searchAbortController) searchAbortController.abort();
-  searchAbortController = new AbortController();
+  const controller = new AbortController();
+  searchAbortController = controller;
 
   btn.disabled = false;  // keep enabled so it becomes the Stop button
   btn.onclick  = stopSearch;
@@ -1823,6 +1871,7 @@ async function searchJobs() {
 
   // Reset state
   allJobs     = [];
+  displayedJobs = [];
   selectedJob = null;
   jobStates   = {};
   scoredCount = 0;
@@ -1835,6 +1884,8 @@ async function searchJobs() {
   showSearching(title, location);
 
   try {
+    await byokInit();
+    if (controller.signal.aborted) throw new DOMException("Search stopped", "AbortError");
     // Every job search goes through the user's Cloudflare Worker
     // (proxy/worker.js) using their BYOK provider keys. There is no
     // backend fallback — if the Worker URL is missing or the call
@@ -1843,13 +1894,11 @@ async function searchJobs() {
     let data        = null;
 
     if (!workerUrl) {
-      showToast("Cloudflare Worker URL not set. Open Settings → Job search.", "error");
       setTimeout(openSettingsModal, 250);
-      return;
+      throw new Error("Cloudflare Worker URL not set. Open Settings to configure job search, or use the free For Starters directory.");
     }
     if (typeof window.searchJobsViaWorker !== "function") {
-      showToast("Job search module failed to load. Refresh the page.", "error");
-      return;
+      throw new Error("Job search module failed to load. Refresh the page.");
     }
 
     try {
@@ -1857,16 +1906,15 @@ async function searchJobs() {
         title, location, seniority,
         datePosted: date_posted,
         workerUrl,
+        signal: controller.signal,
       });
     } catch (workerErr) {
       if (workerErr && workerErr.name === "AbortError") throw workerErr;
       console.warn("[jobs] Worker search failed", workerErr);
-      showToast(
-        "Job search via Worker failed: " + ((workerErr && workerErr.message) || workerErr),
-        "error",
-      );
-      return;
+      throw workerErr;
     }
+    if (controller.signal.aborted) throw new DOMException("Search stopped", "AbortError");
+    if (searchAbortController !== controller) return;
 
     bumpUsage("total_searches");
     allJobs    = data.jobs || [];
@@ -1877,7 +1925,14 @@ async function searchJobs() {
     document.getElementById("stat-total").textContent   = allJobs.length;
     document.getElementById("stat-sources").textContent = sourceList.length;
     document.getElementById("mid-count").innerHTML =
-      `<b>${allJobs.length}</b> jobs · <b>${title}</b> · ${location}`;
+      `<b>${allJobs.length}</b> jobs · <b>${escHtml(title)}</b> · ${escHtml(location)}`;
+    if (Array.isArray(data.warnings) && data.warnings.length) {
+      const notice = document.createElement("div");
+      notice.className = "search-source-warning";
+      notice.setAttribute("role", "status");
+      notice.textContent = "Some sources could not be searched: " + data.warnings.join("; ");
+      document.getElementById("job-list").prepend(notice);
+    }
 
     const chip = document.getElementById("source-chip");
     if (chip) { chip.textContent = `${sourceList.length} sources`; chip.style.display = "flex"; }
@@ -1888,6 +1943,7 @@ async function searchJobs() {
       showToast(`Found ${allJobs.length} jobs from ${sourceList.length} sources`, "success");
     }
   } catch (e) {
+    if (searchAbortController !== controller) return;
     if (e.name === "AbortError") {
       showToast("Search stopped", "");
       document.getElementById("job-list").innerHTML = `<div class="empty-state">
@@ -1900,14 +1956,19 @@ async function searchJobs() {
         <div class="empty-sub">Enter a job title and search again</div>
       </div>`;
     } else {
-      showToast("Search failed — is the server running?", "error");
-      renderJobList([]);
+      showToast("Search failed: " + e.message, "error");
+      document.getElementById("job-list").innerHTML = `<div class="empty-state">
+        <div class="empty-title">Search could not complete</div>
+        <div class="empty-sub">${escHtml(e.message)} No successful search result is being reported.</div>
+      </div>`;
     }
   } finally {
-    searchAbortController = null;
-    btn.onclick  = searchJobs;
-    btn.classList.remove("stop-mode");
-    btnText.textContent = "Find jobs now";
+    if (searchAbortController === controller) {
+      searchAbortController = null;
+      btn.onclick = searchJobs;
+      btn.classList.remove("stop-mode");
+      btnText.textContent = "Find jobs now";
+    }
   }
 }
 
@@ -1917,14 +1978,16 @@ function showSearching(title, _location) {
     <div class="searching-state">
       <div class="search-spinner"></div>
       <div class="search-progress">
-        <b>Searching across all US companies for "${escHtml(title)}"...</b>
-        Scanning thousands of job listings from FAANG to solo founders...
+        <b>Searching configured job sources for "${escHtml(title)}"...</b>
+        Results depend on provider availability and your search filters.
       </div>
     </div>`;
 }
 
 // ── Render job list ───────────────────────────────────────────────────────────
+let displayedJobs = [];
 function renderJobList(jobs) {
+  displayedJobs = [...jobs];
   const list = document.getElementById("job-list");
   if (!jobs.length) {
     list.innerHTML = `<div class="empty-state">
@@ -1933,7 +1996,7 @@ function renderJobList(jobs) {
         <path d="m21 21-4.35-4.35" stroke="var(--text3)" stroke-width="1.5" stroke-linecap="round"/>
       </svg></div>
       <div class="empty-title">No jobs found</div>
-      <div class="empty-sub">Try a different job title, broader location, or check your API keys in .env</div>
+      <div class="empty-sub">Try a different job title, broader location, or check your job-search keys in Settings.</div>
     </div>`;
     return;
   }
@@ -1946,8 +2009,8 @@ function renderJobList(jobs) {
       ? `<div class="score-num">${sc}</div><div class="score-lbl">ATS</div>`
       : `<div class="score-num" style="font-size:11px;color:var(--text3)">—</div><div class="score-lbl">ATS</div>`;
 
-    return `<div class="job-card ${selectedJob?.id === j.id ? "selected" : ""}"
-                 id="jcard-${i}" onclick="openJob(${i})">
+    return `<div class="job-card ${selectedJob?.id === j.id ? "selected" : ""}" role="button" tabindex="0"
+                 id="jcard-${i}" onclick="openJob(${i})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openJob(${i});}">
       <div class="jc-left">
         <div class="jc-title">${escHtml(j.title)}</div>
         <div class="jc-co">${escHtml(j.company)}</div>
@@ -1982,7 +2045,8 @@ function _parseSalary(s) {
 
 // ── Open job ──────────────────────────────────────────────────────────────────
 function openJob(idx) {
-  selectedJob = allJobs[idx];
+  selectedJob = displayedJobs[idx];
+  if (!selectedJob) { showToast("This job is no longer available. Search again.", "error"); return; }
   if (!jobStates[selectedJob.id]) {
     // Pre-load the user's globally uploaded resume (if any) so the Tailor
     // tab can skip the picker and go straight to tailoring.
@@ -2022,6 +2086,9 @@ function openJob(idx) {
   const rpc = document.getElementById("rp-content");
   rpc.style.display = "flex";
   renderRightPanel();
+  if (window.matchMedia && window.matchMedia("(max-width: 900px)").matches) {
+    document.getElementById("right-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   if (!jobStates[selectedJob.id].jdText && selectedJob.url) fetchJD();
 }
@@ -2035,9 +2102,9 @@ function renderRightPanel() {
 
   rpc.innerHTML = `
     <div class="rp-tabs">
-      <div class="rp-tab ${currentTab==="jd"?"active":""}"     onclick="switchTab('jd')">Job Description</div>
-      <div class="rp-tab ${currentTab==="tailor"?"active":""}" onclick="switchTab('tailor')">Tailor &amp; Edit</div>
-      <div class="rp-tab ${currentTab==="score"?"active":""}${!hasScore?" locked":""}" onclick="switchTab('score')">ATS Score</div>
+      <button type="button" class="rp-tab ${currentTab==="jd"?"active":""}" onclick="switchTab('jd')">Job Description</button>
+      <button type="button" class="rp-tab ${currentTab==="tailor"?"active":""}" onclick="switchTab('tailor')">Tailor &amp; Edit</button>
+      <button type="button" class="rp-tab ${currentTab==="score"?"active":""}${!hasScore?" locked":""}" ${!hasScore?"disabled":""} onclick="switchTab('score')">ATS Score</button>
     </div>
     <div class="rp-body" id="rp-body"></div>`;
 
@@ -2094,7 +2161,7 @@ function buildJDTab(j, st) {
           This happens with LinkedIn, Indeed and other platforms that block scraping.<br><br>
           <b>Quick fix:</b> Open the job page → select all the description text → copy → paste below.
         </div>
-        <button class="btn-secondary paste-jd-open" onclick="window.open('${escHtml(j.url)}','_blank')">
+        <button class="btn-secondary paste-jd-open" onclick="openSelectedJobPage()">
           Open job page to copy description ↗
         </button>
         <textarea class="paste-jd-textarea" id="manual-jd-input"
@@ -2125,7 +2192,7 @@ function buildJDTab(j, st) {
       </div>
     </div>
     ${jdContent}
-    <button class="btn-primary" onclick="window.open('${escHtml(j.url)}','_blank')">
+    <button class="btn-primary" onclick="openSelectedJobPage()">
       <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
         <path d="M8 2h4v4M12 2L6 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         <path d="M10 8v4H2V4h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -2133,7 +2200,16 @@ function buildJDTab(j, st) {
       Apply directly — open job page
     </button>
     <div class="divider-text">or tailor your resume first</div>
-    <button class="btn-secondary" onclick="switchTab('tailor')">Tailor resume with AI →</button>`;
+    <button class="btn-secondary" onclick="switchTab('tailor')">Tailor resume with AI →</button>
+    <button class="btn-secondary" onclick="openAgentMode()">Agent mode (Beta): prepare with three fixed resumes →</button>`;
+}
+
+function openSelectedJobPage() {
+  try {
+    const url = new URL(selectedJob?.url || "");
+    if (url.protocol !== "https:" || url.username || url.password) throw new Error("This job does not have a safe HTTPS application URL.");
+    window.open(url.href, "_blank", "noopener,noreferrer");
+  } catch (e) { showToast(e.message || "Invalid job URL", "error"); }
 }
 
 async function fetchJD() {
@@ -2453,24 +2529,17 @@ async function handleResumeFile(input) {
       throw new Error("Resume parser not loaded yet");
     }
     const d = await parseResumeFile(file);
+    if (typeof saveResumeToDrive !== "function") throw new Error("Resume storage module is not loaded.");
+    const saved = await saveResumeToDrive(d.filename, d.text, "upload");
+    if (!saved?.id) throw new Error("Resume storage did not confirm a saved item.");
+    if (typeof setActiveResumeId === "function") setActiveResumeId(saved.id);
     st.resumeText = d.text;
     st.resumeName = d.filename;
-    // Persist as the user's default resume so other jobs reuse it.
     setStoredResume(d.text, d.filename);
-    // Phase 3: also persist to Drive (or demo localStorage) and mark active.
-    if (typeof saveResumeToDrive === "function") {
-      try {
-        const saved = await saveResumeToDrive(d.filename, d.text, "upload");
-        if (saved && saved.id && typeof setActiveResumeId === "function") {
-          setActiveResumeId(saved.id);
-        }
-        refreshResumeLibraryCount();
-      } catch (driveErr) {
-        console.warn("Drive save failed; resume only in local cache:", driveErr);
-      }
-    }
+    refreshResumeLibraryCount();
+    renderResumeStorageStatus();
     logSession("upload", `Uploaded resume: ${d.filename}`);
-    showToast(`Resume uploaded: ${d.filename}`, "success");
+    showToast(`Resume saved${saved.storage === "local" ? " in this browser" : ""}: ${d.filename}`, "success");
     await startTailor();
   } catch (e) {
     st.state = "idle";
@@ -3064,7 +3133,7 @@ function buildScoreTab(j, st) {
       </div>` : ""}
     </div>
     ${atsAssistHtml}
-    <button class="btn-primary" onclick="window.open('${escHtml(j.url)}','_blank')">Apply now — open job page</button>
+    <button class="btn-primary" onclick="openSelectedJobPage()">Apply now — open job page</button>
     <button class="btn-secondary" onclick="downloadResume('pdf',0)">Download resume (.pdf)</button>
     <div class="download-row">
       <button class="btn-ghost" style="flex:1" onclick="downloadResume('pdf',2)">Fit to 2 pages</button>
@@ -3249,11 +3318,332 @@ function syncPreviewFullscreenState() {
   if (fsFab) fsFab.textContent = label;
 }
 
+// Agent mode prepares a user-reviewed bundle. Only the separately installed
+// companion owns the daily attempt ledger; neither surface claims submission.
+let _agentResumes = [];
+let _agentLibrary = [];
+let _agentPlan = null;
+let _agentRevision = 0;
+let _agentLoadRevision = 0;
+let _agentOwner = "";
+let _agentPrepared = [];
+let _agentReturnFocus = null;
+
+function canonicalAgentJobUrl(raw) {
+  let url;
+  try { url = new URL(raw); }
+  catch (_) { throw new Error("Enter a complete HTTPS Lever or Greenhouse application URL."); }
+  if (url.protocol !== "https:" || url.username || url.password || url.port) {
+    throw new Error("Application URLs must use HTTPS without credentials or a custom port.");
+  }
+  const path = url.pathname.replace(/\/+$/, "");
+  if (["jobs.lever.co", "jobs.eu.lever.co"].includes(url.hostname)) {
+    if (!/^\/[a-zA-Z0-9_-]+\/[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}(?:\/apply)?$/.test(path)) {
+      throw new Error("Use a hosted Lever job URL, not a company listing or custom careers page.");
+    }
+    const parts = path.replace(/\/apply$/, "").split("/");
+    parts[2] = parts[2].toLowerCase();
+    return url.origin + parts.join("/");
+  }
+  if (["boards.greenhouse.io", "job-boards.greenhouse.io"].includes(url.hostname) &&
+      /^\/[a-zA-Z0-9_-]+\/jobs\/\d{1,20}$/.test(path)) {
+    return "https://job-boards.greenhouse.io" + path;
+  }
+  throw new Error("The companion supports hosted Lever and Greenhouse jobs only. Apply manually on other sites.");
+}
+
+function _agentStatus(message, error = false) {
+  const status = document.getElementById("agent-status");
+  if (status) {
+    status.textContent = message;
+    status.className = "agent-status" + (error ? " error" : "");
+  }
+}
+
+function invalidateAgentPlan() {
+  _agentRevision++;
+  _agentPlan = null;
+  const result = document.getElementById("agent-result");
+  if (result) result.hidden = true;
+  const review = document.getElementById("agent-review-confirm");
+  if (review) review.checked = false;
+  const download = document.getElementById("agent-bundle-btn");
+  if (download) download.disabled = true;
+}
+
+function invalidateAgentResumes() {
+  invalidateAgentPlan();
+  _agentResumes = [];
+  const readiness = document.getElementById("agent-readiness");
+  if (readiness) readiness.textContent = "Resume choices changed. Activate exactly three distinct resumes before preparing an application.";
+}
+
+function clearAgentSession() {
+  invalidateAgentResumes();
+  _agentLoadRevision++;
+  _agentPrepared = [];
+  _agentLibrary = [];
+  _agentOwner = "";
+  _agentPlan = null;
+  for (const id of ["agent-first-name", "agent-last-name", "agent-email", "agent-phone", "agent-linkedin",
+    "agent-website", "agent-job-url", "agent-job-title", "agent-job-company", "agent-job-description",
+    "agent-resume-preview"]) {
+    const element = document.getElementById(id);
+    if (element) { element.value = ""; element.textContent = ""; }
+  }
+  for (const id of ["agent-resume-0", "agent-resume-1", "agent-resume-2", "agent-selection", "agent-prepared-list"]) {
+    const element = document.getElementById(id);
+    if (element) element.textContent = "";
+  }
+  const consent = document.getElementById("agent-share-consent");
+  if (consent) consent.checked = false;
+  const overlay = document.getElementById("agent-overlay");
+  if (overlay) overlay.style.display = "none";
+}
+
+async function openAgentMode() {
+  if (!isLoginSessionValid()) { showToast("Open a signed-in or demo workspace first.", "error"); return; }
+  const owner = getEmail();
+  if (_agentOwner !== owner) clearAgentSession();
+  _agentOwner = owner;
+  _agentReturnFocus = document.activeElement;
+  const overlay = document.getElementById("agent-overlay");
+  overlay.style.display = "flex";
+  overlay.querySelector("button").focus();
+  invalidateAgentPlan();
+  _agentStatus("Agent mode never submits automatically. Prepare one reviewed job at a time.");
+  if (selectedJob) {
+    document.getElementById("agent-job-url").value = selectedJob.url || "";
+    document.getElementById("agent-job-title").value = selectedJob.title || "";
+    document.getElementById("agent-job-company").value = selectedJob.company || "";
+    const jd = jobStates[selectedJob.id]?.jdText;
+    document.getElementById("agent-job-description").value =
+      jd && jd !== "__PASTE_NEEDED__" ? jd : selectedJob.description || "";
+  }
+  if (!_agentResumes.length) await loadAgentResumes();
+  _renderAgentPrepared();
+}
+
+function closeAgentMode() {
+  invalidateAgentPlan();
+  _agentLoadRevision++;
+  const overlay = document.getElementById("agent-overlay");
+  if (overlay) overlay.style.display = "none";
+  if (_agentReturnFocus?.isConnected) _agentReturnFocus.focus();
+}
+
+async function loadAgentResumes() {
+  invalidateAgentResumes();
+  const ticket = ++_agentLoadRevision;
+  _agentStatus("Loading your saved resume library...");
+  try {
+    const items = await listResumesFromDrive();
+    if (ticket !== _agentLoadRevision) return;
+    const raw = localStorage.getItem("jp_agent_resumes_v1:" + getEmail());
+    const remembered = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(remembered)) throw new Error("Stored resume choices are invalid. Clear this site's saved choices and choose again.");
+    _agentLibrary = items;
+    for (let slot = 0; slot < 3; slot++) {
+      const select = document.getElementById("agent-resume-" + slot);
+      select.innerHTML = '<option value="">Choose a saved resume</option>' +
+        items.map(item => `<option value="${escHtml(item.id)}">${escHtml(item.name)}</option>`).join("");
+      select.value = items.some(item => item.id === remembered[slot]) ? remembered[slot] : "";
+    }
+    _agentStatus(items.length < 3 ? "Save at least three resumes in the library, then refresh this list." : "Choose exactly three saved resumes and activate them.");
+  } catch (e) { if (ticket === _agentLoadRevision) _agentStatus("Could not load resumes: " + e.message, true); }
+  finally { renderResumeStorageStatus(); }
+}
+
+async function activateAgentResumes() {
+  invalidateAgentResumes();
+  const ticket = _agentRevision;
+  const button = document.getElementById("agent-activate-btn");
+  button.disabled = true;
+  try {
+    const ids = [0, 1, 2].map(slot => document.getElementById("agent-resume-" + slot).value);
+    if (ids.some(id => !id) || new Set(ids).size !== 3) throw new Error("Choose three different saved resumes.");
+    const resumes = await Promise.all(ids.map(async id => {
+      const item = _agentLibrary.find(resume => resume.id === id);
+      if (!item) throw new Error("A resume is no longer in the library. Refresh the list.");
+      if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) throw new Error("This saved resume ID is not compatible with the companion.");
+      const text = await getResumeFromDrive(id);
+      if (typeof text !== "string" || !text.trim() || text.length > 12000) {
+        throw new Error("Each resume must contain 1–12,000 characters. Shorten or replace an oversized resume.");
+      }
+      return Object.freeze({ id, name: item.name || "Resume", text });
+    }));
+    if (ticket !== _agentRevision) return;
+    localStorage.setItem("jp_agent_resumes_v1:" + getEmail(), JSON.stringify(ids));
+    _agentResumes = Object.freeze(resumes);
+    document.getElementById("agent-readiness").textContent =
+      "Three fixed resumes activated for this session. Their text stays unchanged until you choose or refresh them again.";
+    _agentStatus("Ready to review a job. Your chosen model will evaluate all three resumes when you consent.");
+  } catch (e) { if (ticket === _agentRevision) _agentStatus(e.message, true); }
+  finally { button.disabled = false; }
+}
+
+function readAgentCandidate() {
+  const value = id => document.getElementById("agent-" + id).value.trim();
+  const candidate = {
+    firstName: value("first-name"), lastName: value("last-name"), email: value("email"),
+    phone: value("phone"), linkedin: value("linkedin"), website: value("website"),
+  };
+  if (Object.values(candidate).some(value => /[\u0000-\u001f\u007f]/.test(value))) {
+    throw new Error("Contact details must not contain control characters.");
+  }
+  if (!candidate.firstName || !candidate.lastName || candidate.firstName.length > 100 || candidate.lastName.length > 100) {
+    throw new Error("Enter your first and last name (up to 100 characters each).");
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate.email) || candidate.email.length > 254) {
+    throw new Error("Enter a valid contact email.");
+  }
+  if (candidate.phone.length > 40 || (candidate.phone && !/^[+\d().\s-]+$/.test(candidate.phone))) {
+    throw new Error("Use a valid phone number, including its country code where applicable.");
+  }
+  for (const key of ["linkedin", "website"]) {
+    if (!candidate[key]) continue;
+    let url;
+    try { url = new URL(candidate[key]); }
+    catch (_) { throw new Error("Contact profile links must be complete HTTPS URLs."); }
+    if (url.protocol !== "https:" || url.username || url.password || candidate[key].length > 500) {
+      throw new Error("Contact profile links must use HTTPS without embedded credentials (up to 500 characters).");
+    }
+    if (key === "linkedin" &&
+        (!["linkedin.com", "www.linkedin.com"].includes(url.hostname) || !/^\/in\/[^/]+\/?$/.test(url.pathname))) {
+      throw new Error("Enter your LinkedIn profile URL, such as https://www.linkedin.com/in/your-name/.");
+    }
+  }
+  return Object.freeze(candidate);
+}
+
+async function prepareAgentApplication() {
+  invalidateAgentPlan();
+  const ticket = _agentRevision;
+  const button = document.getElementById("agent-prepare-btn");
+  button.disabled = true;
+  try {
+    if (_agentResumes.length !== 3) throw new Error("Activate three fixed resumes first.");
+    if (!document.getElementById("agent-share-consent").checked) throw new Error("Review and accept the AI data-sharing notice first.");
+    const candidate = readAgentCandidate();
+    const read = id => document.getElementById("agent-job-" + id).value.trim();
+    const job = Object.freeze({
+      url: canonicalAgentJobUrl(read("url")), title: read("title"),
+      company: read("company"), description: read("description"),
+    });
+    if (!job.title || !job.company || job.title.length > 200 || job.company.length > 200 ||
+        /[\u0000-\u001f\u007f]/.test(job.title + job.company)) {
+      throw new Error("Enter a job title and company (up to 200 characters each).");
+    }
+    if (!job.description || job.description.length > 18000) throw new Error("Paste the job description (1–18,000 characters).");
+    if (_agentPrepared.some(item => item.url === job.url && item.exported)) {
+      throw new Error("You already exported this job in this session. Check the companion ledger before attempting it again.");
+    }
+    if (_agentPrepared.length >= 20 && !_agentPrepared.some(item => item.url === job.url)) {
+      throw new Error("This session has 20 prepared jobs. Review these before planning more. The companion enforces its own UTC daily attempt limit.");
+    }
+    await byokInit();
+    window.aiValidateConfig(window.aiConfigFromSettings(getAiSettings()));
+    _agentStatus("Your selected model is comparing the three fixed resumes. No form is being filled or submitted.");
+    const selection = await window.aiChooseFixedResume(_agentResumes, job);
+    if (ticket !== _agentRevision) return;
+    const resume = _agentResumes.find(item => item.id === selection.resumeId);
+    if (!resume) throw new Error("The model selected a resume outside your fixed set.");
+    _agentPlan = Object.freeze({ job, candidate, resume, selection });
+    document.getElementById("agent-selection").innerHTML =
+      `<p><strong>${escHtml(resume.name)}</strong> for ${escHtml(job.title)} at ${escHtml(job.company)}</p>
+       <p>${escHtml(selection.reason)}</p>
+       <p><strong>Requirements to review:</strong></p><ul>${selection.gaps.length
+         ? selection.gaps.map(gap => `<li>${escHtml(gap)}</li>`).join("")
+         : "<li>The model reported no gaps. Verify the full description yourself; this is not a guarantee of eligibility.</li>"}</ul>
+       <p>Contact: ${escHtml(candidate.firstName)} ${escHtml(candidate.lastName)} · ${escHtml(candidate.email)}
+         ${candidate.phone ? " · " + escHtml(candidate.phone) : ""}</p>
+       <p>${escHtml(candidate.linkedin)} ${escHtml(candidate.website)}</p>
+       <p>Application: <a href="${escHtml(job.url)}" target="_blank" rel="noopener noreferrer">${escHtml(job.url)}</a></p>`;
+    document.getElementById("agent-resume-preview").textContent = resume.text;
+    document.getElementById("agent-result").hidden = false;
+    const record = { url: job.url, title: job.title, company: job.company, resumeName: resume.name, exported: false };
+    const previous = _agentPrepared.findIndex(item => item.url === job.url);
+    if (previous < 0) _agentPrepared.push(record);
+    else _agentPrepared[previous] = record;
+    _renderAgentPrepared();
+    _agentStatus("Prepared for your review, not applied. Download and inspect the PDF before exporting a private bundle.");
+  } catch (e) { if (ticket === _agentRevision) _agentStatus(e.message, true); }
+  finally { button.disabled = false; }
+}
+
+function _agentPdfName(name) {
+  return (String(name).replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9 _-]/g, "_").slice(0, 100) || "resume") + ".pdf";
+}
+
+function downloadAgentResume() {
+  try {
+    if (!_agentPlan) throw new Error("Prepare an application first.");
+    window.downloadResumePdf(_agentPlan.resume.text, _agentPdfName(_agentPlan.resume.name));
+  } catch (e) { _agentStatus(e.message, true); }
+}
+
+function buildAgentBundle(plan) {
+  return {
+    version: 1, createdAt: new Date().toISOString(),
+    job: { url: canonicalAgentJobUrl(plan.job.url), title: plan.job.title, company: plan.job.company },
+    candidate: { ...plan.candidate },
+    resume: {
+      id: plan.resume.id, name: _agentPdfName(plan.resume.name), mimeType: "application/pdf",
+      base64: window.resumePdfBase64(plan.resume.text),
+    },
+    selection: { reason: plan.selection.reason, gaps: [...plan.selection.gaps] },
+  };
+}
+
+function downloadAgentBundle() {
+  try {
+    if (!_agentPlan || !document.getElementById("agent-review-confirm").checked) {
+      throw new Error("Review the selected resume PDF, job and contact details, then confirm before exporting.");
+    }
+    const bundle = buildAgentBundle(_agentPlan);
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+    if (blob.size > 3 * 1024 * 1024) throw new Error("This bundle exceeds the companion's 3 MB import limit.");
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "jobspilot-application-" + _agentPdfName(_agentPlan.job.company).replace(/\.pdf$/, "") + ".json";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const item = _agentPrepared.find(record => record.url === _agentPlan.job.url);
+    if (item) item.exported = true;
+    _renderAgentPrepared();
+    _agentStatus("Private bundle exported, not applied. Import it into the companion on the matching job page and review all fields before manually submitting.");
+  } catch (e) { _agentStatus(e.message, true); }
+}
+
+function _renderAgentPrepared() {
+  const count = document.getElementById("agent-session-count");
+  if (count) count.textContent = `${_agentPrepared.length} prepared · 0 submissions verified`;
+  const list = document.getElementById("agent-prepared-list");
+  if (list) list.innerHTML = _agentPrepared.map(item =>
+    `<div class="agent-item"><strong>${escHtml(item.title)}</strong> · ${escHtml(item.company)}
+     <span>${escHtml(item.resumeName)} · ${item.exported ? "Bundle exported" : "Prepared for review"} — not applied</span></div>`).join("");
+}
+
+document.addEventListener("keydown", event => {
+  const overlay = document.getElementById("agent-overlay");
+  if (!overlay || overlay.style.display === "none") return;
+  if (event.key === "Escape") { event.preventDefault(); closeAgentMode(); return; }
+  if (event.key !== "Tab") return;
+  const focusable = [...overlay.querySelectorAll("button:not(:disabled),a[href],input,select,textarea,summary")]
+    .filter(element => element.getClientRects().length);
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+});
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function escHtml(str) {
   return String(str || "")
     .replace(/&/g,"&amp;").replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 }
 
 function formatJD(text) {

@@ -31,16 +31,19 @@ function harness(settings = {}, withApp = false) {
   const element = id => {
     if (!elements.has(id)) elements.set(id, {
       value: "", textContent: "", innerHTML: "", className: "", hidden: false,
-      disabled: false, style: {}, classList: { add() {}, remove() {} },
+      disabled: false, checked: false, style: {}, classList: { add() {}, remove() {} },
+      setAttribute(name, value) { this[name] = value; },
+      scrollIntoView() {}, focus() {}, prepend() {},
       removeAttribute(name) { delete this[name]; },
     });
     return elements.get(id);
   };
   const context = vm.createContext({
-    URL, AbortController, AbortSignal, TextEncoder, TextDecoder, crypto: webcrypto, btoa, atob,
-    setTimeout, clearTimeout, console: { warn() {}, error() {} },
+    URL, AbortController, AbortSignal, DOMException, TextEncoder, TextDecoder, crypto: webcrypto, btoa, atob,
+    setTimeout, clearTimeout, addEventListener() {}, console: { warn() {}, error() {} },
     localStorage: storage, sessionStorage: { ...storage },
-    document: { addEventListener() {}, getElementById: element, querySelectorAll: () => [], body: { style: {} } },
+    document: { addEventListener() {}, getElementById: element, querySelectorAll: () => [],
+      createElement: () => element("created-" + elements.size), body: { style: {} } },
     getAiSettings: () => settings,
     bumpUsage: () => {},
     fetch: async (url, options) => {
@@ -352,4 +355,264 @@ test("landing offers actionable guides and the requested developer and contribut
   assert.ok(template.includes("Rajesh Kodaganti"));
   assert.ok(template.includes("Tarun Sailesh Vangipurapu"));
   assert.doesNotMatch(template, /passphrase-protected|explore sample data|callback rate|5-min setup/i);
+});
+
+const fixedResumes = [
+  { id: "r1", name: "Engineering", text: "Engineer. Built services." },
+  { id: "r2", name: "Analysis", text: "Analyst. Used SQL." },
+  { id: "r3", name: "Operations", text: "Operations. Supported customers." },
+];
+const supportedJob = {
+  url: "https://jobs.lever.co/example/12345678-1234-1234-1234-123456789012",
+  title: "Engineer", company: "Example", description: "Build reliable services.",
+};
+
+test("agent planner uses selected provider, returns only a fixed resume ID and never rewrites it", async () => {
+  const h = harness({ ai_provider: "gemini", gemini_key: "fake-key", gemini_model: "gemini-test" });
+  const before = JSON.stringify(fixedResumes);
+  h.context.fetch = async (url, options) => {
+    h.requests.push({ url, ...options });
+    return response(generated("gemini", JSON.stringify({
+      resumeId: "r1", reason: "Relevant systems experience.", gaps: ["Scale not demonstrated"],
+      rewrittenResume: "Must never be used", firstName: "Invented",
+    })));
+  };
+  const result = await h.context.aiChooseFixedResume(fixedResumes, supportedJob);
+  assert.equal(result.resumeId, "r1");
+  assert.equal(result.rewrittenResume, undefined);
+  assert.equal(result.firstName, undefined);
+  assert.equal(JSON.stringify(fixedResumes), before);
+  const body = JSON.parse(h.requests[0].body);
+  assert.match(body.systemInstruction.parts[0].text, /untrusted data/);
+  assert.equal(JSON.parse(body.contents[0].parts[0].text).resumes.length, 3);
+  assert.ok(h.requests[0].url.includes("generativelanguage.googleapis.com"));
+});
+
+test("agent planner rejects missing/duplicate/oversized resumes and invented model selections", async () => {
+  const h = harness({ anthropic: "fake-key" });
+  for (const input of [fixedResumes.slice(0, 2), [fixedResumes[0], fixedResumes[0], fixedResumes[2]],
+    fixedResumes.map((r, i) => i === 0 ? { ...r, text: "x".repeat(12001) } : r)]) {
+    await assert.rejects(h.context.aiChooseFixedResume(input, supportedJob), /three/);
+  }
+  assert.equal(h.requests.length, 0);
+  for (const output of [
+    { resumeId: "invented", reason: "Guess", gaps: [] },
+    { resumeId: "r1", reason: "", gaps: [] },
+    { resumeId: "r1", reason: "Fit", gaps: ["x".repeat(501)] },
+    { resumeId: "r1", reason: "Fit", gaps: "None" },
+  ]) {
+    h.context.fetch = async () => response(generated("anthropic", JSON.stringify(output)));
+    await assert.rejects(h.context.aiChooseFixedResume(fixedResumes, supportedJob), /invalid resume selection/);
+  }
+});
+
+test("agent bundle contains only chosen PDF/contact data, never model keys or other resumes", () => {
+  const h = harness({}, true);
+  h.context.resumePdfBase64 = text => { assert.equal(text, fixedResumes[1].text); return "JVBERi0xLjc="; };
+  const plan = {
+    job: supportedJob, candidate: { firstName: "Test", lastName: "Person", email: "test@example.test",
+      phone: "", linkedin: "", website: "" },
+    resume: fixedResumes[1], selection: { reason: "SQL fit", gaps: [] },
+  };
+  const bundle = h.context.buildAgentBundle(plan);
+  assert.deepEqual(Object.keys(bundle).sort(), ["candidate", "createdAt", "job", "resume", "selection", "version"]);
+  assert.equal(bundle.resume.id, "r2");
+  assert.equal(bundle.resume.mimeType, "application/pdf");
+  assert.ok(bundle.resume.name.endsWith(".pdf"));
+  assert.equal(bundle.job.description, undefined);
+  assert.ok(!JSON.stringify(bundle).includes(fixedResumes[0].text));
+  assert.equal(bundle.resume.text, undefined);
+});
+
+test("site-generated bundle is accepted unchanged by the companion validator", () => {
+  const companion = require(path.join(root, "companion", "core.js"));
+  const h = harness({}, true);
+  h.context.resumePdfBase64 = () => Buffer.from("%PDF-1.7\n%offline test fixture\n%%EOF").toString("base64");
+  const plan = {
+    job: { ...supportedJob, url: "https://boards.greenhouse.io/example/jobs/12345?source=test" },
+    candidate: { firstName: "Test", lastName: "Person", email: "test@example.test", phone: "+1 555 010 0200",
+      linkedin: "https://www.linkedin.com/in/test-person/", website: "https://example.test" },
+    resume: fixedResumes[0], selection: { reason: "Relevant experience", gaps: ["Review eligibility"] },
+  };
+  const bundle = JSON.parse(JSON.stringify(h.context.buildAgentBundle(plan)));
+  const validated = companion.validateBundle(bundle);
+  assert.equal(validated.job.url, "https://job-boards.greenhouse.io/example/jobs/12345");
+  assert.equal(validated.resume.id, "r1");
+  assert.equal(validated.resume.base64, bundle.resume.base64);
+});
+test("agent URL validation rejects arbitrary origins, credentials and listing pages", () => {
+  const h = harness({}, true);
+  assert.equal(h.context.canonicalAgentJobUrl(supportedJob.url + "/apply?source=tracking#x"), supportedJob.url);
+  assert.equal(h.context.canonicalAgentJobUrl("https://job-boards.greenhouse.io/example/jobs/123?source=x"),
+    "https://job-boards.greenhouse.io/example/jobs/123");
+  for (const url of ["javascript:alert(1)", "http://jobs.lever.co/example/a",
+    "https://jobs.lever.co.evil.test/example/x", "https://user:pass@jobs.lever.co/example/x",
+    "https://jobs.lever.co/example", "https://example.test/jobs/123",
+    "https://boards.greenhouse.io/example/jobs/123/extra"]) {
+    assert.throws(() => h.context.canonicalAgentJobUrl(url));
+  }
+});
+
+test("activating resumes freezes exactly three texts and persists IDs only", async () => {
+  const h = harness({}, true);
+  h.storage.setItem("jp_email", "test@example.test");
+  h.context.listResumesFromDrive = async () => fixedResumes;
+  h.context.getResumeFromDrive = async id => fixedResumes.find(r => r.id === id).text;
+  await h.context.loadAgentResumes();
+  for (let i = 0; i < 3; i++) h.element("agent-resume-" + i).value = fixedResumes[i].id;
+  await h.context.activateAgentResumes();
+  assert.equal(h.evaluate("_agentResumes.length"), 3);
+  assert.equal(h.evaluate("Object.isFrozen(_agentResumes[0])"), true);
+  const persisted = h.storage.getItem("jp_agent_resumes_v1:test@example.test");
+  assert.equal(persisted, '["r1","r2","r3"]');
+  h.context.invalidateAgentResumes();
+  assert.equal(h.evaluate("_agentResumes.length"), 0);
+  assert.equal(h.element("agent-result").hidden, true);
+});
+
+test("changing application input discards a late model response", async () => {
+  const h = harness({}, true);
+  h.evaluate(`_byokLoaded=true; _byokReady=Promise.resolve(); _byokPlain={anthropic:"fake"};`);
+  h.evaluate(`_agentResumes=${JSON.stringify(fixedResumes)};`);
+  for (const [id, value] of Object.entries({
+    "first-name": "Test", "last-name": "Person", email: "test@example.test",
+    "job-url": supportedJob.url, "job-title": "Engineer", "job-company": "Example",
+    "job-description": supportedJob.description,
+  })) h.element("agent-" + id).value = value;
+  h.element("agent-share-consent").checked = true;
+  let resolve;
+  h.context.aiChooseFixedResume = () => new Promise(done => { resolve = done; });
+  const pending = h.context.prepareAgentApplication();
+  await new Promise(done => setImmediate(done));
+  h.context.invalidateAgentPlan();
+  resolve({ resumeId: "r1", reason: "Fit", gaps: [] });
+  await pending;
+  assert.equal(h.evaluate("_agentPlan"), null);
+  assert.equal(h.evaluate("_agentPrepared.length"), 0);
+});
+
+test("sorted job card selects the displayed job rather than an unrelated source index", () => {
+  const h = harness({}, true);
+  const jobs = [
+    { id: "a", title: "Engineer", company: "Zulu", location: "US", source: "Test", posted: "Today", salary: "$100" },
+    { id: "b", title: "Engineer", company: "Alpha", location: "US", source: "Test", posted: "Today", salary: "$200" },
+  ];
+  h.evaluate(`allJobs=${JSON.stringify(jobs)};`);
+  h.context.renderJobList(jobs);
+  h.context.sortJobs("company", { classList: { add() {} } });
+  h.context.renderRightPanel = () => {};
+  h.context.openJob(0);
+  assert.equal(h.evaluate("selectedJob.id"), "b");
+  h.context.sortJobs("newest", { classList: { add() {} } });
+  h.context.openJob(0);
+  assert.equal(h.evaluate("selectedJob.id"), "a");
+});
+
+test("search failure exits spinner and stale searches cannot overwrite a newer result", async () => {
+  const h = harness({}, true);
+  h.evaluate('_byokLoaded=true; _byokReady=Promise.resolve(); _byokPlain={cf_worker_url:"https://worker.example.test"};');
+  h.element("job-title-input").value = "Engineer";
+  h.context.showToast = () => {};
+  const pending = [];
+  h.context.searchJobsViaWorker = opts => new Promise((resolve, reject) => pending.push({ opts, resolve, reject }));
+  const first = h.context.searchJobs();
+  await new Promise(done => setImmediate(done));
+  const second = h.context.searchJobs();
+  await new Promise(done => setImmediate(done));
+  assert.equal(pending[0].opts.signal.aborted, true);
+  pending[1].resolve({ jobs: [{ id: "new", title: "Engineer", company: "New" }], sources: ["Test"] });
+  await second;
+  pending[0].resolve({ jobs: [{ id: "old", title: "Engineer", company: "Old" }], sources: ["Test"] });
+  await first;
+  assert.equal(h.evaluate("allJobs[0].id"), "new");
+  h.context.searchJobsViaWorker = async () => { throw new Error("Provider unavailable"); };
+  await h.context.searchJobs();
+  assert.match(h.element("job-list").innerHTML, /Search could not complete/);
+  assert.doesNotMatch(h.element("job-list").innerHTML, /search-spinner/);
+  assert.equal(h.element("search-btn-text").textContent, "Find jobs now");
+});
+
+test("site-wide theme persists choices and responds to system and cross-tab changes", () => {
+  const callbacks = {};
+  const media = { matches: true, addEventListener: (name, fn) => { callbacks.media = fn; } };
+  const attributes = {};
+  const values = new Map();
+  const selects = [0, 1].map(() => ({ value: "", addEventListener(name, fn) { this.change = fn; } }));
+  const context = vm.createContext({
+    console, matchMedia: () => media,
+    localStorage: { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) },
+    document: {
+      documentElement: { dataset: {}, style: {}, setAttribute: (key, value) => { attributes[key] = value; } },
+      body: { setAttribute() {} },
+      readyState: "complete",
+      querySelectorAll: () => selects,
+      addEventListener: (name, fn) => { callbacks[name] = fn; },
+    },
+    addEventListener: (name, fn) => { callbacks[name] = fn; },
+  });
+
+  test("local active resume uses memory without duplicating the capped persistent library", () => {
+    const h = harness({}, true);
+    h.context.getActiveResumeId = () => "local_test";
+    h.storage.setItem("jp_resume_text", "stale duplicate");
+    h.storage.setItem("jp_resume_name", "stale");
+    h.context.setStoredResume("local resume body", "Browser resume");
+    assert.equal(h.context.getStoredResume().text, "local resume body");
+    assert.equal(h.storage.getItem("jp_resume_text"), null);
+    assert.equal(h.storage.getItem("jp_resume_name"), null);
+    h.context.clearStoredResume();
+    assert.equal(h.context.getStoredResume(), null);
+  });
+
+  test("resume storage status is shown consistently in library, welcome and agent surfaces", () => {
+    const h = harness({}, true);
+    h.context.getResumeStorageStatus = () => ({
+      mode: "local", message: "Browser-only; not synced.", usedBytes: 5432, limitBytes: 1000000,
+    });
+
+    test("Google token renewal resolves every request and coalesces concurrent library access", async () => {
+      const h = harness({}, true);
+      h.context.JOBSPILOT_GOOGLE_CLIENT_ID = "fixture.apps.googleusercontent.com";
+      let requests = 0;
+      h.context.google = { accounts: { oauth2: { initTokenClient(config) {
+        return { requestAccessToken() {
+          requests++;
+          queueMicrotask(() => config.callback({ access_token: "fake-token-" + requests, expires_in: 3600 }));
+        } };
+      } } } };
+      const first = await Promise.all([h.context.getGoogleToken(), h.context.getGoogleToken()]);
+      assert.equal(requests, 1);
+      assert.equal(first[0], first[1]);
+      h.storage.setItem("jp_gtoken_expiry", "0");
+      const second = await h.context.getGoogleToken();
+      assert.equal(requests, 2);
+      assert.equal(second, "fake-token-2");
+      const template = fs.readFileSync(path.join(root, "jobpilot", "templates", "index.html"), "utf8");
+      assert.ok(template.includes('<meta name="google-client-id" content="{{ google_client_id }}"/>'));
+    });
+    h.context.renderResumeStorageStatus();
+    for (const id of ["library-storage-status", "welcome-storage-status", "agent-storage-status"]) {
+      assert.match(h.element(id).textContent, /Browser-only; not synced/);
+      assert.match(h.element(id).textContent, /5\.4 \/ 1000 KB/);
+    }
+  });
+  context.window = context;
+  vm.runInContext(source("theme.js"), context);
+  const theme = context.JobsPilotTheme;
+  theme.initControls();
+  assert.equal(theme.preference(), "system");
+  assert.equal(attributes["data-theme"], "dark");
+  theme.apply("light", true);
+  assert.equal(values.get("jobpilot-theme"), "light");
+  assert.equal(attributes["data-theme"], "light");
+  assert.ok(selects.every(select => select.value === "light"));
+  theme.apply("dark-pro", true);
+  assert.equal(attributes["data-theme"], "dark");
+  theme.apply("system", true);
+  media.matches = false;
+  callbacks.media({ matches: false });
+  assert.equal(attributes["data-theme"], "light");
+  values.set("jobpilot-theme", "dark");
+  callbacks.storage({ key: "jobpilot-theme", newValue: "dark" });
+  assert.equal(attributes["data-theme"], "dark");
 });

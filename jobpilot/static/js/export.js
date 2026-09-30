@@ -161,7 +161,7 @@
     return doc.internal.getNumberOfPages();
   }
 
-  function downloadResumePdf(content, filename, opts) {
+  function createResumePdf(content, opts) {
     if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("jsPDF failed to load");
     const lines = (content || "").split("\n").map(_classifyLine);
     const fitPages = opts && opts.fitPages;
@@ -179,7 +179,19 @@
       }
     }
 
-    doc.save(_ensureExt(filename, ".pdf"));
+    return doc;
+  }
+
+  function downloadResumePdf(content, filename, opts) {
+    createResumePdf(content, opts).save(_ensureExt(filename, ".pdf"));
+  }
+
+  function resumePdfBase64(content) {
+    const bytes = new Uint8Array(createResumePdf(content).output("arraybuffer"));
+    if (bytes.length > 2 * 1024 * 1024) throw new Error("The resume PDF exceeds the companion's 2 MB limit.");
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
   }
 
   // ---- DOCX (docx.js) -------------------------------------------------------
@@ -271,6 +283,7 @@
   window.downloadResumeText = downloadResumeText;
   window.downloadResumePdf = downloadResumePdf;
   window.downloadResumeDocx = downloadResumeDocx;
+  window.resumePdfBase64 = resumePdfBase64;
   // NOTE: We intentionally do NOT expose `downloadResume` on `window` —
   // app.js defines its own top-level `downloadResume(fmt, fitPages)` for
   // legacy onclick handlers and that function dispatches to the helpers

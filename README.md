@@ -177,7 +177,7 @@ Demo mode requires no configuration and works without `GOOGLE_CLIENT_ID`.
 
 ## BYOK keys
 
-Every provider that needs an API key uses **BYOK** (Bring-Your-Own-Key). Keys are stored as an AES-GCM blob in `localStorage` (key `jp_byok_v1`); the symmetric key is derived from your signed-in Google email + a passphrase via PBKDF2-SHA-256 (200 000 iterations) and lives only in tab memory once unlocked. Nothing leaves your browser except the outbound API call.
+Every provider that needs an API key uses **BYOK** (Bring-Your-Own-Key). Keys are stored as an AES-GCM blob in `localStorage` (key `jp_byok_v1`), using PBKDF2-SHA-256 (200 000 iterations) with your signed-in email as the seed. The current implementation has **no passphrase prompt**: this obscures keys at rest but does not protect them from someone who has your email and browser storage. Secure your device/browser, avoid shared browser profiles, and revoke provider keys if the device is compromised. AI requests go directly to the selected provider.
 
 Where to add keys: **Settings → AI** and **Settings → Job search** in-app.
 
@@ -210,6 +210,52 @@ For a custom provider, enter its API base URL (for example `https://api.example.
 Local AI usage is counted across providers. The old `claude_calls` counter migrates to `ai_calls` without overwriting an existing `ai_calls` value.
 
 Run the dependency-free regression suite with `node --test scripts\test-ai.cjs`.
+
+## Free starter resources and themes
+
+The landing page's **For Starters** directory is available without an account, API key, or Worker. It links to official employer career sites and staffing-agency career pages. Employers may have multiple employment types; filter for full-time roles and your location/eligibility. Staffing firms may list contract, contract-to-hire, and direct-hire work. Availability is controlled by each employer, not JobsPilot.
+
+Light, Dark, and System themes share the same browser preference across the landing page, login and app. System follows your operating system; switching tabs updates the preference. The separately installed companion has its own theme control.
+
+## Agent mode (Beta): setup and limits
+
+**Beta: this is a review-first assistant, not unattended universal auto-apply.** A static GitHub Pages website cannot operate arbitrary cross-origin employer forms. JobsPilot uses your selected AI provider as its planner; a dependency-free local Chrome/Edge [companion](companion/README.md) performs only supported deterministic form filling. No model or API key is installed in the companion, and it never clicks Submit. Form compatibility is limited and may change.
+
+1. Sign in (or use a demo workspace). Save at least three resumes in **Resumes**.
+2. Choose your AI provider/key/model in **Settings**. Job search additionally requires your own Worker; alternatively paste a supported job URL and description directly in Agent mode.
+3. Open **Agent mode** and activate **exactly three different saved resumes**. Their text is frozen for this session and will not be rewritten by the model. Only their selected IDs persist locally; active snapshots, contact data and plans stay in memory.
+4. Enter your own contact details and an official hosted Lever or Greenhouse job URL. Review the data-sharing notice: planning sends all three resume texts and the job description to your selected AI provider.
+5. Ask the model to choose a resume. Review its rationale, gaps, job URL and contact details. An AI recommendation is not proof of eligibility.
+6. Download and inspect the selected PDF. It is rendered from saved text, not the original uploaded file's formatting. Confirm your review, then download the private JSON application bundle.
+7. Install the companion using its [setup guide](companion/README.md). Import the bundle, open the matching job form, and explicitly request filling. Review every field and unanswered question, then submit manually on the employer site.
+
+### What the daily limit means
+
+- The companion allows **20 fill attempts per UTC day per extension installation**, not 20 guaranteed successful submissions.
+- It reserves an attempt before touching a form. Failures and uncertain outcomes consume an attempt conservatively; there is no automatic retry/refund.
+- Reloading/reimporting does not reset the ledger. Duplicate job attempts are blocked. Clearing extension data, reinstalling, using another profile/device or editing local state can defeat a local cap; there is no central account-wide quota service.
+- The website separately limits its in-memory prepared list to 20 jobs per session. Exporting/opening/filling is **not** marked “Applied”; the website cannot verify final submission.
+- Login, CAPTCHA, work authorization, legal attestations, sensitive demographic questions, salary expectations and custom application fields require your input. Unsupported/custom-hosted/embedded forms require manual application.
+
+Bundles contain contact data and a PDF but **no API keys, Google tokens or other resume variants**. Keep bundles private and delete them when no longer needed. Clicking Fill may upload the resume to the ATS immediately; approve only a job and endpoint you trust. No real applications are submitted by automated tests.
+
+### Hosting your own landing page
+
+1. Fork this repository, enable GitHub Pages with **GitHub Actions**, and configure your own custom domain/DNS or remove the inherited `CNAME` if you are not using that domain.
+2. Set repository secret `GOOGLE_CLIENT_ID` to your own public OAuth client ID. Configure the appropriate authorized JavaScript origin in Google Cloud; never put OAuth client secrets or provider keys in this repository.
+3. Push changes to `master`; the Pages workflow runs tests, builds the static pages and deploys. For local preview, use the existing build/server commands above.
+4. Configure runtime provider keys and your Worker in the app. Deploy the Worker separately; installing the browser companion is also a separate local step.
+5. Check Google sign-in, theme persistence, links, resume exports and a **test** application form before using the site with real personal data.
+
+Run all JavaScript suites with `node --test scripts/test-ai.cjs scripts/test-jobs.cjs scripts/test-companion.cjs scripts/test-drive.cjs` and static-build tests with `python -m unittest discover -s scripts -p test_build_pages.py`.
+
+## Resume storage when Google Drive is unavailable
+
+If Drive authentication is unavailable (including `GOOGLE_CLIENT_ID not configured`), JobsPilot falls back to an account-scoped resume library in this site's browser storage. **The total local library is capped at 1,000 KB (1,000,000 UTF-8 bytes)**, including stored resume text and metadata—not 1,000 KB per resume. The library shows storage mode and usage; uploads exceeding the cap are rejected without deleting older resumes.
+
+The local library stores extracted resume text, not the original PDF/DOCX formatting. It survives page reloads but is not Google Drive synchronization: clearing site data, private browsing cleanup, another browser/device, or another site origin will not preserve/share it. Browser storage is not an encrypted document vault; protect your device and keep your original files. Clearing browser storage cannot be undone.
+
+Local resumes remain available if Drive becomes reachable later; JobsPilot does not upload browser-only resumes to Google automatically. The three-resume Agent workflow can use local resumes. If browser storage itself is full or blocked, JobsPilot shows the failure rather than reporting that the resume was saved.
 
 ---
 

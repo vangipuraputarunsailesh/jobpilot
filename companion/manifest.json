@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "JobsPilot Review Companion (BETA)",
+  "version": "1.0.0",
+  "description": "Review-first beta: prepare supported applications from a reviewed JobsPilot bundle. Never submits automatically.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "background": { "service_worker": "worker.js" },
+  "action": { "default_popup": "popup.html", "default_title": "JobsPilot BETA — prepare, then review" },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'"
+  }
+}

@@ -1,15 +1,17 @@
 // jobpilot/static/js/drive.js
 // ── Google Drive client-side resume storage (Phase 3) ─────────────────────
-// All resume reads/writes go directly browser → Google Drive API (no Flask
-// proxy). The user's resumes live in their own Drive `appDataFolder` — a
+// Remote resume reads/writes go directly browser → Google Drive API (no Flask
+// proxy), falling back to this browser when Drive is unavailable.
+// Remote resumes live in the user's own Drive `appDataFolder` — a
 // hidden per-app folder that's invisible in the normal Drive UI and only
 // accessible by JobsPilot. The user can revoke access at any time from
 // https://myaccount.google.com/permissions.
 //
 // Architecture:
-//   • Real users (Google sign-in) → Drive appDataFolder via REST v3.
-//   • Demo users (no Google token) → in-browser localStorage (jp_demo_library).
-//   • Active-resume pointer:        localStorage.jp_active_resume_id.
+//   • Real users → Drive, with an account-scoped localStorage fallback.
+//   • Demo users → in-browser localStorage (jp_demo_library).
+//   • Local-only resumes are never automatically uploaded to Drive.
+//   • Browser libraries are capped at 1000 decimal KB (1,000,000 UTF-8 bytes).
 //
 // Token handling: getGoogleToken() (defined in app.js) silently re-mints
 // expired tokens via Google Identity Services. Every Drive call goes through
@@ -38,6 +40,9 @@ const DRIVE_APP_FOLDER   = "appDataFolder";
 const SETTINGS_FILE_NAME = "jobpilot-settings.json";
 const DEMO_LIBRARY_KEY   = "jp_demo_library";
 const ACTIVE_RESUME_KEY  = "jp_active_resume_id";
+const LOCAL_LIBRARY_PREFIX = "jp_resume_library_v1:";
+const RESUME_STORAGE_LIMIT = 1000000;
+let _resumeStorageStatus = null;
 
 function _isDemoUser() {
   try { return localStorage.getItem("jp_demo") === "1"; }
@@ -53,12 +58,24 @@ async function _driveFetch(url, opts, _retried) {
   try {
     tok = await getGoogleToken();
   } catch (e) {
-    throw new Error("Google Drive sign-in required: " + (e.message || e));
+    const error = new Error("Google Drive sign-in required: " + (e.message || e));
+    error.driveUnavailable = true;
+    error.storageReason = "Google Drive sign-in is unavailable";
+    throw error;
   }
   const headers = Object.assign({}, opts && opts.headers, {
     "Authorization": "Bearer " + tok,
   });
-  const r = await fetch(url, Object.assign({}, opts || {}, { headers }));
+  let r;
+  try {
+    r = await fetch(url, Object.assign({}, opts || {}, { headers }));
+  } catch (_) {
+    const error = new Error("Google Drive could not be reached");
+    error.driveUnavailable = true;
+    error.storageReason = error.message;
+    error.writeUncertain = opts && /^(POST|PATCH|PUT)$/i.test(opts.method || "");
+    throw error;
+  }
   if (r.status === 401 && !_retried) {
     try {
       localStorage.removeItem("jp_gtoken");
@@ -72,7 +89,11 @@ async function _driveFetch(url, opts, _retried) {
       const e = await r.json();
       detail = (e && e.error && e.error.message) || detail;
     } catch (_) {}
-    throw new Error(detail);
+    const error = new Error(detail);
+    error.driveUnavailable = [401, 403, 404, 408, 429].includes(r.status) || r.status >= 500;
+    error.storageReason = "Google Drive is unavailable (HTTP " + r.status + ")";
+    error.writeUncertain = r.status >= 500 || r.status === 408;
+    throw error;
   }
   return r;
 }
@@ -99,7 +120,7 @@ function _multipartBody(metadata, content, contentType) {
   };
 }
 
-// ── Public: save a resume to Drive (or demo localStorage) ──────────────────
+// ── Public: save a resume to Drive or browser-local fallback ────────────────
 // `source` is one of "upload" | "tailored" | "generated". Returns a
 // normalized item object matching the library UI's expected shape.
 async function saveResumeToDrive(name, content, source) {
@@ -109,6 +130,8 @@ async function saveResumeToDrive(name, content, source) {
   if (_isDemoUser()) {
     return _demoSaveResume(safeName, safeText, safeSource);
   }
+  const context = _resumeStorageContext();
+  const local = _readLocalLib(context);
   const metadata = {
     name: safeName,
     mimeType: "text/plain",
@@ -123,14 +146,34 @@ async function saveResumeToDrive(name, content, source) {
   const url = DRIVE_UPLOAD +
               "/files?uploadType=multipart" +
               "&fields=id,name,createdTime,size,appProperties";
-  const r = await _driveFetch(url, { method: "POST", body, headers });
-  const file = await r.json();
-  return _mapDriveFile(file);
+  try {
+    const r = await _driveFetch(url, { method: "POST", body, headers });
+    let file;
+    try {
+      file = await r.json();
+      if (!file || !file.id) throw new Error("Missing file ID");
+    } catch (_) {
+      const error = new Error("Google Drive did not confirm the saved resume");
+      error.driveUnavailable = true;
+      error.writeUncertain = true;
+      error.storageReason = error.message;
+      throw error;
+    }
+    _setResumeStorageStatus(context, local.length ? "mixed" : "drive");
+    return _mapDriveFile(file);
+  } catch (error) {
+    if (!error.driveUnavailable) throw error;
+    const reason = _fallbackReason(error);
+    _setResumeStorageStatus(context, "local", reason);
+    return _saveLocalResume(context, safeName, safeText, safeSource, reason);
+  }
 }
 
-// ── Public: list every resume this app has saved in the user's Drive ───────
+// ── Public: list Drive resumes together with browser-only resumes ──────────
 async function listResumesFromDrive() {
   if (_isDemoUser()) return _demoListResumes();
+  const context = _resumeStorageContext();
+  const local = _readLocalLib(context).slice().reverse().map(_mapDemoItem);
   const q = encodeURIComponent(
     "appProperties has { key='kind' and value='resume' } and trashed=false"
   );
@@ -141,15 +184,24 @@ async function listResumesFromDrive() {
               "&fields=" + fields +
               "&pageSize=50" +
               "&orderBy=createdTime desc";
-  const r = await _driveFetch(url, { method: "GET" });
-  const d = await r.json();
-  const files = (d && d.files) || [];
-  return files.map(_mapDriveFile);
+  try {
+    const r = await _driveFetch(url, { method: "GET" });
+    const d = await r.json();
+    const files = (d && d.files) || [];
+    _setResumeStorageStatus(context, local.length ? "mixed" : "drive");
+    return local.concat(files.map(_mapDriveFile))
+      .sort((a, b) => (b.created || "").localeCompare(a.created || ""));
+  } catch (error) {
+    if (!error.driveUnavailable && !(error instanceof SyntaxError) &&
+        !(error instanceof TypeError) && error.name !== "AbortError") throw error;
+    _setResumeStorageStatus(context, "local", _fallbackReason(error));
+    return local;
+  }
 }
 
 // ── Public: fetch a single resume's body by file id ────────────────────────
 async function getResumeFromDrive(fileId) {
-  if (_isDemoUser()) return _demoGetResume(fileId);
+  if (_isDemoUser() || String(fileId).startsWith("local_")) return _demoGetResume(fileId);
   const url = DRIVE_API_BASE + "/files/" + encodeURIComponent(fileId) + "?alt=media";
   const r = await _driveFetch(url, { method: "GET" });
   return await r.text();
@@ -157,7 +209,7 @@ async function getResumeFromDrive(fileId) {
 
 // ── Public: delete a resume by file id ─────────────────────────────────────
 async function deleteResumeFromDrive(fileId) {
-  if (_isDemoUser()) return _demoDeleteResume(fileId);
+  if (_isDemoUser() || String(fileId).startsWith("local_")) return _demoDeleteResume(fileId);
   const url = DRIVE_API_BASE + "/files/" + encodeURIComponent(fileId);
   await _driveFetch(url, { method: "DELETE" });
   if (getActiveResumeId() === fileId) setActiveResumeId("");
@@ -229,28 +281,103 @@ function _mapDriveFile(file) {
     chars:     size,
     preview:   "",
     is_active: getActiveResumeId() === String(file.id),
+    storage:   "drive",
   };
 }
 
-// ── Demo-mode localStorage fallback (no Drive) ─────────────────────────────
-function _readDemoLib() {
+// ── Account-scoped browser library; legacy demo data keeps its existing key ─
+function _resumeStorageContext() {
+  if (_isDemoUser()) return { key: DEMO_LIBRARY_KEY, activeKey: ACTIVE_RESUME_KEY };
+  let email;
   try {
-    const raw = localStorage.getItem(DEMO_LIBRARY_KEY) || "[]";
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch (_) { return []; }
+    email = (localStorage.getItem("jp_email") || "").trim().toLowerCase();
+  } catch (_) {
+    throw new Error("Browser resume storage is unavailable. Allow site storage and try again.");
+  }
+  if (!email) throw new Error("Sign in before using browser resume storage.");
+  const account = encodeURIComponent(email);
+  return { key: LOCAL_LIBRARY_PREFIX + account, activeKey: ACTIVE_RESUME_KEY + ":" + account };
 }
-function _writeDemoLib(arr) {
-  try { localStorage.setItem(DEMO_LIBRARY_KEY, JSON.stringify(arr)); }
-  catch (_) {}
+
+function _readLocalLib(context) {
+  let raw;
+  try { raw = localStorage.getItem(context.key); }
+  catch (_) {
+    throw new Error("Browser resume storage cannot be read. Allow site storage and try again.");
+  }
+  if (raw === null) return [];
+  try {
+    const library = JSON.parse(raw);
+    if (!Array.isArray(library) || library.some(item =>
+      !item || typeof item.id !== "string" || typeof item.name !== "string" ||
+      typeof item.content !== "string" ||
+      (item.createdTime !== undefined && typeof item.createdTime !== "string") ||
+      (context.key !== DEMO_LIBRARY_KEY && !item.id.startsWith("local_"))
+    ) || new Set(library.map(item => item.id)).size !== library.length) {
+      throw new Error("Invalid library");
+    }
+    return library;
+  } catch (_) {
+    throw new Error("Browser resume cache is malformed. Existing data was not changed. Export or recover site data before trying again.");
+  }
 }
-function _demoSaveResume(name, content, source) {
-  const lib = _readDemoLib();
-  // Cap at 20 to match the legacy server-side library limit.
-  if (lib.length >= 20) lib.shift();
-  const id = (typeof crypto !== "undefined" && crypto.randomUUID)
+
+function _libraryBytes(library) {
+  return new TextEncoder().encode(JSON.stringify(library)).byteLength;
+}
+
+function _setResumeStorageStatus(context, mode, reason) {
+  const message = (reason ? reason + ". " : "") +
+    (mode === "drive" ? "Resumes saved to Google Drive." :
+      mode === "mixed" ? "Google Drive and browser-only resumes are shown. Browser-only resumes are not automatically uploaded." :
+        "Browser-only resume storage for this site and account; not synced to Google Drive.") +
+    " Browser limit: 1000 KB (1,000,000 UTF-8 bytes, including metadata). Clearing site data removes browser-only resumes.";
+  _resumeStorageStatus = { key: context.key, mode, message };
+  if (typeof window.dispatchEvent === "function" && typeof CustomEvent === "function") {
+    window.dispatchEvent(new CustomEvent("jobspilot:resume-storage", { detail: getResumeStorageStatus() }));
+  }
+}
+
+function getResumeStorageStatus() {
+  const context = _resumeStorageContext();
+  const status = _resumeStorageStatus && _resumeStorageStatus.key === context.key
+    ? _resumeStorageStatus
+    : { mode: "local", message: "Browser-only resumes remain on this site. Drive availability has not been checked. Browser limit: 1000 KB (1,000,000 UTF-8 bytes, including metadata)." };
+  return {
+    mode: status.mode,
+    message: status.message,
+    usedBytes: _libraryBytes(_readLocalLib(context)),
+    limitBytes: RESUME_STORAGE_LIMIT,
+  };
+}
+
+function _fallbackReason(error) {
+  const reason = (error.storageReason || "Google Drive could not be read") +
+    (error.writeUncertain ? ". Drive save could not be confirmed; a copy may also exist in Drive. Check Drive before retrying" : "");
+  console.warn("[Resume storage] " + reason);
+  return reason;
+}
+
+function _writeLocalLib(context, library) {
+  const serialized = JSON.stringify(library);
+  if (new TextEncoder().encode(serialized).byteLength > RESUME_STORAGE_LIMIT) {
+    throw new Error("Browser resume storage limit is 1000 KB (1,000,000 UTF-8 bytes, including metadata). Delete a saved browser resume or shorten this resume, then try again. No existing resumes were removed.");
+  }
+  try { localStorage.setItem(context.key, serialized); }
+  catch (cause) {
+    const error = new Error(cause && cause.name === "QuotaExceededError"
+      ? "Browser storage is full. Free space for this site or delete a saved browser resume, then try again. This resume was not saved locally."
+      : "Browser storage could not save this resume. Allow site storage and try again. This resume was not saved locally.");
+    error.name = cause && cause.name === "QuotaExceededError" ? "QuotaExceededError" : "Error";
+    throw error;
+  }
+}
+
+function _saveLocalResume(context, name, content, source, reason) {
+  const lib = _readLocalLib(context);
+  const id = "local_" + ((typeof crypto !== "undefined" && crypto.randomUUID)
     ? crypto.randomUUID()
-    : ("demo_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8));
+    : (Date.now() + "_" + Math.random().toString(36).slice(2, 8)));
   const item = {
     id,
     name,
@@ -260,24 +387,53 @@ function _demoSaveResume(name, content, source) {
     size: content.length,
   };
   lib.push(item);
-  _writeDemoLib(lib);
+  _writeLocalLib(context, lib);
+  _setResumeStorageStatus(context, "local", reason);
   return _mapDemoItem(item);
 }
+function _demoSaveResume(name, content, source) {
+  return _saveLocalResume(_resumeStorageContext(), name, content, source);
+}
 function _demoListResumes() {
-  // Newest first, matching Drive's orderBy=createdTime desc.
-  return _readDemoLib().slice().reverse().map(_mapDemoItem);
+  const context = _resumeStorageContext();
+  const items = _readLocalLib(context).slice().reverse().map(_mapDemoItem);
+  _setResumeStorageStatus(context, "local");
+  return items;
 }
 function _demoGetResume(id) {
-  const it = _readDemoLib().find(x => x.id === id);
+  const it = _readLocalLib(_resumeStorageContext()).find(x => x.id === id);
   if (!it) throw new Error("Resume not found");
   return it.content;
 }
 function _demoDeleteResume(id) {
-  const lib = _readDemoLib().filter(x => x.id !== id);
-  _writeDemoLib(lib);
+  const context = _resumeStorageContext();
+  const lib = _readLocalLib(context).filter(x => x.id !== id);
+  _writeLocalLib(context, lib);
   if (getActiveResumeId() === id) setActiveResumeId("");
+  const previous = _resumeStorageStatus && _resumeStorageStatus.key === context.key ? _resumeStorageStatus.mode : "local";
+  _setResumeStorageStatus(context, previous === "mixed" && !lib.length ? "drive" : previous);
   return true;
 }
+
+// Call only for an explicit clear-library action, never during sign-out.
+function clearLocalResumeLibrary() {
+  const context = _resumeStorageContext();
+  try {
+    const activeId = localStorage.getItem(context.activeKey) || "";
+    localStorage.removeItem(context.key);
+    if (context.key === DEMO_LIBRARY_KEY || activeId.startsWith("local_")) {
+      localStorage.removeItem(context.activeKey);
+    }
+  } catch (_) {
+    throw new Error("Browser resume library could not be completely cleared. Allow site storage and try again.");
+  }
+  const previous = _resumeStorageStatus && _resumeStorageStatus.key === context.key
+    ? _resumeStorageStatus.mode : "local";
+  _setResumeStorageStatus(context, previous === "mixed" ? "drive" : previous,
+    "Browser-only resume library cleared for this account; Google Drive resumes were not deleted");
+  return true;
+}
+
 function _mapDemoItem(it) {
   return {
     id:        it.id,
@@ -287,18 +443,20 @@ function _mapDemoItem(it) {
     chars:     it.size || (it.content ? it.content.length : 0),
     preview:   (it.content || "").slice(0, 200),
     is_active: getActiveResumeId() === it.id,
+    storage:   "local",
   };
 }
 
 // ── Active-resume pointer (client-side, survives refresh) ──────────────────
 function setActiveResumeId(id) {
   try {
-    if (id) localStorage.setItem(ACTIVE_RESUME_KEY, String(id));
-    else    localStorage.removeItem(ACTIVE_RESUME_KEY);
+    const key = _resumeStorageContext().activeKey;
+    if (id) localStorage.setItem(key, String(id));
+    else    localStorage.removeItem(key);
   } catch (_) {}
 }
 function getActiveResumeId() {
-  try { return localStorage.getItem(ACTIVE_RESUME_KEY) || ""; }
+  try { return localStorage.getItem(_resumeStorageContext().activeKey) || ""; }
   catch (_) { return ""; }
 }
 
@@ -311,3 +469,5 @@ window.saveSettingsToDrive   = saveSettingsToDrive;
 window.getSettingsFromDrive  = getSettingsFromDrive;
 window.setActiveResumeId     = setActiveResumeId;
 window.getActiveResumeId     = getActiveResumeId;
+window.getResumeStorageStatus = getResumeStorageStatus;
+window.clearLocalResumeLibrary = clearLocalResumeLibrary;

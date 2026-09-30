@@ -3,6 +3,7 @@
 {% block title %}JobsPilot — AI Job Search{% endblock %}
 
 {% block head %}
+<meta name="google-client-id" content="{{ google_client_id }}"/>
 <script>
   // Sliding-TTL login session (7 days for real accounts, 24h for demo).
   // Stored entirely in localStorage so the session survives tab close /
@@ -49,12 +50,13 @@
       </svg>
     </div>
     <span class="brand-name">JobsPilot</span>
-    <span class="brand-sub">AI · Real jobs from every US company</span>
+    <span class="brand-sub">Your job-search workspace</span>
   </div>
   <div class="topbar-right">
     <label class="theme-switch" title="Toggle theme">
       <span class="theme-switch-label">Theme</span>
-      <select id="theme-select" class="theme-select">
+      <select id="theme-select" class="theme-select" data-theme-select>
+        <option value="system">System</option>
         <option value="light">Light</option>
         <option value="dark">Dark</option>
       </select>
@@ -62,6 +64,8 @@
     <div class="live-chip"><div class="live-dot"></div>Live</div>
     <div id="source-chip" class="source-chip" style="display:none"></div>
     <div class="health-indicator" id="health-dot" title="Checking connection…" onclick="toggleUsagePanel()"></div>
+    <a class="topbar-action-btn" href="index.html#for-starters">For Starters</a>
+    <button id="agent-mode-btn" class="topbar-action-btn" type="button" onclick="openAgentMode()">Agent mode <span class="topbar-action-badge">Beta</span></button>
     <button id="resume-library-btn" class="topbar-action-btn" type="button"
             style="display:none" onclick="openResumeLibrary()"
             title="Manage your saved resumes">
@@ -92,7 +96,7 @@
 <div class="usage-panel" id="usage-panel" style="display:none">
   <div class="usage-title">API Usage</div>
   <div class="usage-grid" id="usage-grid">Loading…</div>
-  <div class="usage-note">Counters reset on server restart</div>
+  <div class="usage-note">Local counters persist in this browser. Provider billing is separate.</div>
 </div>
 
 <!-- MAIN 3-PANEL LAYOUT -->
@@ -152,7 +156,7 @@
       </button>
 
       <div class="sidebar-footer">
-        <div class="footer-note">FAANG, Fortune 500, startups — updated daily.</div>
+        <div class="footer-note">Results depend on your configured sources and provider availability.</div>
       </div>
     </div>
   </aside>
@@ -179,7 +183,7 @@
           </svg>
         </div>
         <div class="empty-title">No jobs yet</div>
-        <div class="empty-sub">Type any job title and click "Find jobs now" to search across millions of US companies.</div>
+        <div class="empty-sub">Enter a job title to search your configured sources, or browse For Starters without API keys.</div>
       </div>
     </div>
 
@@ -211,6 +215,73 @@
 
 </div>
 
+<div class="agent-overlay" id="agent-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="agent-title">
+  <div class="agent-modal">
+    <div class="library-head">
+      <h2 id="agent-title">Agent mode <small>Beta · Review-first</small></h2>
+      <button type="button" class="library-close" onclick="closeAgentMode()" aria-label="Close agent mode">×</button>
+    </div>
+    <p><strong>Beta:</strong> form compatibility is limited and may change. Your model chooses from three fixed resumes. A local browser companion fills supported forms; <strong>you review and submit</strong>. Nothing here is an automatic submission.</p>
+    <p class="agent-warning">Maximum 20 fill attempts per UTC day per companion installation, including failed or uncertain fills.
+      Not a global or cross-device limit. Login, CAPTCHA and custom questions remain manual.</p>
+    <p><a href="index.html#agent-guide" target="_blank" rel="noopener">Read the setup guide</a> ·
+      <a href="https://github.com/vangipuraputarunsailesh/jobpilot/tree/master/companion" target="_blank" rel="noopener">Get the Chrome / Edge companion</a></p>
+    <div class="agent-grid">
+      <section class="agent-section">
+        <h3>1. Choose three fixed resumes</h3>
+        <p>Upload them in your resume library first. Selection freezes their text for this session; the model will not rewrite them.</p>
+        <p id="agent-storage-status" role="status" aria-live="polite"></p>
+        <label for="agent-resume-0">Resume 1</label><select id="agent-resume-0" class="ctrl-select" onchange="invalidateAgentResumes()"></select>
+        <label for="agent-resume-1">Resume 2</label><select id="agent-resume-1" class="ctrl-select" onchange="invalidateAgentResumes()"></select>
+        <label for="agent-resume-2">Resume 3</label><select id="agent-resume-2" class="ctrl-select" onchange="invalidateAgentResumes()"></select>
+        <div class="agent-actions">
+          <button type="button" class="btn-secondary" onclick="closeAgentMode(); openResumeLibrary()">Resume library</button>
+          <button type="button" class="btn-secondary" onclick="loadAgentResumes()">Refresh list</button>
+          <button id="agent-activate-btn" type="button" class="btn-primary" onclick="activateAgentResumes()">Activate these three</button>
+        </div>
+        <p id="agent-readiness" class="agent-status" role="status" aria-live="polite">Choose three resumes and configure your model in Settings.</p>
+        <button type="button" class="btn-secondary" onclick="closeAgentMode(); openSettingsModal()">AI Settings</button>
+      </section>
+      <section class="agent-section" id="agent-contact" oninput="invalidateAgentPlan()">
+        <h3>2. Your contact details</h3>
+        <p>Enter accurate details yourself. The model cannot invent or change these.</p>
+        <label for="agent-first-name">First name</label><input id="agent-first-name" class="ctrl-input" autocomplete="given-name" maxlength="100"/>
+        <label for="agent-last-name">Last name</label><input id="agent-last-name" class="ctrl-input" autocomplete="family-name" maxlength="100"/>
+        <label for="agent-email">Email</label><input id="agent-email" type="email" class="ctrl-input" autocomplete="email" maxlength="254"/>
+        <label for="agent-phone">Phone (optional, include country code)</label><input id="agent-phone" type="tel" class="ctrl-input" autocomplete="tel" maxlength="40"/>
+        <label for="agent-linkedin">LinkedIn URL (optional)</label><input id="agent-linkedin" type="url" class="ctrl-input" maxlength="500"/>
+        <label for="agent-website">Portfolio URL (optional)</label><input id="agent-website" type="url" class="ctrl-input" maxlength="500"/>
+      </section>
+    </div>
+    <section class="agent-section" id="agent-job" oninput="invalidateAgentPlan()">
+      <h3>3. Review a job</h3>
+      <p>Choose a search result before opening Agent mode, or paste a job here. Supported companion forms: hosted Lever and Greenhouse. Other sites require a manual application.</p>
+      <label for="agent-job-url">Official application URL</label><input id="agent-job-url" type="url" class="ctrl-input" maxlength="2000"/>
+      <label for="agent-job-title">Job title</label><input id="agent-job-title" class="ctrl-input" maxlength="200"/>
+      <label for="agent-job-company">Company</label><input id="agent-job-company" class="ctrl-input" maxlength="200"/>
+      <label for="agent-job-description">Full job description</label><textarea id="agent-job-description" class="ctrl-input" rows="8" maxlength="18000"></textarea>
+      <label><input id="agent-share-consent" type="checkbox"/> I agree to send the text of my three chosen resumes and this job description to my selected AI provider for resume selection.</label>
+      <button id="agent-prepare-btn" type="button" class="btn-primary" onclick="prepareAgentApplication()">Choose a resume with my model</button>
+    </section>
+    <p id="agent-status" class="agent-status" role="status" aria-live="polite"></p>
+    <section id="agent-result" class="agent-section" hidden>
+      <h3>4. Review before handing off</h3>
+      <div id="agent-selection"></div>
+      <details><summary>Review the exact frozen resume text</summary><pre id="agent-resume-preview" tabindex="0"></pre></details>
+      <p>The PDF is rendered from your saved resume text; original upload formatting is not retained. Download and inspect it first.</p>
+      <button type="button" class="btn-secondary" onclick="downloadAgentResume()">Download selected PDF for review</button>
+      <label><input id="agent-review-confirm" type="checkbox" onchange="document.getElementById('agent-bundle-btn').disabled = !this.checked"/> I reviewed the resume PDF, contact details, job URL and fit gaps. I want the companion to fill these details, and I will review the employer form before submitting.</label>
+      <button id="agent-bundle-btn" type="button" class="btn-primary" onclick="downloadAgentBundle()" disabled>Download private application bundle</button>
+      <p class="agent-warning">The bundle contains personal information and a resume, but no API keys. Keep it private and delete it when no longer needed. Exporting or filling a form does not mean you applied.</p>
+    </section>
+    <section class="agent-section">
+      <h3>This session's prepared applications</h3>
+      <p id="agent-session-count">0 prepared · 0 submissions verified</p>
+      <div id="agent-prepared-list"></div>
+    </section>
+  </div>
+</div>
+
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
@@ -240,6 +311,7 @@
       <span class="library-cap" id="library-cap"></span>
     </div>
     <div class="library-status" id="library-status"></div>
+    <p class="library-sub" id="library-storage-status" role="status" aria-live="polite"></p>
     <div class="library-list" id="library-list">
       <div class="library-empty">Loading your saved resumes…</div>
     </div>
@@ -427,7 +499,7 @@
   .library-item-meta{font-size:11px;color:var(--text2);margin-top:2px;
     display:flex;gap:8px;flex-wrap:wrap;}
   .library-item-preview{font-size:12px;color:var(--text2,#475569);margin-top:6px;
-    overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+    overflow:hidden;text-overflow:ellipsis;display:-webkit-box;line-clamp:2;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
   .library-badge{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;
     padding:2px 6px;border-radius:4px;letter-spacing:.04em;}
   .library-badge.active{background:#0f766e;color:#fff;}
@@ -543,6 +615,7 @@
     </button>
     <div class="welcome-hint">PDF, DOCX, or TXT &nbsp;·&nbsp; max 10 MB</div>
     <div class="welcome-status" id="welcome-status"></div>
+    <p class="welcome-hint" id="welcome-storage-status" role="status" aria-live="polite"></p>
     <button class="welcome-skip" onclick="dismissWelcomeModal()">Skip for now</button>
   </div>
 </div>
@@ -595,7 +668,7 @@
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/8.2.2/docx.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.2.2/build/index.umd.js"></script>
 
 <!-- Phase 3: client-side Google Drive resume storage. -->
 <!-- Client-side AI providers + parse + export modules. -->

@@ -14,8 +14,12 @@
 //   6. Deduplicate by (title, company)
 //
 // Single entry point:
-//   window.searchJobsViaWorker({title, location, seniority, datePosted, workerUrl})
-//     → Promise<{jobs, count, sources, title, location}>
+//   window.searchJobsViaWorker({title, location, seniority, datePosted, workerUrl,
+//                              signal?, disabledProviders?})
+//     → Promise<{jobs, count, sources, title, location, warnings: string[]}>
+// Cancellation rejects AbortError. Failed sources produce safe warnings;
+// if every attempted source fails, the search rejects instead of returning [].
+// Credentialed sources without keys (or explicitly disabled) are skipped.
 //
 // `workerUrl` is required — there is no backend fallback. If the user has
 // not configured their Worker URL in Settings, the caller (app.js) is
@@ -575,137 +579,135 @@
     return out;
   }
 
-  async function _workerCall(workerUrl, platform, params) {
+  function _abortError() {
+    const error = new Error("Job search cancelled");
+    error.name = "AbortError";
+    return error;
+  }
+
+  async function _workerCall(workerUrl, platform, params, context) {
     const url = workerUrl.replace(/\/+$/, "") + "/search";
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ..._byokForWorker(),
-      },
-      body: JSON.stringify({ platform, ...params }),
-    });
-    let payload = null;
+    const controller = new AbortController();
+    const signal = context.signal;
+    const headers = { "Content-Type": "application/json" };
+    const allowed = {
+      jsearch: ["X-RapidAPI-Key"],
+      adzuna: ["X-Adzuna-App-Id", "X-Adzuna-App-Key"],
+      usajobs: ["X-USAJobs-Email", "X-USAJobs-Key"],
+    };
+    for (const key of allowed[platform] || []) {
+      if (context.headers[key]) headers[key] = context.headers[key];
+    }
+    let reason = "network request failed";
+    let rejectAborted;
+    const aborted = new Promise((_, reject) => { rejectAborted = reject; });
+    const abort = (message) => {
+      reason = message;
+      controller.abort();
+      rejectAborted(new Error(message));
+    };
+    const onAbort = () => abort("search deadline exceeded");
+    signal.addEventListener("abort", onAbort, { once: true });
+    // Bound each page, including response-body parsing, as well as the whole search.
+    const timeout = setTimeout(() => abort("request timed out"), 20000);
     try {
-      payload = await resp.json();
+      if (signal.aborted) onAbort();
+      const request = async () => {
+        if (controller.signal.aborted) throw new Error(reason);
+        const resp = await fetch(url, {
+          method: "POST", headers, signal: controller.signal,
+          credentials: "omit", redirect: "error",
+          body: JSON.stringify({ platform, ...params }),
+        });
+        if (!resp.ok) {
+          reason = Number.isInteger(resp.status) && resp.status >= 100 && resp.status <= 599
+            ? `HTTP ${resp.status}` : "HTTP request failed";
+          controller.abort();
+          throw new Error(reason);
+        }
+        reason = "invalid response";
+        const payload = await resp.json();
+        const data = payload && payload.data;
+        const batch = platform === "usajobs"
+          ? data && data.SearchResult && data.SearchResult.SearchResultItems
+          : data && data[platform === "remotive" ? "jobs"
+            : platform === "adzuna" || platform === "themuse" ? "results" : "data"];
+        if (!Array.isArray(batch)) throw new Error(reason);
+        return data;
+      };
+      return await Promise.race([request(), aborted]);
     } catch {
-      payload = null;
+      // Never expose provider payloads, URLs, credentials, or exception messages.
+      controller.abort();
+      throw new Error(`[${platform}] ${reason}`);
+    } finally {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
     }
-    if (!resp.ok) {
-      const detail =
-        (payload && (payload.detail || payload.error)) ||
-        `Worker returned ${resp.status}`;
-      throw new Error(`[${platform}] ${detail}`);
-    }
-    return (payload && payload.data) || {};
   }
 
   // ── 9. Per-platform orchestrators ────────────────────────────────────
   // Mirror the Python search_jsearch / search_adzuna / etc. — including
   // multi-page pagination for jsearch / adzuna / themuse / arbeitnow.
 
-  async function _runJsearch(workerUrl, title, location, datePosted) {
-    if (!_byokForWorker()["X-RapidAPI-Key"]) return [];
+  async function _runPages(workerUrl, platform, params, context, normalize, pages, limit = Infinity) {
     const out = [];
-    const pagesNeeded = Math.min(Math.floor(100 / 10) + 1, 5);
-    for (let page = 1; page <= pagesNeeded; page++) {
-      let data;
+    let succeeded = false;
+    for (let page = 1; page <= pages; page++) {
       try {
-        data = await _workerCall(workerUrl, "jsearch", {
-          title, location, page, date_posted: datePosted,
-        });
-      } catch {
+        const data = await _workerCall(workerUrl, platform, { ...params, page }, context);
+        let batch;
+        try {
+          batch = normalize(data);
+        } catch {
+          throw new Error(`[${platform}] invalid response`);
+        }
+        succeeded = true;
+        if (!batch.length) break;
+        out.push(...batch);
+        if (out.length >= limit) break;
+      } catch (error) {
+        if (!succeeded) throw error;
+        context.warnings.push(error.message);
         break;
       }
-      const batch = _normalizeJsearch(data);
-      if (!batch.length) break;
-      out.push(...batch);
-      if (out.length >= 100) break;
     }
     return out;
   }
 
-  async function _runAdzuna(workerUrl, title, location, datePosted) {
-    const creds = _byokForWorker();
-    if (!creds["X-Adzuna-App-Id"] || !creds["X-Adzuna-App-Key"]) return [];
-    const out = [];
-    for (let page = 1; page <= 4; page++) {
-      let data;
-      try {
-        data = await _workerCall(workerUrl, "adzuna", {
-          title, location, page, date_posted: datePosted,
-        });
-      } catch {
-        break;
-      }
-      const batch = _normalizeAdzuna(data, location);
-      if (!batch.length) break;
-      out.push(...batch);
-    }
-    return out;
+  async function _runJsearch(workerUrl, title, location, datePosted, context) {
+    return _runPages(workerUrl, "jsearch", { title, location, date_posted: datePosted },
+      context, _normalizeJsearch, 5, 100);
   }
 
-  async function _runThemuse(workerUrl, title, location) {
-    const out = [];
-    for (let page = 1; page <= 4; page++) {
-      let data;
-      try {
-        data = await _workerCall(workerUrl, "themuse", { title, location, page });
-      } catch {
-        break;
-      }
-      const batch = _normalizeThemuse(data, location);
-      if (!batch.length) break;
-      out.push(...batch);
-    }
-    return out;
+  async function _runAdzuna(workerUrl, title, location, datePosted, context) {
+    return _runPages(workerUrl, "adzuna", { title, location, date_posted: datePosted },
+      context, data => _normalizeAdzuna(data, location), 4);
   }
 
-  async function _runRemotive(workerUrl, title) {
-    let data;
-    try {
-      data = await _workerCall(workerUrl, "remotive", { title });
-    } catch {
-      return [];
-    }
-    return _normalizeRemotive(data);
+  async function _runThemuse(workerUrl, title, location, context) {
+    return _runPages(workerUrl, "themuse", { title, location },
+      context, data => _normalizeThemuse(data, location), 4);
   }
 
-  async function _runUsajobs(workerUrl, title, location, datePosted) {
-    let data;
-    try {
-      data = await _workerCall(workerUrl, "usajobs", {
-        title, location, date_posted: datePosted,
-      });
-    } catch {
-      return [];
-    }
-    return _normalizeUsajobs(data, location);
+  async function _runRemotive(workerUrl, title, context) {
+    return _runPages(workerUrl, "remotive", { title }, context, _normalizeRemotive, 1);
   }
 
-  async function _runArbeitnow(workerUrl, title) {
-    const out = [];
-    for (let page = 1; page <= 3; page++) {
-      let data;
-      try {
-        data = await _workerCall(workerUrl, "arbeitnow", { title, page });
-      } catch {
-        break;
-      }
-      const batch = _normalizeArbeitnow(data);
-      if (!batch.length) break;
-      out.push(...batch);
-    }
-    return out;
+  async function _runUsajobs(workerUrl, title, location, datePosted, context) {
+    return _runPages(workerUrl, "usajobs", { title, location, date_posted: datePosted },
+      context, data => _normalizeUsajobs(data, location), 1);
+  }
+
+  async function _runArbeitnow(workerUrl, title, context) {
+    return _runPages(workerUrl, "arbeitnow", { title }, context, _normalizeArbeitnow, 3);
   }
 
   // ── 10. Top-level orchestrator ───────────────────────────────────────
-  // Promise.allSettled across all 6 sources with a 60-second wall-clock
-  // budget (matches the Python ThreadPoolExecutor `as_completed(timeout=60)`
-  // semantics). Each source that hasn't finished by the deadline is
-  // ignored — its in-flight `fetch` will still complete in the background
-  // but its results are discarded.
+  // Keep provider ordering stable even when requests finish out of order.
   async function searchJobsViaWorker(opts) {
+    const signal = opts && opts.signal;
+    if (signal && signal.aborted) throw _abortError();
     const title = String((opts && opts.title) || "").trim();
     const location = String((opts && opts.location) || "United States").trim() ||
       "United States";
@@ -716,28 +718,39 @@
     if (!title) throw new Error("Job title is required");
     if (!workerUrl) throw new Error("Cloudflare Worker URL not configured");
 
-    const SOURCES = [
-      () => _runJsearch(workerUrl, title, location, datePosted),
-      () => _runAdzuna(workerUrl, title, location, datePosted),
-      () => _runThemuse(workerUrl, title, location),
-      () => _runRemotive(workerUrl, title),
-      () => _runUsajobs(workerUrl, title, location, datePosted),
-      () => _runArbeitnow(workerUrl, title),
-    ];
-
-    const WALL_CLOCK_MS = 60000;
-    const deadline = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("budget-exceeded")), WALL_CLOCK_MS)
-    );
-    const runs = SOURCES.map((fn) =>
-      Promise.race([fn(), deadline]).catch(() => [])
-    );
-    const settled = await Promise.allSettled(runs);
+    const headers = _byokForWorker();
+    const disabled = new Set((opts && opts.disabledProviders) || []);
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
+    const timeout = setTimeout(onAbort, 60000);
+    const warnings = [];
     let all = [];
-    for (const r of settled) {
-      if (r.status === "fulfilled" && Array.isArray(r.value)) {
-        all = all.concat(r.value);
+    try {
+      const sources = [
+        ["jsearch", !!headers["X-RapidAPI-Key"], c => _runJsearch(workerUrl, title, location, datePosted, c)],
+        ["adzuna", !!(headers["X-Adzuna-App-Id"] && headers["X-Adzuna-App-Key"]), c => _runAdzuna(workerUrl, title, location, datePosted, c)],
+        ["themuse", true, c => _runThemuse(workerUrl, title, location, c)],
+        ["remotive", true, c => _runRemotive(workerUrl, title, c)],
+        ["usajobs", !!(headers["X-USAJobs-Email"] && headers["X-USAJobs-Key"]), c => _runUsajobs(workerUrl, title, location, datePosted, c)],
+        ["arbeitnow", true, c => _runArbeitnow(workerUrl, title, c)],
+      ].filter(([name, enabled]) => enabled &&
+        (!disabled.has(name) || ["themuse", "remotive", "arbeitnow"].includes(name)));
+      const contexts = sources.map(() => ({ signal: controller.signal, headers, warnings: [] }));
+      const settled = await Promise.allSettled(sources.map(([, , run], i) => run(contexts[i])));
+      if (signal && signal.aborted) throw _abortError();
+      for (let i = 0; i < settled.length; i++) {
+        const result = settled[i];
+        warnings.push(...contexts[i].warnings);
+        if (result.status === "fulfilled") all = all.concat(result.value);
+        else warnings.push(result.reason.message);
       }
+      if (settled.every(result => result.status === "rejected")) {
+        throw new Error(`All job sources failed: ${warnings.join("; ")}`);
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (signal) signal.removeEventListener("abort", onAbort);
     }
 
     // ── Filter pipeline (identical order to Python search_all_platforms)
@@ -777,7 +790,7 @@
     for (let i = 0; i < unique.length; i++) unique[i].idx = i;
 
     const sources = Array.from(new Set(unique.map((j) => j.source)));
-    return { jobs: unique, count: unique.length, sources, title, location };
+    return { jobs: unique, count: unique.length, sources, title, location, warnings };
   }
 
   // Public API

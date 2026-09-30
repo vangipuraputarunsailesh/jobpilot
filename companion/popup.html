@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JobsPilot Review Companion — BETA</title>
+  <link rel="stylesheet" href="popup.css">
+  <script src="core.js" defer></script>
+  <script src="popup.js" defer></script>
+</head>
+<body>
+  <header><h1>JobsPilot <span>Review Companion — BETA</span></h1>
+    <label>Theme <select id="theme"><option value="auto">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+  </header>
+  <p>Review-first beta: prepare basic fields and one exact PDF. <strong>Never submits applications.</strong></p>
+  <p id="quota" role="status">Checking the attempt allowance…</p>
+  <label for="bundle">Import reviewed JobsPilot JSON bundle (up to 3 MiB)</label>
+  <input id="bundle" type="file" accept=".json,application/json">
+  <p class="muted">Open the job form first, then import here. Bundles live only in popup memory. Closing this popup loses the import; import again to view it. Existing attempts cannot be retried.</p>
+  <section id="review" hidden>
+    <h2 id="job"></h2>
+    <a id="job-link" target="_blank" rel="noopener noreferrer">Open supported job (not an application submission)</a>
+    <p id="candidate"></p>
+    <p id="resume"></p>
+    <h2>Website selection rationale</h2>
+    <p id="reason"></p>
+    <ul id="gaps"></ul>
+  </section>
+  <label class="consent"><input id="consent" type="checkbox" disabled>
+    I reviewed this bundle and consent to filling this matching active tab and attaching this PDF. The ATS may upload it immediately. One attempt counts even if filling fails. I will review and submit myself.
+  </label>
+  <button id="fill" type="button" disabled>Prepare for my review — never submit</button>
+  <p id="result" role="status" aria-live="polite"></p>
+  <p class="muted">Only supported top-level Lever/Greenhouse forms. Login, CAPTCHA, custom domains, embedded forms and extra questions require manual action. No AI models or keys in this extension.</p>
+  <details><summary>Recent attempts (not completed applications)</summary><ol id="history"></ol></details>
+</body>
+</html>
