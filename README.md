@@ -45,6 +45,8 @@ Everything you create — resumes, BYOK API keys, search history — lives in yo
 | Landing | <https://www.jobspilot.site/> | ✅ Live |
 | App | <https://www.jobspilot.site/app.html> | ✅ Live |
 
+The landing page explains [workspace setup](https://www.jobspilot.site/#setup), including your own AI credentials, provider charges, and Cloudflare Worker. Its [career guides](https://www.jobspilot.site/#career-guides) cover truthful resume tailoring, a sustainable search routine, interview preparation, and networking without sign-in. Meet [the developers](https://www.jobspilot.site/#developers), connect on LinkedIn, or use the GitHub collaboration and issue links to contribute.
+
 ---
 
 ## Architecture

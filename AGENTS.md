@@ -21,6 +21,7 @@
 ### 2.1 Owner attribution
 
 - Fixes committed through this assistant/account are authored as `Unigalactix <kodagantir295@gmail.com>` and that author identity stands in for `Rajesh` in any human-readable status note.
+- Commit and push as **Unigalactix only**. Do not add `Co-authored-by` trailers or credit any additional author.
 - When a commit message references an issue, prefer GitHub's auto-close syntax (`Closes #N`) on the first issue and an explicit `gh issue close` for the rest in the same batch.
 - Do not credit `Implementation`, `Copilot`, `AI`, or any model name in commit messages or issue comments.
 

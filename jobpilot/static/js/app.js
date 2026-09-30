@@ -313,11 +313,16 @@ function _byokRenderAi() {
   const config = window.aiConfigFromSettings({ ..._byokDraft, ai_provider: _byokEditingProvider });
   document.getElementById("byok-ai-provider").value = _byokEditingProvider;
   document.getElementById("byok-ai-key").value = config.key;
+  document.getElementById("byok-ai-key").placeholder = `Paste your ${info.label} API key`;
   document.getElementById("byok-ai-key-label").textContent = `${info.label} API key`;
   document.getElementById("byok-ai-model").value = config.model;
+  document.getElementById("byok-ai-model").placeholder = `Enter an exact ${info.label} model ID`;
+  const modelLabel = document.getElementById("byok-ai-model-list-label");
+  if (modelLabel) modelLabel.textContent = `${info.label} models`;
   document.getElementById("byok-ai-base-url").value = _byokDraft.custom_ai_base_url || "";
   document.getElementById("byok-custom-endpoint").hidden = _byokEditingProvider !== "custom";
   const help = document.getElementById("byok-ai-help");
+  help.textContent = `Get ${info.label} API key`;
   help.hidden = !info.helpUrl;
   if (info.helpUrl) help.href = info.helpUrl;
   else help.removeAttribute("href");
@@ -333,10 +338,16 @@ function _byokSetModelOptions(models, current) {
   select.value = current || "";
 }
 
-function byokChangeAiProvider() {
+function byokChangeAiProvider(provider = document.getElementById("byok-ai-provider").value) {
+  if (provider === _byokEditingProvider) return;
+  if (!Object.hasOwn(window.aiProviders, provider)) {
+    document.getElementById("byok-ai-provider").value = _byokEditingProvider;
+    showToast("Choose a supported AI provider.", "error");
+    return;
+  }
   _byokCaptureAi();
   byokAiConfigChanged();
-  _byokEditingProvider = document.getElementById("byok-ai-provider").value;
+  _byokEditingProvider = provider;
   _byokDraft.ai_provider = _byokEditingProvider;
   _byokRenderAi();
   if (_byokEditingProvider !== "custom" && document.getElementById("byok-ai-key").value) {
@@ -361,7 +372,7 @@ async function byokRefreshModels() {
   const el = document.getElementById("byok-status-ai");
   const button = document.getElementById("byok-model-refresh");
   button.disabled = true;
-  el.textContent = "Loading current models from this provider...";
+  el.textContent = `Loading current ${window.aiProviders[_byokEditingProvider].label} models...`;
   el.className = "byok-status pending";
   _byokModelsController = new AbortController();
   const controller = _byokModelsController;
@@ -392,7 +403,7 @@ async function byokTestAiFromForm() {
   const el = document.getElementById("byok-status-ai");
   const button = document.getElementById("byok-ai-test");
   button.disabled = true;
-  el.textContent = "Testing this key and model...";
+  el.textContent = `Testing your ${window.aiProviders[_byokEditingProvider].label} key and model...`;
   el.className = "byok-status pending";
   try {
     _byokCaptureAi();

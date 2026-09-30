@@ -283,10 +283,73 @@ test("model labels are escaped and stale catalog responses cannot replace a new 
   assert.equal(h.element("byok-model-refresh").disabled, false);
 });
 
+test("provider selection synchronizes labels, placeholders, help links and isolated model drafts", () => {
+  const h = harness({}, true);
+  h.context._byokFormWrite({});
+  for (const [provider, info] of Object.entries(h.context.aiProviders)) {
+    h.element("byok-ai-provider").value = provider;
+    h.context.byokChangeAiProvider(provider);
+    assert.equal(h.element("byok-ai-key-label").textContent, `${info.label} API key`);
+    assert.equal(h.element("byok-ai-key").placeholder, `Paste your ${info.label} API key`);
+    assert.equal(h.element("byok-ai-model-list-label").textContent, `${info.label} models`);
+    assert.equal(h.element("byok-ai-model").placeholder, `Enter an exact ${info.label} model ID`);
+    assert.equal(h.element("byok-ai-help").hidden, !info.helpUrl);
+    if (info.helpUrl) assert.equal(h.element("byok-ai-help").href, info.helpUrl);
+    assert.equal(h.element("byok-custom-endpoint").hidden, provider !== "custom");
+    assert.equal(h.element("byok-ai-key").value, "");
+    assert.equal(h.element("byok-ai-model").value, "");
+    h.element("byok-ai-key").value = `fake-${provider}-key`;
+    h.element("byok-ai-model").value = `${provider}-model`;
+    // Native select controls may emit both input and change for one selection.
+    h.context.byokChangeAiProvider(provider);
+    assert.equal(h.element("byok-ai-key").value, `fake-${provider}-key`);
+    assert.equal(h.element("byok-ai-model").value, `${provider}-model`);
+  }
+  const saved = h.context._byokFormRead();
+  saved.ai_provider = "gemini";
+  h.context._byokFormWrite(saved);
+  assert.equal(h.element("byok-ai-key-label").textContent, "Google Gemini API key");
+  assert.equal(h.element("byok-ai-key").value, "fake-gemini-key");
+  assert.equal(h.element("byok-ai-model").value, "gemini-model");
+  assert.equal(h.element("byok-ai-help").href, "https://aistudio.google.com/apikey");
+});
+
+test("provider control updates on input as well as committed change and starts with neutral copy", () => {
+  const template = fs.readFileSync(path.join(root, "jobpilot", "templates", "index.html"), "utf8");
+  const select = template.match(/<select\b[^>]*id="byok-ai-provider"[^>]*>/)[0];
+  assert.match(select, /oninput="byokChangeAiProvider\(this.value\)"/);
+  assert.match(select, /onchange="byokChangeAiProvider\(this.value\)"/);
+  assert.ok(!template.includes('for="byok-ai-key">Anthropic API key'));
+});
+
+test("app modal and action styles use real theme tokens rather than light-only fallbacks", () => {
+  const template = fs.readFileSync(path.join(root, "jobpilot", "templates", "index.html"), "utf8");
+  assert.doesNotMatch(template, /var\(--(?:text1|bg1|border1)\b/);
+});
+
 test("JobsPilot rebrand is present in source templates and metadata", () => {
   for (const file of ["base.html", "index.html", "landing.html"]) {
     const text = fs.readFileSync(path.join(root, "jobpilot", "templates", file), "utf8");
     assert.ok(text.includes("JobsPilot"));
     assert.ok(!text.includes("JobPilot"));
   }
+});
+
+test("landing offers actionable guides and the requested developer and contribution links", () => {
+  const template = fs.readFileSync(path.join(root, "jobpilot", "templates", "landing.html"), "utf8");
+  for (const id of ["how-it-works", "setup", "career-guides", "developers"]) {
+    assert.ok(template.includes(`id="${id}"`), `Missing landing section ${id}`);
+  }
+  for (const id of ["guide-resume", "guide-routine", "guide-interview", "guide-networking"]) {
+    assert.match(template, new RegExp(`<details\\b[^>]*id="${id}"`));
+  }
+  for (const url of [
+    "https://www.linkedin.com/in/rajesh-kodaganti-323118215/",
+    "https://www.linkedin.com/in/tarun-sailesh-vangipurapu-2b1892271/",
+    "https://github.com/vangipuraputarunsailesh/jobpilot",
+    "https://github.com/vangipuraputarunsailesh/jobpilot/issues/new/choose",
+  ]) assert.ok(template.includes(`href="${url}"`), `Missing link ${url}`);
+  assert.ok(template.includes("Rajesh Kodaganti"));
+  assert.ok(template.includes("Tarun Sailesh Vangipurapu"));
+  assert.doesNotMatch(template, /passphrase-protected|explore sample data|callback rate|5-min setup/i);
 });

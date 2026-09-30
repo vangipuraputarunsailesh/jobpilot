@@ -26,6 +26,7 @@ on a clean GitHub Actions runner without any pip install.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -105,6 +106,19 @@ def _apply_text_rewrites(html: str) -> str:
     return html
 
 
+def _version_static_assets(html: str) -> str:
+    def version(match: re.Match[str]) -> str:
+        asset = DOCS / match["path"]
+        digest = hashlib.sha256(asset.read_bytes()).hexdigest()[:12]
+        return f'{match["prefix"]}{match["path"]}?v={digest}{match["quote"]}'
+
+    return re.sub(
+        r"""(?P<prefix>\b(?:src|href)=["'])(?P<path>static/[^"'?#]+)(?P<quote>["'])""",
+        version,
+        html,
+    )
+
+
 def render(child_template: str, out_name: str) -> None:
     base = (TPL_DIR / "base.html").read_text(encoding="utf-8")
     child = (TPL_DIR / child_template).read_text(encoding="utf-8")
@@ -123,6 +137,8 @@ def render(child_template: str, out_name: str) -> None:
 
     # 5. Rewrite absolute paths for static hosting
     merged = _apply_text_rewrites(merged)
+    # Keep each page paired with its CSS/JS instead of a cached pre-deploy copy.
+    merged = _version_static_assets(merged)
 
     # 6. Fail fast if any unprocessed Jinja tag survived. The stdlib stripper
     #    only knows about `{% extends %}`, `{% block %}`, `{# comment #}`,
