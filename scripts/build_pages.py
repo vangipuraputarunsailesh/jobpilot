@@ -1,6 +1,6 @@
 """
 scripts/build_pages.py — Build a static GitHub-Pages-deployable copy of the
-JobPilot frontend under ./docs/.
+JobsPilot frontend under ./docs/.
 
 What it does:
   1. Reads jobpilot/templates/base.html and inlines its blocks with the child

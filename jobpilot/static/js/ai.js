@@ -1,21 +1,8 @@
 // jobpilot/static/js/ai.js
 //
-// Browser-side Claude (Anthropic) AI engine. This is the only AI path —
-// the static GitHub Pages deploy has no backend, so there is no proxy and
-// no server fallback.
-//
-// Flow:
-//   1. User stores an Anthropic API key in the BYOK vault (Settings → AI).
-//   2. authHeaders() reads the key out of the in-memory cache and surfaces
-//      it as `X-Anthropic-Key`; this module reads that and calls
-//      `https://api.anthropic.com/v1/messages` directly from the browser.
-//      The `anthropic-dangerous-direct-browser-access: true` header opts
-//      into Anthropic's browser-CORS endpoint.
-//   3. No key → `_demoFallback()` shows a throttled toast ("AI requires an
-//      Anthropic API key") and opens Settings, then throws so callers can
-//      degrade gracefully.
-//   4. Every successful call bumps `window.bumpUsage('claude_calls')`, which
-//      writes to `localStorage.jp_usage_v1` for the Settings → API Usage panel.
+// Browser-side AI engine. Requests go only to the selected provider using
+// its own key from the encrypted vault; there is no server or provider fallback.
+// Provider catalogs are fetched on demand, never baked into the static build.
 //
 // Exposed on `window.*` so app.js (loaded after this) can call them:
 //   aiScoreAts(resumeText, jobDescription, finalCheck=false)
@@ -37,75 +24,202 @@
 
   // ---- Config ---------------------------------------------------------------
 
-  const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
   const ANTHROPIC_VERSION = "2023-06-01";
-  const DEFAULT_MODEL = "claude-sonnet-4-5";
   const CHAT_HISTORY_MAX_MESSAGES = 8;
+  const PROVIDERS = Object.freeze({
+    anthropic: { label: "Anthropic", keyField: "anthropic", modelField: "claude_model",
+      baseUrl: "https://api.anthropic.com/v1", helpUrl: "https://console.anthropic.com/settings/keys" },
+    openai: { label: "OpenAI", keyField: "openai_key", modelField: "openai_model",
+      baseUrl: "https://api.openai.com/v1", helpUrl: "https://platform.openai.com/api-keys" },
+    gemini: { label: "Google Gemini", keyField: "gemini_key", modelField: "gemini_model",
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta", helpUrl: "https://aistudio.google.com/apikey" },
+    openrouter: { label: "OpenRouter", keyField: "openrouter_key", modelField: "openrouter_model",
+      baseUrl: "https://openrouter.ai/api/v1", helpUrl: "https://openrouter.ai/settings/keys" },
+    custom: { label: "Custom (OpenAI-compatible)", keyField: "custom_ai_key", modelField: "custom_ai_model",
+      baseUrl: "", helpUrl: "" },
+  });
 
-  // BYOK key + model are read out of the in-memory cache populated by
-  // `app.js` (Phase 2 BYOK module). We don't import — we just peek at
-  // the `_byokHeaders()` output via `window.authHeaders()`.
-  function _byokAnthropic() {
-    try {
-      const h = window.authHeaders ? window.authHeaders() : {};
-      return {
-        key: h["X-Anthropic-Key"] || "",
-        model: h["X-Claude-Model"] || DEFAULT_MODEL,
-      };
-    } catch (_) {
-      return { key: "", model: DEFAULT_MODEL };
-    }
+  function aiConfigFromSettings(settings) {
+    const provider = settings.ai_provider || "anthropic";
+    if (!Object.hasOwn(PROVIDERS, provider)) throw new Error("Unknown AI provider. Choose one in Settings.");
+    const info = PROVIDERS[provider];
+    return {
+      provider,
+      key: (settings[info.keyField] || "").trim(),
+      model: (settings[info.modelField] || "").trim() ||
+        (!settings.ai_provider && settings.anthropic && provider === "anthropic" ? "claude-sonnet-4-5" : ""),
+      baseUrl: provider === "custom" ? (settings.custom_ai_base_url || "").trim() : info.baseUrl,
+    };
   }
 
-  // Should this call go direct to Anthropic? True iff the user has a BYOK
-  // key in their browser. Demo or no-key users fall through to the banner
-  // shim below which nudges them to Settings.
+  function _selectedConfig() {
+    return aiConfigFromSettings(window.getAiSettings ? window.getAiSettings() : {});
+  }
+
   function _useDirect() {
-    const { key } = _byokAnthropic();
-    return !!key;
+    return !!_selectedConfig().key;
+  }
+
+  function aiValidateConfig(config, requireModel = true) {
+    if (!Object.hasOwn(PROVIDERS, config.provider)) throw new Error("Unknown AI provider.");
+    if (!config.key) throw new Error(`Add your ${PROVIDERS[config.provider].label} API key in Settings.`);
+    if (requireModel && !config.model) throw new Error("Choose a model or enter its exact ID in Settings.");
+    if (config.model && /[\s?#]/.test(config.model)) throw new Error("Model IDs cannot contain whitespace, ? or #.");
+    if (config.provider !== "custom") return PROVIDERS[config.provider].baseUrl;
+    let url;
+    try { url = new URL(config.baseUrl); }
+    catch (_) { throw new Error("Enter a valid HTTPS API base URL, including its API version path."); }
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
+      throw new Error("Custom API URLs must use HTTPS, without credentials, a query, or a fragment.");
+    }
+    if (/\/(chat\/completions|models)\/?$/.test(url.pathname)) {
+      throw new Error("Enter the API base URL, without /chat/completions or /models.");
+    }
+    return url.href.replace(/\/+$/, "");
+  }
+
+  function _headers(config) {
+    if (config.provider === "anthropic") return {
+      "x-api-key": config.key, "anthropic-version": ANTHROPIC_VERSION,
+      "anthropic-dangerous-direct-browser-access": "true",
+    };
+    if (config.provider === "gemini") return { "x-goog-api-key": config.key };
+    return { Authorization: `Bearer ${config.key}` };
+  }
+
+  async function _request(config, url, options = {}) {
+    let response;
+    try {
+      response = await fetch(url, {
+        ...options, redirect: "error", credentials: "omit",
+        signal: options.signal || AbortSignal.timeout(120000),
+        headers: { ..._headers(config), ...(options.body ? { "Content-Type": "application/json" } : {}) },
+      });
+    } catch (error) {
+      if (error.name === "AbortError") throw error;
+      throw new Error(`${PROVIDERS[config.provider].label} request failed. Check the endpoint, connection and browser CORS support, or retry after a timeout.`);
+    }
+    if (!response.ok) {
+      const hint = response.status === 401 || response.status === 403 ? "Check the API key and model permissions."
+        : response.status === 429 ? "Check provider quota or billing, then retry."
+        : response.status === 400 || response.status === 404 ? "Check the model ID and API compatibility."
+        : "Retry or check the provider status.";
+      // Do not echo upstream error bodies: custom providers may reflect keys or prompts.
+      throw new Error(`${PROVIDERS[config.provider].label} HTTP ${response.status}. ${hint}`);
+    }
+    try { return await response.json(); }
+    catch (_) { throw new Error("The AI provider returned an invalid JSON response."); }
+  }
+
+  async function aiListModels(config, signal) {
+    const base = aiValidateConfig(config, false);
+    const models = new Map();
+    const cursors = new Set();
+    let cursor = "";
+    do {
+      const url = new URL(`${base}/models`);
+      if (config.provider === "anthropic") {
+        url.searchParams.set("limit", "1000");
+        if (cursor) url.searchParams.set("after_id", cursor);
+      } else if (config.provider === "gemini") {
+        url.searchParams.set("pageSize", "1000");
+        if (cursor) url.searchParams.set("pageToken", cursor);
+      }
+      const data = await _request(config, url.href, { signal });
+      const rows = config.provider === "gemini" ? data.models : data.data;
+      if (!Array.isArray(rows)) throw new Error("The provider did not return a model catalog. Enter a model ID manually.");
+      for (const row of rows) {
+        const id = config.provider === "gemini" ? row.name?.replace(/^models\//, "") : row.id;
+        if (typeof id !== "string" || !id) continue;
+        if (config.provider === "gemini" && !row.supportedGenerationMethods?.includes("generateContent")) continue;
+        if (config.provider === "openrouter" && row.architecture &&
+            (!row.architecture.input_modalities?.includes("text") || !row.architecture.output_modalities?.includes("text"))) continue;
+        // OpenAI and Gemini catalogs do not expose complete text-chat capability metadata.
+        if (["openai", "gemini"].includes(config.provider) &&
+            /embedding|whisper|tts|transcri|realtime|audio|image|dall-e|moderation|sora|aqa|babbage|davinci/i.test(id)) continue;
+        models.set(id, { id, name: String(row.display_name || row.displayName || row.name || id) });
+      }
+      cursor = config.provider === "anthropic" && data.has_more ? data.last_id
+        : config.provider === "gemini" ? data.nextPageToken : "";
+      if (config.provider === "anthropic" && data.has_more && !cursor) {
+        throw new Error("The provider returned an invalid model catalog cursor.");
+      }
+      if (cursor && cursors.has(cursor)) throw new Error("The provider repeated a model catalog page. Try again.");
+      if (cursor) cursors.add(cursor);
+    } while (cursor);
+    return [...models.values()].sort((a, b) => a.id.localeCompare(b.id));
   }
 
   // ---- Core call ------------------------------------------------------------
 
-  // POST direct to api.anthropic.com. Returns the text of the first content
-  // block, trimmed. Throws on HTTP error or missing key.
-  async function _callDirect(systemPrompt, messages, maxTokens) {
-    const { key, model } = _byokAnthropic();
-    if (!key) throw new Error("Missing Anthropic API key");
-    const body = {
-      model: model || DEFAULT_MODEL,
-      max_tokens: maxTokens,
-      messages: messages,
-    };
-    if (systemPrompt) body.system = systemPrompt;
-
-    const headers = {
-      "Content-Type": "application/json",
-      "x-api-key": key,
-      "anthropic-version": ANTHROPIC_VERSION,
-      // Required for browser → Anthropic CORS (Anthropic explicitly opts
-      // into it instead of refusing all browser traffic).
-      "anthropic-dangerous-direct-browser-access": "true",
-    };
-
-    const r = await fetch(ANTHROPIC_URL, {
-      method: "POST",
-      headers: headers,
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) {
-      let detail = "";
-      try { const j = await r.json(); detail = j.error?.message || JSON.stringify(j); }
-      catch (_) { detail = r.statusText; }
-      throw new Error(`Anthropic ${r.status}: ${detail}`);
+  async function _generate(config, systemPrompt, messages, maxTokens) {
+    const base = aiValidateConfig(config);
+    let url;
+    let body;
+    if (config.provider === "anthropic") {
+      url = `${base}/messages`;
+      body = { model: config.model, messages, max_tokens: maxTokens };
+      if (systemPrompt) body.system = systemPrompt;
+    } else if (config.provider === "gemini") {
+      url = `${base}/models/${encodeURIComponent(config.model.replace(/^models\//, ""))}:generateContent`;
+      body = {
+        contents: messages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
+        generationConfig: { maxOutputTokens: maxTokens },
+      };
+      if (systemPrompt) body.systemInstruction = { parts: [{ text: systemPrompt }] };
+    } else {
+      url = `${base}/chat/completions`;
+      body = {
+        model: config.model,
+        messages: [...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []), ...messages],
+        [config.provider === "openai" ? "max_completion_tokens" : "max_tokens"]: maxTokens,
+      };
     }
-    const j = await r.json();
-    const block = (j.content && j.content[0]) || {};
-    // Bump the local usage counter rendered by app.js#refreshUsage(). Wrap
-    // in try/catch so any storage error never breaks the AI call itself.
-    try { if (typeof window.bumpUsage === "function") window.bumpUsage("claude_calls"); } catch (_) {}
-    return (block.text || "").trim();
+    const data = await _request(config, url, { method: "POST", body: JSON.stringify(body) });
+    let text;
+    let finish;
+    if (config.provider === "anthropic") {
+      text = data.content?.filter(b => b.type === "text").map(b => b.text).join("\n");
+      finish = data.stop_reason;
+    } else if (config.provider === "gemini") {
+      const candidate = data.candidates?.[0];
+      text = candidate?.content?.parts?.filter(p => !p.thought && typeof p.text === "string").map(p => p.text).join("\n");
+      finish = candidate?.finishReason;
+      if (data.promptFeedback?.blockReason || (finish && !["STOP", "MAX_TOKENS"].includes(finish))) {
+        throw new Error("The AI provider blocked this response. Review your input or choose another model.");
+      }
+    } else {
+      const choice = data.choices?.[0];
+      text = choice?.message?.content;
+      finish = choice?.finish_reason;
+      if (choice?.message?.refusal || finish === "content_filter") {
+        throw new Error("The AI provider declined this request. Review your input or choose another model.");
+      }
+    }
+    if (["max_tokens", "MAX_TOKENS", "length", "model_context_window_exceeded"].includes(finish)) {
+      throw new Error("The model reached its output limit. Shorten the input or choose another text model.");
+    }
+    if (typeof text !== "string" || !text.trim()) {
+      throw new Error("The model returned no text. Choose a text-chat model compatible with this provider's API.");
+    }
+    return text.trim();
   }
+
+  async function aiTestConfig(config) {
+    await _generate(config, "", [{ role: "user", content: "Reply with OK." }], 1024);
+  }
+
+  async function _callDirect(systemPrompt, messages, maxTokens) {
+    const text = await _generate(_selectedConfig(), systemPrompt, messages, maxTokens);
+    if (typeof window.bumpUsage === "function") window.bumpUsage("ai_calls");
+    return text;
+  }
+
+  window.aiProviders = PROVIDERS;
+  window.aiConfigFromSettings = aiConfigFromSettings;
+  window.aiValidateConfig = aiValidateConfig;
+  window.aiListModels = aiListModels;
+  window.aiTestConfig = aiTestConfig;
 
   // Single user-prompt call (no system, no history).
   async function _call(prompt, maxTokens) {
@@ -119,8 +233,11 @@
     try { return JSON.parse(raw); }
     catch (_) {
       const m = raw.match(/\{[\s\S]*\}/);
-      if (m) return JSON.parse(m[0]);
-      throw new Error("Could not parse Claude JSON output");
+      if (m) {
+        try { return JSON.parse(m[0]); }
+        catch (_) { throw new Error("The selected model returned malformed JSON. Try another text model."); }
+      }
+      throw new Error("The selected model did not return valid JSON. Try another text model.");
     }
   }
 
@@ -324,7 +441,7 @@ When in doubt → count as a match and flag it.
   // ---- No-key shim ----------------------------------------------------------
 
   // The static deploy has no Flask backend, so when a user calls an AI
-  // function without a BYOK Anthropic key we surface a toast + open
+  // function without the selected provider's key we surface a toast + open
   // Settings and throw — each call site already has a try/catch that
   // degrades gracefully (returns the original text, score=0, etc).
   let _byokNudgeShownAt = 0;
@@ -337,7 +454,7 @@ When in doubt → count as a match and flag it.
       try {
         if (typeof window.showToast === "function") {
           window.showToast(
-            "AI requires an Anthropic API key. Open Settings to add one.",
+            "AI requires a key for your selected provider. Open Settings to add one.",
             "error",
           );
         }
@@ -409,20 +526,20 @@ ${jdForPrompt}`;
 
     try {
       const result = await _callJson(prompt, compactMode ? 700 : 900);
+      const validScore = value => Number.isInteger(value) && value >= 0 && value <= 100;
+      const categories = ["core_skills", "experience_match", "tools_technologies", "domain_knowledge", "soft_skills"];
+      if (!result || !validScore(result.score) || typeof result.verdict !== "string" ||
+          typeof result.tip !== "string" ||
+          !["matched_keywords", "missing_keywords"].every(key =>
+            Array.isArray(result[key]) && result[key].every(item => typeof item === "string")) ||
+          !categories.every(key => validScore(result.categories?.[key]))) {
+        throw new Error("The model returned an invalid ATS score. Try another text model.");
+      }
       if (truncationWarning) result.truncation_warning = truncationWarning;
       return result;
     } catch (e) {
       console.warn("[ats] Score error:", e);
-      return {
-        score: 0, verdict: "Error",
-        matched_keywords: [], missing_keywords: [],
-        categories: {
-          core_skills: 0, experience_match: 0,
-          tools_technologies: 0, domain_knowledge: 0, soft_skills: 0,
-        },
-        tip: `Scoring failed: ${e.message || e}`,
-        truncation_warning: truncationWarning,
-      };
+      throw e;
     }
   }
 
@@ -752,13 +869,7 @@ CERTIFICATIONS_PLACEHOLDER
       };
     } catch (e) {
       console.warn("[tailor] Error:", e);
-      return {
-        tailored: resumeText,
-        report: `Error: ${e.message || e}`,
-        jd_analysis: "",
-        audit: "",
-        truncation_warning: truncationWarning,
-      };
+      throw e;
     }
   }
 
@@ -820,10 +931,10 @@ ${curr.text}`;
     messages.push({ role: "user", content: instruction });
 
     const systemPrompt =
-`# SYSTEM PROMPT: JobPilot Conversational Resume Editor v3.0
+`# SYSTEM PROMPT: JobsPilot Conversational Resume Editor v3.0
 
 ## IDENTITY
-You are JobPilot's AI Resume Coach — a conversational career expert who helps
+You are JobsPilot's AI Resume Coach — a conversational career expert who helps
 candidates refine their tailored resume through natural dialogue. You combine
 the precision of a professional resume writer with the warmth of a career mentor.
 
@@ -1024,13 +1135,7 @@ ANSWER:
       };
     } catch (e) {
       console.warn("[chat_instruction] Error:", e);
-      return {
-        updated_resume: resumeText,
-        explanation: `Error: ${e.message || e}`,
-        resume_changed: false,
-        version: version,
-        truncation_warning: truncationWarning,
-      };
+      throw e;
     }
   }
 
@@ -1064,7 +1169,7 @@ Return ONLY the improved bullet text. Nothing else.`;
       return { improved };
     } catch (e) {
       console.warn("[improve_line] Error:", e);
-      return { improved: line };
+      throw e;
     }
   }
 
@@ -1093,10 +1198,10 @@ ${jdClip.text}`;
     }
 
     const prompt =
-`# SYSTEM PROMPT: JobPilot Resume Generation Engine v2.0
+`# SYSTEM PROMPT: JobsPilot Resume Generation Engine v2.0
 
 ## IDENTITY
-You are JobPilot's Principal Resume Architect — an expert resume writer with
+You are JobsPilot's Principal Resume Architect — an expert resume writer with
 deep knowledge of ATS systems, technical hiring, and industry-standard role
 expectations across software engineering, data engineering, AI/ML, product,
 and other tech domains.
@@ -1282,7 +1387,7 @@ ${userDescription}`;
       return { resume, truncation_warning: truncationWarning };
     } catch (e) {
       console.warn("[generate_resume] Error:", e);
-      return { resume: "", truncation_warning: truncationWarning, error: e.message || String(e) };
+      throw e;
     }
   }
 

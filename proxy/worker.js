@@ -1,4 +1,4 @@
-// JobPilot job-search proxy — Cloudflare Worker (Phase 5)
+// JobsPilot job-search proxy — Cloudflare Worker (Phase 5)
 //
 // This is a STATELESS forwarder. It accepts:
 //   POST /search { platform, title, location, date_posted, page }

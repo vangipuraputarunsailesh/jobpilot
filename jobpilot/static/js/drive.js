@@ -3,7 +3,7 @@
 // All resume reads/writes go directly browser → Google Drive API (no Flask
 // proxy). The user's resumes live in their own Drive `appDataFolder` — a
 // hidden per-app folder that's invisible in the normal Drive UI and only
-// accessible by JobPilot. The user can revoke access at any time from
+// accessible by JobsPilot. The user can revoke access at any time from
 // https://myaccount.google.com/permissions.
 //
 // Architecture:

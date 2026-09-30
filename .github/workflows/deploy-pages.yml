@@ -12,6 +12,7 @@ on:
       - "jobpilot/templates/**"
       - "jobpilot/static/**"
       - "scripts/build_pages.py"
+      - "scripts/test-ai.cjs"
       - ".github/workflows/deploy-pages.yml"
   workflow_dispatch: {}
 
@@ -33,6 +34,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Test AI providers and settings
+        run: node --test scripts/test-ai.cjs
 
       - name: Setup Python
         uses: actions/setup-python@v5

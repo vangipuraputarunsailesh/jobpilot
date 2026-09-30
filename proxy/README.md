@@ -1,7 +1,7 @@
-# JobPilot Job-Search Proxy (Cloudflare Worker)
+# JobsPilot Job-Search Proxy (Cloudflare Worker)
 
 This is the **Phase 5** stateless job-search proxy. It exists so the
-JobPilot static frontend (Phase 6 GitHub Pages cutover) can reach
+JobsPilot static frontend (Phase 6 GitHub Pages cutover) can reach
 `api.adzuna.com`, `jsearch.p.rapidapi.com`, `data.usajobs.gov`,
 `www.themuse.com`, `remotive.com`, and `www.arbeitnow.com` without
 hitting browser CORS restrictions or exposing BYOK keys to a third-party
@@ -43,7 +43,7 @@ wrangler deploy
 
 Wrangler will print the deployed URL, e.g.
 `https://jobpilot-proxy.<your-subdomain>.workers.dev`. Paste that URL into
-the **Cloudflare Worker URL** field of JobPilot's in-app Settings modal.
+the **Cloudflare Worker URL** field of JobsPilot's in-app Settings modal.
 
 ## CORS hardening
 
@@ -88,7 +88,7 @@ curl -X POST http://localhost:8787/search `
 
 Cloudflare Workers give you 100,000 requests/day on the free tier, run on
 a global anycast network with sub-50 ms cold starts, and bill nothing for
-the kind of personal-use traffic JobPilot generates. No credit card
+the kind of personal-use traffic JobsPilot generates. No credit card
 required to deploy. For a single-developer self-hostable tool, this is
 the lowest-friction option that meets the no-server constraint of the
 GitHub Pages cutover.

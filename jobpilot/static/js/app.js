@@ -1,7 +1,7 @@
 /**
- * app.js  —  JobPilot static-site frontend (Phase 1–5)
+ * app.js  —  JobsPilot static-site frontend (Phase 1–5)
  *
- * JobPilot is a static GitHub Pages app. There is no backend, no `/api/*`
+ * JobsPilot is a static GitHub Pages app. There is no backend, no `/api/*`
  * surface, and no server-side state. All sensitive work happens in the
  * browser, against the user's own provider credentials.
  *
@@ -16,7 +16,7 @@
  *   - Job-search orchestration. The Cloudflare Worker URL (saved in the
  *     BYOK vault as `cf_worker_url`) is the sole remote endpoint; the
  *     actual fetch + results rendering lives in jobs.js.
- *   - Tailor / Score / Chat plumbing. The real Anthropic calls live in
+ *   - Tailor / Score / Chat plumbing. The selected provider's calls live in
  *     ai.js; this file only wires the buttons.
  *   - Drive resume import/export (delegated to drive.js).
  *   - Resume parsing (delegated to resume-parser.js, pdf.js + mammoth.js).
@@ -58,7 +58,7 @@ function clearLoginSession() {
   localStorage.removeItem("jp_email");
   localStorage.removeItem("jp_demo");
   localStorage.removeItem("jp_session_expiry");
-  // Phase 1: drop the Google access_token + expiry alongside the JobPilot
+  // Phase 1: drop the Google access_token + expiry alongside the JobsPilot
   // session. We never want a stale Drive token surviving sign-out.
   localStorage.removeItem("jp_gtoken");
   localStorage.removeItem("jp_gtoken_expiry");
@@ -112,12 +112,15 @@ const BYOK_STORAGE_KEY = "jp_byok_v1";
 const BYOK_PBKDF2_ITERS = 200_000;
 const BYOK_SALT_BYTES = new TextEncoder().encode("jobpilot-byok-v1");
 
-// In-memory plaintext cache. Keys: anthropic, claude_model, rapidapi,
-// adzuna_id, adzuna_key, usajobs_email, usajobs_key, cf_worker_url
-// (Phase 5 — Cloudflare Worker URL for client-side job search). Empty
-// object when no keys have ever been saved (or after `byokClear()`).
+// AI fields are defined by aiProviders; legacy Anthropic fields are preserved.
 let _byokPlain = {};
 let _byokLoaded = false;
+let _byokReady = null;
+
+function getAiSettings() {
+  if (!_byokLoaded) throw new Error("Settings are still loading. Please try again.");
+  return _byokPlain;
+}
 
 function _byokHeaders() {
   const out = {};
@@ -182,17 +185,23 @@ async function _byokDecrypt(blob, seed) {
 // from localStorage into the in-memory `_byokPlain` cache. Silently no-ops
 // if the user hasn't saved any keys yet, isn't signed in, or the blob is
 // corrupted (the Settings modal will let them re-enter their keys).
-async function byokInit() {
-  _byokLoaded = true;  // mark loaded even on empty, so headers() returns {}
+function byokInit() {
+  if (!_byokReady) _byokReady = _loadByok();
+  return _byokReady;
+}
+
+async function _loadByok() {
+  try { readUsage(); } catch (e) { console.warn("Could not migrate AI usage counters", e); }
   const blob = localStorage.getItem(BYOK_STORAGE_KEY);
   const seed = getEmail();
-  if (!blob || !seed) return;
   try {
-    _byokPlain = await _byokDecrypt(blob, seed) || {};
+    if (blob && seed) _byokPlain = await _byokDecrypt(blob, seed) || {};
   } catch (e) {
     console.warn("byok: failed to decrypt stored keys; clearing", e);
     localStorage.removeItem(BYOK_STORAGE_KEY);
     _byokPlain = {};
+  } finally {
+    _byokLoaded = true;
   }
 }
 
@@ -212,6 +221,7 @@ async function byokSave(plain) {
   const blob = await _byokEncrypt(cleaned, seed);
   localStorage.setItem(BYOK_STORAGE_KEY, blob);
   _byokPlain = cleaned;
+  _byokLoaded = true;
 }
 
 function byokClear() {
@@ -225,31 +235,6 @@ function byokClear() {
 async function byokTestProvider(provider, candidateHeaders) {
   const h = candidateHeaders || {};
   try {
-    if (provider === "anthropic") {
-      const key = h["X-Anthropic-Key"];
-      const model = h["X-Claude-Model"] || "claude-sonnet-4-5";
-      if (!key) return { ok: false, detail: "Missing key", status: 0 };
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": key,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 1,
-          messages: [{ role: "user", content: "ping" }],
-        }),
-      });
-      let body = {};
-      try { body = await r.json(); } catch (_) {}
-      const detail = r.ok
-        ? "OK"
-        : (body && body.error && body.error.message) || `HTTP ${r.status}`;
-      return { ok: r.ok, detail, status: r.status };
-    }
     if (provider === "jsearch") {
       const key = h["X-RapidAPI-Key"];
       if (!key) return { ok: false, detail: "Missing key", status: 0 };
@@ -295,11 +280,140 @@ async function byokTestProvider(provider, candidateHeaders) {
 // handlers populate the form from the in-memory `_byokPlain` cache, run
 // per-provider Test probes, and persist via `byokSave()`.
 
+let _byokDraft = {};
+let _byokEditingProvider = "anthropic";
+let _byokAiRequest = 0;
+let _byokModelsController = null;
+
+function byokAiConfigChanged() {
+  _byokAiRequest++;
+  if (_byokModelsController) _byokModelsController.abort();
+  _byokModelsController = null;
+  const status = document.getElementById("byok-status-ai");
+  if (status) { status.textContent = ""; status.className = "byok-status"; }
+  for (const id of ["byok-model-refresh", "byok-ai-test"]) {
+    const button = document.getElementById(id);
+    if (button) button.disabled = false;
+  }
+}
+
+function _byokCaptureAi() {
+  const info = window.aiProviders[_byokEditingProvider];
+  if (!info) throw new Error("Choose a supported AI provider.");
+  _byokDraft[info.keyField] = document.getElementById("byok-ai-key").value.trim();
+  _byokDraft[info.modelField] = document.getElementById("byok-ai-model").value.trim();
+  if (_byokEditingProvider === "custom") {
+    _byokDraft.custom_ai_base_url = document.getElementById("byok-ai-base-url").value.trim();
+  }
+  _byokDraft.ai_provider = _byokEditingProvider;
+}
+
+function _byokRenderAi() {
+  const info = window.aiProviders[_byokEditingProvider];
+  const config = window.aiConfigFromSettings({ ..._byokDraft, ai_provider: _byokEditingProvider });
+  document.getElementById("byok-ai-provider").value = _byokEditingProvider;
+  document.getElementById("byok-ai-key").value = config.key;
+  document.getElementById("byok-ai-key-label").textContent = `${info.label} API key`;
+  document.getElementById("byok-ai-model").value = config.model;
+  document.getElementById("byok-ai-base-url").value = _byokDraft.custom_ai_base_url || "";
+  document.getElementById("byok-custom-endpoint").hidden = _byokEditingProvider !== "custom";
+  const help = document.getElementById("byok-ai-help");
+  help.hidden = !info.helpUrl;
+  if (info.helpUrl) help.href = info.helpUrl;
+  else help.removeAttribute("href");
+  _byokSetModelOptions([], config.model);
+}
+
+function _byokSetModelOptions(models, current) {
+  const select = document.getElementById("byok-ai-model-list");
+  select.innerHTML = `<option value="">Choose a model, or enter an ID below</option>` +
+    (current && !models.some(m => m.id === current)
+      ? `<option value="${escHtml(current)}">${escHtml(current)} (saved/manual; not verified)</option>` : "") +
+    models.map(m => `<option value="${escHtml(m.id)}">${escHtml(m.id)}${m.name !== m.id ? ` - ${escHtml(m.name)}` : ""}</option>`).join("");
+  select.value = current || "";
+}
+
+function byokChangeAiProvider() {
+  _byokCaptureAi();
+  byokAiConfigChanged();
+  _byokEditingProvider = document.getElementById("byok-ai-provider").value;
+  _byokDraft.ai_provider = _byokEditingProvider;
+  _byokRenderAi();
+  if (_byokEditingProvider !== "custom" && document.getElementById("byok-ai-key").value) {
+    byokRefreshModels();
+  }
+}
+
+function byokSelectAiModel() {
+  const value = document.getElementById("byok-ai-model-list").value;
+  if (value) document.getElementById("byok-ai-model").value = value;
+  byokAiConfigChanged();
+}
+
+function byokAiCredentialsChanged() {
+  byokAiConfigChanged();
+  _byokSetModelOptions([], document.getElementById("byok-ai-model").value.trim());
+}
+
+async function byokRefreshModels() {
+  byokAiConfigChanged();
+  const ticket = _byokAiRequest;
+  const el = document.getElementById("byok-status-ai");
+  const button = document.getElementById("byok-model-refresh");
+  button.disabled = true;
+  el.textContent = "Loading current models from this provider...";
+  el.className = "byok-status pending";
+  _byokModelsController = new AbortController();
+  const controller = _byokModelsController;
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    _byokCaptureAi();
+    const models = await window.aiListModels(window.aiConfigFromSettings(_byokDraft), controller.signal);
+    if (ticket !== _byokAiRequest) return;
+    _byokSetModelOptions(models, document.getElementById("byok-ai-model").value.trim());
+    el.textContent = models.length
+      ? `${models.length} models loaded just now. Select a text-chat model, then test it; API access and compatibility vary.`
+      : "No text models were listed. Enter a supported model ID manually, then test it.";
+    el.className = "byok-status " + (models.length ? "ok" : "fail");
+  } catch (e) {
+    if (ticket !== _byokAiRequest) return;
+    el.textContent = (e.name === "AbortError" ? "Model discovery timed out." : e.message) +
+      " You can still enter an exact model ID manually.";
+    el.className = "byok-status fail";
+  } finally {
+    clearTimeout(timeout);
+    if (ticket === _byokAiRequest) { button.disabled = false; _byokModelsController = null; }
+  }
+}
+
+async function byokTestAiFromForm() {
+  byokAiConfigChanged();
+  const ticket = _byokAiRequest;
+  const el = document.getElementById("byok-status-ai");
+  const button = document.getElementById("byok-ai-test");
+  button.disabled = true;
+  el.textContent = "Testing this key and model...";
+  el.className = "byok-status pending";
+  try {
+    _byokCaptureAi();
+    await window.aiTestConfig(window.aiConfigFromSettings(_byokDraft));
+    if (ticket !== _byokAiRequest) return;
+    el.textContent = "Text generation works. Save to use this provider for all AI features.";
+    el.className = "byok-status ok";
+  } catch (e) {
+    if (ticket !== _byokAiRequest) return;
+    el.textContent = e.message;
+    el.className = "byok-status fail";
+  } finally {
+    if (ticket === _byokAiRequest) button.disabled = false;
+  }
+}
+
 function _byokFormRead() {
+  _byokCaptureAi();
   const v = (id) => (document.getElementById(id) || {}).value || "";
   return {
-    anthropic:     v("byok-anthropic").trim(),
-    claude_model:  v("byok-claude-model").trim(),
+    ..._byokDraft,
     rapidapi:      v("byok-rapidapi").trim(),
     adzuna_id:     v("byok-adzuna-id").trim(),
     adzuna_key:    v("byok-adzuna-key").trim(),
@@ -311,9 +425,12 @@ function _byokFormRead() {
 }
 
 function _byokFormWrite(p) {
+  _byokDraft = { ...p };
+  const config = window.aiConfigFromSettings(p);
+  _byokEditingProvider = config.provider;
+  _byokDraft[window.aiProviders[config.provider].modelField] = config.model;
+  _byokRenderAi();
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ""; };
-  set("byok-anthropic",     p.anthropic);
-  set("byok-claude-model",  p.claude_model);
   set("byok-rapidapi",      p.rapidapi);
   set("byok-adzuna-id",     p.adzuna_id);
   set("byok-adzuna-key",    p.adzuna_key);
@@ -322,18 +439,30 @@ function _byokFormWrite(p) {
   set("byok-cf-worker-url", p.cf_worker_url);
 }
 
-function openSettingsModal() {
+async function openSettingsModal() {
   const ov = document.getElementById("byok-overlay");
   if (!ov) return;
-  _byokFormWrite(_byokPlain || {});
+  try {
+    await byokInit();
+    byokAiConfigChanged();
+    _byokFormWrite(_byokPlain || {});
+  } catch (e) {
+    showToast("Could not open Settings: " + e.message, "error");
+    return;
+  }
   // Reset every probe status pill.
   document.querySelectorAll(".byok-status").forEach(el => { el.textContent = ""; el.className = "byok-status"; });
   const st = document.getElementById("byok-save-status"); if (st) { st.textContent = ""; st.className = "byok-save-status"; }
   ov.style.display = "flex";
   document.body.style.overflow = "hidden";
+  if (_byokEditingProvider !== "custom" && document.getElementById("byok-ai-key").value) byokRefreshModels();
 }
 
 function closeSettingsModal() {
+  byokAiConfigChanged();
+  _byokDraft = {};
+  const key = document.getElementById("byok-ai-key");
+  if (key) key.value = "";
   const ov = document.getElementById("byok-overlay");
   if (ov) ov.style.display = "none";
   document.body.style.overflow = "";
@@ -345,11 +474,7 @@ async function byokTestFromForm(provider) {
   const el = document.getElementById(statusId);
   if (el) { el.textContent = "Testing…"; el.className = "byok-status pending"; }
   let candidate = {};
-  if (provider === "anthropic") {
-    if (!f.anthropic) { if (el) { el.textContent = "Paste a key first"; el.className = "byok-status fail"; } return; }
-    candidate = { "X-Anthropic-Key": f.anthropic };
-    if (f.claude_model) candidate["X-Claude-Model"] = f.claude_model;
-  } else if (provider === "jsearch") {
+  if (provider === "jsearch") {
     if (!f.rapidapi) { if (el) { el.textContent = "Paste a key first"; el.className = "byok-status fail"; } return; }
     candidate = { "X-RapidAPI-Key": f.rapidapi };
   } else if (provider === "adzuna") {
@@ -376,10 +501,14 @@ async function byokSaveFromForm() {
   if (btn) btn.disabled = true;
   if (st) { st.textContent = "Saving…"; st.className = "byok-save-status pending"; }
   try {
-    await byokSave(_byokFormRead());
-    if (st) { st.textContent = "Saved. Keys are encrypted in this browser and never sent to JobPilot's server."; st.className = "byok-save-status ok"; }
+    const form = _byokFormRead();
+    const config = window.aiConfigFromSettings(form);
+    // An empty AI key is allowed so job-search-only users can save settings or remove a key.
+    if (config.key) window.aiValidateConfig(config);
+    await byokSave(form);
+    if (st) { st.textContent = "Saved. Keys are encrypted in this browser and never sent to JobsPilot's server."; st.className = "byok-save-status ok"; }
     showToast("Settings saved.", "success");
-    setTimeout(closeSettingsModal, 900);
+    closeSettingsModal();
   } catch (e) {
     if (st) { st.textContent = "Save failed: " + (e && e.message || e); st.className = "byok-save-status fail"; }
   } finally {
@@ -428,7 +557,7 @@ function getGoogleToken() {
       reject(new Error("demo-no-drive")); return;
     }
     if (_gtokenValid()) { resolve(localStorage.getItem("jp_gtoken")); return; }
-    const clientId = (window.JOBPILOT_GOOGLE_CLIENT_ID ||
+    const clientId = (window.JOBSPILOT_GOOGLE_CLIENT_ID || window.JOBPILOT_GOOGLE_CLIENT_ID ||
       (document.querySelector('meta[name="google-client-id"]') || {}).content || "");
     if (!clientId) { reject(new Error("GOOGLE_CLIENT_ID not configured")); return; }
     if (typeof google === 'undefined' || !google.accounts || !google.accounts.oauth2) {
@@ -497,7 +626,7 @@ function revealTopbarUser() {
   const userEl = document.getElementById("topbar-user");
   const btnEl  = document.getElementById("logout-btn");
   if (userEl) {
-    userEl.textContent  = email;
+    userEl.textContent  = localStorage.getItem("jp_demo") === "1" ? "Demo user" : email;
     userEl.style.display = "";
   }
   if (btnEl) btnEl.style.display = "";
@@ -539,7 +668,7 @@ function googleSignIn() {
 
 async function handleGoogleCredential(_response) {
   // Dead code path — see googleSignIn() above. The real handler is in
-  // templates/landing.html and is responsible for both the JobPilot JWT and
+  // templates/landing.html and is responsible for both the JobsPilot JWT and
   // the Drive-scoped access_token (`jp_gtoken`).
   window.location.href = "/";
 }
@@ -577,7 +706,7 @@ function logout(opts) {
     window.location.href = "/";
   };
   if (silent) { proceed(); return; }
-  appConfirm("Sign out of JobPilot? Your in-session history will be cleared.", "Sign out")
+  appConfirm("Sign out of JobsPilot? Your in-session history will be cleared.", "Sign out")
     .then(ok => { if (ok) proceed(); });
 }
 
@@ -1122,7 +1251,7 @@ function replaceStoredResume() {
 }
 
 async function deleteStoredResume() {
-  const ok = await appConfirm("Remove your saved resume from JobPilot?", "Remove resume");
+  const ok = await appConfirm("Remove your saved resume from JobsPilot?", "Remove resume");
   if (!ok) return;
   // Delete the Drive-backed copy if there is one. Local cache is cleared
   // unconditionally below so the chip vanishes even if the Drive call fails.
@@ -1395,7 +1524,7 @@ document.addEventListener("keydown", (e) => {
 
 async function deleteMyAccount() {
   const ok = await appConfirm(
-    "Clear all JobPilot data from this browser? This wipes your saved resume, BYOK keys, and login session. Your Google account is not affected.",
+    "Clear all JobsPilot data from this browser? This wipes your saved resume, BYOK keys, and login session. Your Google account is not affected.",
     "Clear local data",
   );
   if (!ok) return;
@@ -1581,15 +1710,14 @@ async function refreshUsage() {
   const grid = document.getElementById("usage-grid");
   if (!grid) return;
   try {
-    const raw = localStorage.getItem("jp_usage_v1") || "{}";
-    const u = JSON.parse(raw) || {};
+    const u = readUsage();
     const n = (k) => Number(u[k] || 0);
 
     grid.innerHTML = `
       <div class="usage-section">
-        <div class="usage-section-title">Claude AI (Anthropic)</div>
+        <div class="usage-section-title">AI (all providers)</div>
         <div class="usage-stat-row">
-          <div class="usage-stat"><div class="usage-stat-num">${n("claude_calls")}</div><div class="usage-stat-label">Total AI calls</div></div>
+          <div class="usage-stat"><div class="usage-stat-num">${n("ai_calls")}</div><div class="usage-stat-label">Total AI calls</div></div>
           <div class="usage-stat"><div class="usage-stat-num">${n("total_tailors")}</div><div class="usage-stat-label">Tailors</div></div>
           <div class="usage-stat"><div class="usage-stat-num">${n("total_ats_scores")}</div><div class="usage-stat-label">ATS scores</div></div>
           <div class="usage-stat"><div class="usage-stat-num">${n("total_ai_chats")}</div><div class="usage-stat-label">AI chats</div></div>
@@ -1613,13 +1741,23 @@ async function refreshUsage() {
 // Local usage counter — incremented from ai.js after each successful AI call.
 // Stored in localStorage as `jp_usage_v1` so it survives reloads (and stays
 // purely client-side — no telemetry leaves the browser).
+function readUsage() {
+  const usage = JSON.parse(localStorage.getItem("jp_usage_v1") || "{}") || {};
+  if (Object.hasOwn(usage, "claude_calls")) {
+    if (!Object.hasOwn(usage, "ai_calls")) usage.ai_calls = Number(usage.claude_calls) || 0;
+    delete usage.claude_calls;
+    localStorage.setItem("jp_usage_v1", JSON.stringify(usage));
+  }
+  return usage;
+}
+
 function bumpUsage(kind) {
   if (!kind) return;
   try {
-    const u = JSON.parse(localStorage.getItem("jp_usage_v1") || "{}") || {};
+    const u = readUsage();
     u[kind] = Number(u[kind] || 0) + 1;
     localStorage.setItem("jp_usage_v1", JSON.stringify(u));
-  } catch (_) {}
+  } catch (e) { console.warn("Could not save local usage counters", e); }
 }
 
 // ── Health check ──────────────────────────────────────────────────────────────
@@ -2033,7 +2171,7 @@ function buildTailorTab(j, st) {
     return `
       <div class="resume-pick-header">
         <div class="rph-title">Tailor your resume for <b>${escHtml(j.company)}</b></div>
-        <div class="rph-sub">Using your uploaded resume: <b>${escHtml(st.resumeName || "resume")}</b>. JobPilot will rewrite it for this role in seconds.</div>
+        <div class="rph-sub">Using your uploaded resume: <b>${escHtml(st.resumeName || "resume")}</b>. JobsPilot will rewrite it for this role in seconds.</div>
       </div>
       <button class="btn-primary" id="tailor-stored-btn" onclick="startTailor()">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style="margin-right:6px;vertical-align:-2px">
@@ -2050,7 +2188,7 @@ function buildTailorTab(j, st) {
     return `
       <div class="resume-pick-header">
         <div class="rph-title">Add your resume for <b>${escHtml(j.company)}</b></div>
-        <div class="rph-sub">Upload an existing resume or let AI generate one from scratch. JobPilot will tailor it specifically for this role.</div>
+        <div class="rph-sub">Upload an existing resume or let AI generate one from scratch. JobsPilot will tailor it specifically for this role.</div>
       </div>
       <button class="resume-action-btn upload-btn" id="upload-resume-btn">
         <div class="rab-icon">
@@ -2075,7 +2213,7 @@ function buildTailorTab(j, st) {
         </div>
         <div class="rab-text">
           <div class="rab-title">Generate a new resume with AI</div>
-          <div class="rab-desc">Describe your background — Claude builds a professional resume</div>
+          <div class="rab-desc">Describe your background — your selected AI builds a professional resume</div>
         </div>
       </button>`;
   }
@@ -2111,7 +2249,7 @@ function buildTailorTab(j, st) {
   if (st.state === "generating") {
     return `<div class="proc-box">
       <div class="proc-title">Generating your resume...</div>
-      <div class="proc-sub">Claude is building a professional resume from your description</div>
+      <div class="proc-sub">Your selected AI is building a professional resume from your description</div>
       <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
     </div>`;
   }
@@ -2490,9 +2628,9 @@ async function aiImproveSelectedLine() {
     ta.setRangeText(d.improved || original, s, s + "⏳ Improving...".length, "select");
     saveEditorContent();
     showToast("Line improved!", "success");
-  } catch {
+  } catch (e) {
     ta.setRangeText(original, s, s + "⏳ Improving...".length, "select");
-    showToast("Could not improve line", "error");
+    showToast("Could not improve line: " + e.message, "error");
   }
 }
 

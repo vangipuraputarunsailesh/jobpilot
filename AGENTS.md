@@ -1,4 +1,4 @@
-# AGENTS.md — JobPilot Repository Rules for AI Agents & Contributors
+# AGENTS.md — JobsPilot Repository Rules for AI Agents & Contributors
 
 > This file is the contract every AI coding agent (Copilot, Claude, Cursor, etc.) and human contributor MUST read before editing this repository.
 > If a rule here conflicts with a default model behavior, **this file wins**.
@@ -55,7 +55,7 @@ Before touching code, classify the change:
 - Do not commit secrets. `.env` and `*.env*` are git-ignored — keep it that way.
 - Google Identity Services is the only auth path. The Google ID token is decoded client-side for display name + email; never trust an unsigned JWT as a backend-style authz claim (we have no backend).
 - BYOK provider keys live in the browser only, AES-GCM-encrypted in `localStorage` under `jp_byok_v1`. The vault key is derived from the signed-in Google email + a user-supplied passphrase via PBKDF2-SHA-256 (200K iters). Never log, exfiltrate, or persist either input.
-- All BYOK-credentialed HTTP calls go **direct browser → provider** (Anthropic, Google Drive) or **direct browser → user's own Cloudflare Worker** (job search). No JobPilot-owned server sits in the middle.
+- All BYOK-credentialed HTTP calls go **direct browser → provider** (selected AI provider, Google Drive) or **direct browser → user's own Cloudflare Worker** (job search). No JobsPilot-owned server sits in the middle.
 - Sanitize anything that gets interpolated into `innerHTML`. Use the existing `escHtml(...)` helper in [jobpilot/static/js/app.js](jobpilot/static/js/app.js).
 
 ### 2.6 Environment & config

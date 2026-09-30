@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}JobPilot — AI-Powered Job Search{% endblock %}
+{% block title %}JobsPilot — AI-Powered Job Search{% endblock %}
 
 {% block body %}
 <!-- ── Landing page ─────────────────────────────────────────────────── -->
@@ -13,7 +13,7 @@
           <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
         </svg>
       </div>
-      <span class="ln-logo-text">JobPilot</span>
+      <span class="ln-logo-text">JobsPilot</span>
     </div>
     <div class="ln-nav-actions">
       <button class="ln-btn-ghost" onclick="openAuth()">Sign in</button>
@@ -30,8 +30,8 @@
         <span class="ln-headline-accent">on your own keys</span>
       </h1>
       <p class="ln-subheadline">
-        JobPilot is a BYOK (Bring Your Own Key) app. Sign in with Google, paste your Anthropic
-        and job-board keys in Settings, and search → tailor → score → export — all running
+        JobsPilot is a BYOK (Bring Your Own Key) app. Sign in with Google, choose your AI provider,
+        add your API keys in Settings, and search → tailor → score → export — all running
         directly in your browser. Your resume lives in your own Google Drive. We store nothing.
       </p>
       <div class="ln-hero-cta">
@@ -46,7 +46,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
             <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/>
           </svg>
-          Try Demo (shared keys)
+          Try Demo
         </button>
         <a class="ln-cta-live" href="https://github.com/vangipuraputarunsailesh/jobpilot" target="_blank" rel="noopener">
           <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15">
@@ -55,7 +55,7 @@
           View source on GitHub
         </a>
       </div>
-      <p class="ln-hero-note">✓ Free demo with shared keys &nbsp;·&nbsp; ✓ Pay providers directly (no markup) &nbsp;·&nbsp; ✓ 5-min setup</p>
+      <p class="ln-hero-note">✓ Explore the demo &nbsp;·&nbsp; ✓ Bring your own AI key &nbsp;·&nbsp; ✓ Pay providers directly (no markup)</p>
     </div>
 
     <!-- Feature cards -->
@@ -77,7 +77,7 @@
           </svg>
         </div>
         <div class="ln-feat-title">AI Resume Tailoring</div>
-        <div class="ln-feat-desc">Claude AI rewrites your resume for each specific job description you apply to.</div>
+        <div class="ln-feat-desc">Your selected AI model tailors your resume to each specific job description.</div>
       </div>
       <div class="ln-feat-card">
         <div class="ln-feat-icon ln-feat-icon--purple">
@@ -120,7 +120,7 @@
             </svg>
           </div>
           <h3 class="ln-step-title">Sign in with Google</h3>
-          <p class="ln-step-desc">One click. We request only the <code>drive.appdata</code> + <code>drive.file</code> scopes — a private app folder JobPilot can't see anything else in. Your resume gets saved there, not on our server.</p>
+          <p class="ln-step-desc">One click. We request only the <code>drive.appdata</code> + <code>drive.file</code> scopes — a private app folder JobsPilot can't see anything else in. Your resume gets saved there, not on our server.</p>
         </div>
         <div class="ln-step-connector">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="24" height="24">
@@ -135,7 +135,7 @@
             </svg>
           </div>
           <h3 class="ln-step-title">Paste your API keys in Settings</h3>
-          <p class="ln-step-desc">Open ⚙ Settings and paste your Anthropic key (required for AI) plus any of RapidAPI / Adzuna / USAJobs (optional, free tiers available). Keys are encrypted with AES-GCM in your browser — never sent to our server.</p>
+          <p class="ln-step-desc">Open ⚙ Settings, choose an AI provider, add its API key, and select a model. Job-board keys are optional. Keys are encrypted with AES-GCM in your browser — never sent to our server.</p>
         </div>
         <div class="ln-step-connector">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="24" height="24">
@@ -150,7 +150,7 @@
             </svg>
           </div>
           <h3 class="ln-step-title">Search, tailor, export</h3>
-          <p class="ln-step-desc">Search 6 job boards in one shot. Tailor your resume to any job in seconds with Claude. Score for ATS, export as PDF or DOCX. Every API call goes browser → provider directly — your data never touches our server.</p>
+          <p class="ln-step-desc">Search 6 job boards in one shot. Tailor your resume with your chosen AI model. Score for ATS, export as PDF or DOCX. AI calls go browser → selected provider directly — your data never touches our server.</p>
         </div>
       </div>
     </div>
@@ -162,7 +162,7 @@
       <div class="ln-section-label">BYOK setup</div>
       <h2 class="ln-section-headline">The keys you'll <span class="ln-headline-accent">paste in Settings</span></h2>
       <p class="ln-setup-intro">
-        JobPilot never proxies your API calls. Bring your own provider keys — one required, the rest optional —
+        JobsPilot never proxies your AI calls. Bring your own provider keys — one required for AI, the rest optional —
         and the browser talks to each provider directly. All keys live encrypted in your browser's <code>localStorage</code>
         and (optionally) sync via your Google Drive <code>appDataFolder</code>. Skip any optional provider; the
         corresponding job board just won't appear in results.
@@ -192,8 +192,7 @@
           </div>
         </a>
 
-        <!-- Anthropic -->
-        <a class="ln-setup-card ln-setup-card--required" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">
+        <a class="ln-setup-card ln-setup-card--required" href="#setup">
           <div class="ln-setup-card-head">
             <div class="ln-setup-card-icon" style="background:linear-gradient(135deg,#D97757,#C2410C)">
               <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" width="18" height="18">
@@ -201,14 +200,14 @@
               </svg>
             </div>
             <div class="ln-setup-card-title">
-              Anthropic Claude
+              Your AI provider
               <span class="ln-setup-badge ln-setup-badge--required">Required for AI</span>
             </div>
           </div>
-          <div class="ln-setup-card-desc">Powers resume tailoring, ATS scoring, chat editor, and resume generation. Header sent: <code>x-api-key</code>.</div>
+          <div class="ln-setup-card-desc">Choose Anthropic, OpenAI, Google Gemini, OpenRouter, or a compatible custom endpoint in Settings. Use its API key and a text model for every AI feature.</div>
           <div class="ln-setup-card-foot">
-            <span class="ln-setup-cost">$5 free credit · ~$0.01/tailor</span>
-            <span class="ln-setup-link">Get API key →</span>
+            <span class="ln-setup-cost">Provider pricing applies</span>
+            <span class="ln-setup-link">Choose in Settings →</span>
           </div>
         </a>
 
@@ -294,7 +293,7 @@
       </div>
 
       <div class="ln-setup-foot">
-        <strong>No keys?</strong> Click <em>Try Demo</em> above to explore with shared rate-limited keys on the JobPilot demo instance.
+        <strong>No keys?</strong> Click <em>Try Demo</em> above to explore JobsPilot. AI features require your own provider key.
       </div>
     </div>
   </section>
@@ -313,7 +312,7 @@
           </div>
           <div>
             <div class="ln-extra-feat-title">Your data, your Drive</div>
-            <div class="ln-extra-feat-desc">Resumes are written straight to your private Google Drive <code>appDataFolder</code>. JobPilot's server has zero copy.</div>
+            <div class="ln-extra-feat-desc">Resumes are written straight to your private Google Drive <code>appDataFolder</code>. JobsPilot's server has zero copy.</div>
           </div>
         </div>
         <div class="ln-extra-feat">
@@ -416,7 +415,7 @@
       <div class="ln-testimonials">
         <div class="ln-testimonial">
           <div class="ln-testimonial-stars">★★★★★</div>
-          <p class="ln-testimonial-text">"JobPilot cut my job search time in half. The AI resume tailoring is absolutely incredible — I went from 5% callback rate to over 30%."</p>
+          <p class="ln-testimonial-text">"JobsPilot cut my job search time in half. The AI resume tailoring is absolutely incredible — I went from 5% callback rate to over 30%."</p>
           <div class="ln-testimonial-author">
             <div class="ln-testimonial-avatar" style="background:linear-gradient(135deg,#14b8a6,#0ea5e9)">AS</div>
             <div>
@@ -427,7 +426,7 @@
         </div>
         <div class="ln-testimonial">
           <div class="ln-testimonial-stars">★★★★★</div>
-          <p class="ln-testimonial-text">"I used to spend 3 hours per application rewriting my resume. With JobPilot it takes 10 minutes and the results are way better."</p>
+          <p class="ln-testimonial-text">"I used to spend 3 hours per application rewriting my resume. With JobsPilot it takes 10 minutes and the results are way better."</p>
           <div class="ln-testimonial-author">
             <div class="ln-testimonial-avatar" style="background:linear-gradient(135deg,#a78bfa,#ec4899)">MK</div>
             <div>
@@ -474,9 +473,9 @@
             <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
           </svg>
         </div>
-        <span class="ln-logo-text" style="font-size:15px">JobPilot</span>
+        <span class="ln-logo-text" style="font-size:15px">JobsPilot</span>
       </div>
-      <p class="ln-footer-copy">© <span id="ln-footer-year">2026</span> JobPilot · BYOK AI job copilot · <a href="https://github.com/vangipuraputarunsailesh/jobpilot" target="_blank" rel="noopener">Open source on GitHub</a></p>
+      <p class="ln-footer-copy">© <span id="ln-footer-year">2026</span> JobsPilot · BYOK AI job copilot · <a href="https://github.com/vangipuraputarunsailesh/jobpilot" target="_blank" rel="noopener">Open source on GitHub</a></p>
       <div class="ln-footer-links">
         <a href="#setup">Setup guide</a>
         <a href="#" onclick="event.preventDefault();openAuth()">Sign in</a>
@@ -489,7 +488,7 @@
 
 <!-- ── Auth overlay ─────────────────────────────────────────────────── -->
 <div class="auth-overlay" id="auth-overlay" style="display:none" onclick="overlayClickClose(event)">
-  <div class="auth-modal" role="dialog" aria-modal="true" aria-label="Sign in to JobPilot">
+  <div class="auth-modal" role="dialog" aria-modal="true" aria-label="Sign in to JobsPilot">
 
     <!-- Left panel -->
     <div class="auth-left">
@@ -499,7 +498,7 @@
             <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
           </svg>
         </div>
-        <span class="ln-logo-text">JobPilot</span>
+        <span class="ln-logo-text">JobsPilot</span>
       </div>
       <h2 class="auth-left-headline">Your AI<br><span>career co-pilot</span></h2>
       <p class="auth-left-sub">A BYOK app: you sign in with Google, paste your provider keys in Settings, and your data stays on your own Drive.</p>
@@ -510,7 +509,7 @@
         </li>
         <li>
           <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
-          AI calls go browser → Anthropic directly
+          AI calls go browser → selected provider directly
         </li>
         <li>
           <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
@@ -547,8 +546,8 @@
       </button>
 
       <div class="auth-right-header">
-        <h3 class="auth-right-title">Sign in to JobPilot</h3>
-        <p class="auth-right-sub">Continue with Google — then paste your Anthropic key in ⚙ Settings to start tailoring.</p>
+        <h3 class="auth-right-title">Sign in to JobsPilot</h3>
+        <p class="auth-right-sub">Continue with Google — then choose your AI provider, API key, and model in ⚙ Settings.</p>
       </div>
 
       <div id="auth-error" class="auth-error" style="display:none"></div>
@@ -582,9 +581,9 @@
         Try Demo — no sign-up required
       </button>
 
-      <p class="auth-terms">By continuing you let JobPilot store your resume
+      <p class="auth-terms">By continuing you let JobsPilot store your resume
         in a private, app-specific folder in your Google Drive
-        — JobPilot cannot see any of your other files.</p>
+        — JobsPilot cannot see any of your other files.</p>
     </div>
   </div>
 </div>
@@ -650,7 +649,7 @@ if (isLoginSessionValid()) {
 let _googleInitialized = false;
 let _gisTokenClient = null;
 
-// Scopes we request alongside identity. `drive.appdata` gives JobPilot a
+// Scopes we request alongside identity. `drive.appdata` gives JobsPilot a
 // hidden, sandboxed folder in the user's Drive (`appDataFolder`); `drive.file`
 // lets us read/write any file we explicitly create or that the user picks
 // via the Drive picker. We never request `drive` (full Drive) — the consent

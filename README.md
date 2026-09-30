@@ -1,4 +1,4 @@
-# JobPilot — AI-Powered Job Application Co-Pilot
+# JobsPilot — AI-Powered Job Application Co-Pilot
 
 > Search jobs across multiple US-focused boards, tailor your resume with AI, score it against ATS criteria, and apply — all from a static site you can host on GitHub Pages.
 
@@ -31,7 +31,7 @@
 
 ## What it is
 
-JobPilot is a fully **static, browser-only** job-search and resume-tailoring app. There is no backend server, no database, and no Python at runtime. The site is generated from Jinja-shaped templates into plain HTML/JS/CSS and served from GitHub Pages. A thin Cloudflare Worker exists only to proxy CORS-blocked job-board API calls — it stores nothing, logs no request bodies, and never sees your API keys at rest.
+JobsPilot is a fully **static, browser-only** job-search and resume-tailoring app. There is no backend server, no database, and no Python at runtime. The site is generated from Jinja-shaped templates into plain HTML/JS/CSS and served from GitHub Pages. A thin Cloudflare Worker exists only to proxy CORS-blocked job-board API calls — it stores nothing, logs no request bodies, and never sees your API keys at rest.
 
 Everything you create — resumes, BYOK API keys, search history — lives in your browser (Google Drive `appDataFolder` for resumes, `localStorage` AES-GCM vault for keys).
 
@@ -55,7 +55,7 @@ Everything you create — resumes, BYOK API keys, search history — lives in yo
 │                                                                          │
 │  ┌────────────────────┐  ┌────────────────────┐  ┌─────────────────────┐ │
 │  │ static/js/jobs.js  │  │  static/js/ai.js   │  │  static/js/         │ │
-│  │  (search + filter) │  │  (Claude prompts)  │  │  resume-parser.js   │ │
+│  │  (search + filter) │  │  (AI providers)    │  │  resume-parser.js   │ │
 │  │                    │  │                    │  │  + export.js        │ │
 │  │                    │  │                    │  │  (pdf.js / docx)    │ │
 │  └─────────┬──────────┘  └─────────┬──────────┘  └─────────────────────┘ │
@@ -73,7 +73,7 @@ Everything you create — resumes, BYOK API keys, search history — lives in yo
              │                       │
              ▼                       ▼
    ┌─────────────────────┐   ┌──────────────────────┐
-   │ Cloudflare Worker   │   │ api.anthropic.com    │
+   │ Cloudflare Worker   │   │ Selected AI provider │
    │ (proxy/worker.js)   │   │ /v1/messages         │
    │                     │   │ (direct call)        │
    │ Forwards to:        │   └──────────────────────┘
@@ -145,7 +145,7 @@ cd proxy
 wrangler deploy
 ```
 
-Copy the printed `https://jobpilot-proxy.<your-subdomain>.workers.dev` URL into JobPilot's **Settings → Job search → Cloudflare Worker URL** field. The URL is persisted in your in-browser BYOK vault as `cf_worker_url`.
+Copy the printed `https://jobpilot-proxy.<your-subdomain>.workers.dev` URL into JobsPilot's **Settings → Job search → Cloudflare Worker URL** field. The URL is persisted in your in-browser BYOK vault as `cf_worker_url`.
 
 Before going to production, tighten [proxy/wrangler.toml](proxy/wrangler.toml)'s `ALLOW_ORIGINS` to your own domain.
 
@@ -181,17 +181,39 @@ Where to add keys: **Settings → AI** and **Settings → Job search** in-app.
 
 | Provider | Header sent | Used for |
 |---|---|---|
-| Anthropic | `X-Anthropic-Key` (+ optional `X-Claude-Model`) | All AI features (ATS scoring, tailoring, chat-style edits, generation) |
+| Anthropic | `x-api-key` | All AI features using the selected Claude model |
+| OpenAI | `Authorization: Bearer <key>` | All AI features using a Chat Completions-compatible text model |
+| Google Gemini | `x-goog-api-key` | All AI features using a `generateContent`-compatible text model |
+| OpenRouter | `Authorization: Bearer <key>` | All AI features using a text-chat model from its catalog |
+| Custom (OpenAI-compatible) | `Authorization: Bearer <key>` | All AI features through a trusted HTTPS Chat Completions endpoint with browser CORS support |
 | JSearch (RapidAPI) | `X-RapidAPI-Key` | Aggregated LinkedIn / Indeed / Glassdoor / ZipRecruiter results |
 | Adzuna | `X-Adzuna-App-Id` + `X-Adzuna-App-Key` | Adzuna job search |
 | USAJobs | `X-USAJobs-Email` + `X-USAJobs-Key` | US Federal jobs |
 
 The Muse, Remotive, and Arbeitnow need no key.
 
+### Choosing an AI provider and model
+
+1. Open **Settings**, select an **AI provider**, and paste an API key issued by that provider.
+2. Click **Refresh models** to fetch its current model catalog. Saved built-in provider keys also refresh the list when Settings opens or you switch providers.
+3. Pick a model, or enter an exact **Model ID** for a new/private model or when discovery is unavailable.
+4. Click **Test model**, then **Save keys**. The test sends a small text prompt and may incur provider charges; it does not upload your resume.
+
+All AI features use the selected provider. There is no automatic fallback to another provider or key. Keys and model IDs are retained separately for each provider; Cancel discards unsaved edits. Existing Anthropic-only vaults keep their key and model, including the legacy default when no model was previously specified.
+
+Model discovery uses the providers' live APIs, including pagination for Anthropic and Gemini, rather than a release-specific model list. Known non-text models are excluded where possible. Catalogs do not guarantee account access or endpoint compatibility: use a text-generation model, test it, and review generated resumes and scores. Models requiring audio, image generation, tools, or a different API are not supported. API keys/billing are separate from consumer chat subscriptions.
+
+For a custom provider, enter its API base URL (for example `https://api.example.com/v1`), not the full `/chat/completions` URL. Discovery calls `/models`; manual IDs work if that endpoint is unavailable. Only use a provider you trust: its endpoint receives your custom key and AI inputs. Other providers' keys, job-board credentials, and Google tokens are not included. HTTPS and browser CORS support are required; JobsPilot does not add a server proxy to bypass CORS.
+
+Local AI usage is counted across providers. The old `claude_calls` counter migrates to `ai_calls` without overwriting an existing `ai_calls` value.
+
+Run the dependency-free regression suite with `node --test scripts\test-ai.cjs`.
+
 ---
 
 ## Branding
 
+- **Product name:** JobsPilot. Repository paths, deployed Worker names, and existing `jp_*` / `jobpilot-*` storage identifiers remain unchanged for compatibility.
 - **Brand mark:** [jobpilot/static/favicon.svg](jobpilot/static/favicon.svg) — `JP` wordmark on a teal gradient (`#14b8a6 → #0d9488`). Keep this if you replace it.
 - **Primary color:** `#14b8a6` (teal-500).
 - **Fonts:** system sans-serif stack (no webfont).
@@ -205,6 +227,8 @@ The Muse, Remotive, and Arbeitnow need no key.
 |---|---|---|
 | Landing page shows only "Try Demo" — no Google button | `GOOGLE_CLIENT_ID` was empty at build time | Rebuild with the secret set; for CI ensure the repo secret exists |
 | "Cloudflare Worker URL not set" toast on job search | No `cf_worker_url` in BYOK vault | Deploy the Worker (see above), paste its URL into **Settings → Job search** |
-| AI buttons surface "AI requires an Anthropic API key" | No `X-Anthropic-Key` in BYOK vault | Add your key in **Settings → AI** |
+| AI buttons ask for a provider key | The selected provider has no saved key | Choose a provider, add its own API key and model, then save in **Settings** |
+| Refresh models fails | Invalid key, restricted catalog, network failure, or CORS | Check the key and endpoint; enter a model ID manually if the provider does not expose a catalog |
+| Test model fails | Model access, billing, endpoint compatibility, output limit, or CORS | Follow the status message; try a supported text model. Chat subscriptions are not API credits |
 | Job search returns nothing for a US city | The provider returned non-US results that were filtered out | Try `United States` as the location, or broaden the title |
 | PDF/DOCX export looks different from the in-app preview | Browser-side rendering uses jsPDF / docx.js — there is no server WeasyPrint path on the static deploy | Expected — visual drift vs. legacy server renders is accepted |
